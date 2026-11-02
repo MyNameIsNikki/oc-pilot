@@ -31,7 +31,7 @@ Agents are good at producing code and bad at reviewing their own work. A normal 
 From GitHub, pinned to a release tag (works before the first npm release):
 
 ```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.1.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.2.tar.gz
 ```
 
 From npm, once published:
@@ -208,7 +208,7 @@ oc-pilot setup --client claude --local --print
 
 # Remote HTTP server with a bearer token
 oc-pilot setup --client claude --local \
-  --http https://oc-pilot.example.com/mcp --token "$OC_PILOT_TOKEN"
+  --http https://oc-pilot.example.com/mcp --token "$OC_PILOT_MCP_TOKEN"
 ```
 
 | Option | Purpose |
@@ -222,9 +222,11 @@ oc-pilot setup --client claude --local \
 | `--print` | Print the config instead of writing it |
 | `--json` | JSON plan for automation |
 | `--http <url>` | Configure a remote Streamable HTTP endpoint |
-| `--token <token>` | Bearer token for the remote endpoint |
+| `--token <value>` | Enable bearer auth; the client reads the secret from `OC_PILOT_MCP_TOKEN` |
 | `--cwd <dir>` | Project directory stored in the server args |
 | `--force` | Replace an existing `oc-pilot` entry |
+
+`setup` never writes the bearer token into a client config. It writes an `OC_PILOT_MCP_TOKEN` reference; export the secret in the environment that launches the client.
 
 `setup` writes only MCP client config. It does not install packages or change your source.
 
@@ -370,7 +372,7 @@ Start the server manually with an explicit project directory:
 ```bash
 oc-pilot-mcp --cwd /absolute/path/to/project
 # after the npm release, pinned for reproducibility:
-npx -y oc-pilot@0.4.1 mcp --cwd /absolute/path/to/project
+npx -y oc-pilot@0.4.2 mcp --cwd /absolute/path/to/project
 ```
 
 The `diff` and `log` tool arguments are text, not file paths. `paths` and `files` are project-relative and cannot escape the project directory. `context` is literal text, not an `@file` reference. `base` must be a git ref. `lang`, `fail_on`, `repo_context`, and `no_secret_scan` are available where the corresponding CLI command supports them.
@@ -535,7 +537,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.1.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.2.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

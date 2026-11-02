@@ -22,7 +22,7 @@ provider configured in OpenCode.
 
 ```sh
 # Works now, before the first npm release (pin the tag):
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.1.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.2.tar.gz
 oc-pilot --version
 oc-pilot mcp --version
 ```
@@ -48,6 +48,8 @@ oc-pilot setup --client cursor --local --print
 
 `setup` preserves existing servers and unrelated settings. Use `--http` and
 `--token` to point a client at a remote server instead of a local stdio process.
+The token itself is never written to the config: the generated entry references
+`OC_PILOT_MCP_TOKEN`, which must be exported in the client's environment.
 
 ## MCP tools
 
@@ -277,8 +279,7 @@ local server to `opencode.json`:
     "servers": {
       "oc-pilot": {
         "type": "local",
-        "command": ["oc-pilot-mcp", "--cwd", "/absolute/path/to/project"],
-        "enabled": true
+        "command": ["oc-pilot-mcp", "--cwd", "/absolute/path/to/project"]
       }
     }
   }
@@ -302,7 +303,7 @@ server. Add it to `~/.dsh/profiles/web/cordis.patch.yml`:
         serverName: oc_pilot
         transport: stdio
         command: npx
-        args: ['-y', 'oc-pilot@0.4.1', 'mcp', '--cwd', '/absolute/path/to/project']
+        args: ['-y', 'oc-pilot@0.4.2', 'mcp', '--cwd', '/absolute/path/to/project']
         toolCallTimeoutMs: 300000
 ```
 

@@ -23,7 +23,7 @@ oc-pilot scan            # секреты в diff без вызова модел
 Из GitHub, с фиксацией на теге релиза (работает до первого релиза в npm):
 
 ```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.1.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.2.tar.gz
 ```
 
 Из npm, после публикации:
@@ -198,10 +198,10 @@ oc-pilot setup --client opencode --client cursor --local
 oc-pilot setup --client codex --global
 oc-pilot setup --client claude --local --print
 oc-pilot setup --client claude --local \
-  --http https://oc-pilot.example.com/mcp --token "$OC_PILOT_TOKEN"
+  --http https://oc-pilot.example.com/mcp --token "$OC_PILOT_MCP_TOKEN"
 ```
 
-Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`. Опции: `--all`, `--client` (повторяемый), `--global` (иначе проект), `--local` (абсолютный путь текущей установки), `--npx` (команда `npx` с закреплённой версией), `--allow-write`, `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты.
+Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`. Опции: `--all`, `--client` (повторяемый), `--global` (иначе проект), `--local` (абсолютный путь текущей установки), `--npx` (команда `npx` с закреплённой версией), `--allow-write`, `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты. Bearer-токен не записывается в конфиг: клиент читает его из `OC_PILOT_MCP_TOKEN`.
 
 ### `init`
 
@@ -318,7 +318,7 @@ oc-pilot setup --client cursor --global
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # после релиза в npm, версия зафиксирована:
-npx -y oc-pilot@0.4.1 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.4.2 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):

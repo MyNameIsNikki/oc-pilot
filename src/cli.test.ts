@@ -544,6 +544,56 @@ test("fix rejects a patch that touches files outside the diff", () => {
   }
 });
 
+test("fix allows a patch that only removes a secret", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-fix-secret-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "file.txt"), `token = "${AWS_KEY}"\na\n`, "utf8");
+    spawnSync("git", ["add", "file.txt"], { cwd: dir });
+    spawnSync(
+      "git",
+      ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"],
+      { cwd: dir },
+    );
+
+    const diff = [
+      "diff --git a/file.txt b/file.txt",
+      "--- a/file.txt",
+      "+++ b/file.txt",
+      "@@ -2 +2 @@",
+      "-a",
+      "+b",
+      "",
+    ].join("\n");
+    const patch = [
+      "diff --git a/file.txt b/file.txt",
+      "--- a/file.txt",
+      "+++ b/file.txt",
+      "@@ -1,2 +1 @@",
+      `-token = "${AWS_KEY}"`,
+      "-a",
+      "+b",
+      "",
+    ].join("\n");
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, diff);
+
+    const fake = installFakeOpenCode(dir);
+    const result = runCli(
+      ["fix", "--diff", diffPath, "--cwd", dir, "--json"],
+      dir,
+      { ...fake, FAKE_PATCH_TEXT: patch },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as { applied: boolean; patch: string };
+    assert.equal(payload.applied, false);
+    assert.match(payload.patch, /AKIA/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("unknown commands return a usage error", () => {
   const result = runCli(["nope"]);
   assert.equal(result.status, 2);

@@ -8,7 +8,7 @@ import { describeDiffSource, loadDiff } from "../core/diff-source.js";
 import { detectProjectType, detectTestCommand } from "../core/project.js";
 import { parseFindings } from "../core/findings.js";
 import { executeRecipeDetailed, githubAnnotations } from "../core/run.js";
-import { scanText } from "../core/secrets.js";
+import { scanDiff } from "../core/secrets.js";
 
 const OPTIONS: OptionSpec = withCommon({
   staged: { type: "boolean" },
@@ -168,7 +168,7 @@ export async function runFix(argv: string[]): Promise<number> {
     }
 
     if (!asBoolean(values, "no-secret-scan")) {
-      const secretScan = scanText(patch, "fix.patch");
+      const secretScan = scanDiff(patch);
       if (secretScan.findings.some((finding) => finding.severity === "critical")) {
         log.warn("Патч содержит потенциальный секрет. Применение остановлено.");
         return 1;

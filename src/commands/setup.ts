@@ -60,7 +60,7 @@ Options:
       --allow-write          Allow the agent to apply patches and run tests
       --server-command <cmd> Override the MCP command, e.g. oc-pilot-mcp
       --http <url>           Use a remote Streamable HTTP MCP endpoint
-      --token <token>        Bearer token for --http (or OC_PILOT_MCP_TOKEN)
+      --token <value>        Enable bearer auth via OC_PILOT_MCP_TOKEN (value is not stored)
       --force                Back up and replace an invalid JSON config
       --json                 Machine-readable result
   -h, --help                 Show this help
@@ -80,7 +80,7 @@ interface LocalEntry {
 
 interface RemoteEntry {
   url: string;
-  headers?: Record<string, string>;
+  auth: boolean;
 }
 
 interface ClientPlan {
@@ -195,26 +195,30 @@ function localEntry(
 }
 
 function remoteEntry(options: { http: string; token?: string }): RemoteEntry {
-  return options.token
-    ? { url: options.http, headers: { Authorization: `Bearer ${options.token}` } }
-    : { url: options.http };
+  return { url: options.http, auth: Boolean(options.token) };
 }
 
 function localConfig(id: ClientId, entry: LocalEntry): JsonObject {
   if (id === "opencode") {
-    return { type: "local", command: [entry.command, ...entry.args], enabled: true };
+    return { type: "local", command: [entry.command, ...entry.args] };
   }
   return { command: entry.command, args: entry.args };
 }
 
 function remoteConfig(id: ClientId, entry: RemoteEntry): JsonObject {
+  const headers = entry.auth
+    ? {
+        Authorization:
+          id === "opencode" ? "Bearer {env:OC_PILOT_MCP_TOKEN}" : "Bearer ${OC_PILOT_MCP_TOKEN}",
+      }
+    : undefined;
   if (id === "opencode") {
-    return { type: "remote", url: entry.url, enabled: true, ...(entry.headers ? { headers: entry.headers } : {}) };
+    return { type: "remote", url: entry.url, ...(headers ? { headers } : {}) };
   }
   if (id === "claude" || id === "vscode") {
-    return { type: "http", url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
+    return { type: "http", url: entry.url, ...(headers ? { headers } : {}) };
   }
-  return { url: entry.url, ...(entry.headers ? { headers: entry.headers } : {}) };
+  return { url: entry.url, ...(headers ? { headers } : {}) };
 }
 
 function applyJson(id: ClientId, root: JsonObject, entry: JsonObject): void {
@@ -246,7 +250,8 @@ function tomlString(value: string): string {
 
 function codexBlock(entry: LocalEntry | RemoteEntry): string {
   if ("url" in entry) {
-    return `[mcp_servers.oc_pilot]\nurl = ${tomlString(entry.url)}\nbearer_token_env_var = "OC_PILOT_MCP_TOKEN"\n`;
+    const auth = entry.auth ? `\nbearer_token_env_var = "OC_PILOT_MCP_TOKEN"` : "";
+    return `[mcp_servers.oc_pilot]\nurl = ${tomlString(entry.url)}${auth}\n`;
   }
   const args = entry.args.map(tomlString).join(", ");
   return `[mcp_servers.oc_pilot]\ncommand = ${tomlString(entry.command)}\nargs = [${args}]\n`;
@@ -354,6 +359,10 @@ export async function runSetup(argv: string[]): Promise<number> {
 
   const plans: ClientPlan[] = [];
   for (const id of ids) plans.push(planClient(id, cwd, options));
+
+  if (http && token) {
+    log.info("The token is referenced as OC_PILOT_MCP_TOKEN; export it in the client environment.");
+  }
 
   if (asBoolean(values, "print")) {
     if (asBoolean(values, "json")) {

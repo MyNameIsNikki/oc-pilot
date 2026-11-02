@@ -118,11 +118,10 @@ test("setup writes OpenCode and Cursor project configs", () => {
     assert.equal(result.status, 0, result.stderr);
 
     const opencode = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf8")) as {
-      mcp: { servers: Record<string, { type: string; command: string[]; enabled: boolean }> };
+      mcp: { servers: Record<string, { type: string; command: string[] }> };
     };
     const server = opencode.mcp.servers["oc-pilot"];
     assert.equal(server?.type, "local");
-    assert.equal(server?.enabled, true);
     assert.match(server?.command[0] ?? "", /node(\.exe)?$/i);
 
     const cursor = JSON.parse(readFileSync(join(dir, ".cursor", "mcp.json"), "utf8")) as {
@@ -158,7 +157,8 @@ test("setup --http builds remote config with bearer auth", () => {
     const entry = payload.clients[0]?.config.mcpServers["oc-pilot"];
     assert.equal(entry?.type, "http");
     assert.equal(entry?.url, "https://example.com/mcp");
-    assert.equal(entry?.headers.Authorization, "Bearer secret-token");
+    assert.equal(entry?.headers.Authorization, "Bearer ${OC_PILOT_MCP_TOKEN}");
+    assert.doesNotMatch(result.stdout, /secret-token/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

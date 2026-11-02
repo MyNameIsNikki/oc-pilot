@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.2
+
+- `fix` scans only added lines in the proposed patch. A patch that removes a leaked secret is no longer rejected as if it added one.
+- `setup` no longer writes the unsupported `enabled` field into OpenCode MCP config; servers are enabled by default in OpenCode V2.
+- `setup --http --token` now writes an `OC_PILOT_MCP_TOKEN` reference instead of the secret itself, for every supported client.
+- User-journey verification: GitHub install, `scan`, real `review`, `test-fix`, `fix --apply` with tests, MCP stdio, Claude/Codex/OpenCode setup.
+- 101 теста; версия 0.4.2.
+
 ## 0.4.1
 
 - MCP-сервер теперь **read-only по умолчанию** и для stdio, и для HTTP: `fix` с `apply:true` и `test_fix`, запускающий новую команду, требуют явного `--allow-write`.
