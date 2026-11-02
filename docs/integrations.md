@@ -22,7 +22,7 @@ provider configured for the selected engine.
 
 ```sh
 # Works now, before the first npm release (pin the tag):
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.1.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.2.tar.gz
 oc-pilot --version
 oc-pilot mcp --version
 ```
@@ -368,7 +368,7 @@ server. Add it to `~/.dsh/profiles/web/cordis.patch.yml`:
         serverName: oc_pilot
         transport: stdio
         command: npx
-        args: ['-y', 'oc-pilot@0.5.1', 'mcp', '--cwd', '/absolute/path/to/project']
+        args: ['-y', 'oc-pilot@0.5.2', 'mcp', '--cwd', '/absolute/path/to/project']
         toolCallTimeoutMs: 300000
 ```
 
@@ -438,7 +438,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.5.1
+- uses: MyNameIsNikki/oc-pilot@v0.5.2
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets

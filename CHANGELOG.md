@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+- Patch release after the npm registry left `0.5.1` reserved but not published. No runtime code changes.
+- Published from the same commit/tag content with a fresh version so npm can publish normally.
+- 112 tests; версия 0.5.2.
+
 ## 0.5.1
 
 - `setup` теперь поддерживает **ZCode** (Z.ai): project `.zcode/config.json` и global `~/.zcode/cli/config.json`, ключ `mcp.servers`.

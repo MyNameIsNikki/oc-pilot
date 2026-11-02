@@ -23,7 +23,7 @@ oc-pilot scan            # секреты в diff без вызова модел
 Из GitHub, с фиксацией на теге релиза (работает до первого релиза в npm):
 
 ```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.1.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.2.tar.gz
 ```
 
 Из npm, после публикации:
@@ -363,7 +363,7 @@ ZCode импортирует серверы из Claude Code, Codex, OpenCode и
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # после релиза в npm, версия зафиксирована:
-npx -y oc-pilot@0.5.1 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.5.2 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -424,7 +424,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.5.1
+      - uses: MyNameIsNikki/oc-pilot@v0.5.2
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
