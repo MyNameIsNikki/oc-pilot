@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { runCustom } from "./commands/custom.js";
+import { runDoctor } from "./commands/doctor.js";
 import { runDocgen } from "./commands/docgen.js";
 import { runFix } from "./commands/fix.js";
 import { runInit } from "./commands/init.js";
@@ -23,11 +24,12 @@ const HANDLERS: Record<string, Handler> = {
   custom: runCustom,
   scan: runScan,
   setup: runSetup,
+  doctor: runDoctor,
   mcp: runMcp,
   init: runInit,
 };
 
-const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов и документация через OpenCode
+const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов и документация для агентов
 
 Использование:
   oc-pilot <команда> [опции]
@@ -40,6 +42,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   custom      Свободный запрос к oc-pilot
   scan        Офлайн-поиск секретов в diff (без LLM)
   setup       Установить MCP-сервер в Claude Code, Cursor, OpenCode, Codex, Gemini, DeepSeek Harness, VS Code
+  doctor      Проверить установку, движок, ключи, git и MCP-конфиги
   mcp         Запустить MCP-сервер (stdio или --http)
   init        Создать .oc-pilot.json
   version     Показать версию
@@ -59,6 +62,8 @@ ${COMMON_HELP}
   oc-pilot custom "Найди гонки данных" --git-diff
   oc-pilot setup --all
   oc-pilot setup --client claude --http https://example.com/mcp --token "$OC_PILOT_MCP_TOKEN"
+  oc-pilot doctor
+  oc-pilot review --engine openai --model deepseek-chat --base-url https://api.deepseek.com/v1
   oc-pilot mcp --cwd /path/to/project
 
 Коды возврата:

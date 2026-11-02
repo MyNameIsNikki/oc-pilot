@@ -116,6 +116,47 @@ test("review --dry-run composes the prompt without calling the model", () => {
   }
 });
 
+test("review --engine openai dry-run uses full-file context without OpenCode", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-"));
+  try {
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, fixtureDiff());
+    writeFileSync(join(dir, "wallet.go"), "package wallet\n\nfunc DeductBalance() {}\n");
+
+    const result = runCli([
+      "review",
+      "--diff",
+      diffPath,
+      "--cwd",
+      dir,
+      "--dry-run",
+      "--json",
+      "--engine",
+      "openai",
+      "--model",
+      "test-model",
+      "--base-url",
+      "https://api.example.com/v1",
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      engine: string;
+      baseUrl: string;
+      repoContext: boolean;
+      fileContext: number;
+      input: string;
+    };
+    assert.equal(payload.engine, "openai");
+    assert.equal(payload.baseUrl, "https://api.example.com/v1");
+    assert.equal(payload.repoContext, false);
+    assert.equal(payload.fileContext, 1);
+    assert.match(payload.input, /REPO_CONTEXT: disabled/);
+    assert.match(payload.input, /FULL_FILE_CONTEXT/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("review --dry-run includes project rules", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-"));
   try {
@@ -412,6 +453,7 @@ test("--help and version work", () => {
   assert.match(help.stdout, /oc-pilot/);
   assert.match(help.stdout, /scan/);
   assert.match(help.stdout, /mcp/);
+  assert.match(help.stdout, /doctor/);
 
   const mcpHelp = runCli(["mcp", "--help"]);
   assert.equal(mcpHelp.status, 0);
@@ -589,6 +631,36 @@ test("fix allows a patch that only removes a secret", () => {
     const payload = JSON.parse(result.stdout) as { applied: boolean; patch: string };
     assert.equal(payload.applied, false);
     assert.match(payload.patch, /AKIA/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports a local OpenAI-compatible setup", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-doctor-"));
+  try {
+    const result = runCli([
+      "doctor",
+      "--cwd",
+      dir,
+      "--json",
+      "--engine",
+      "openai",
+      "--model",
+      "test-model",
+      "--base-url",
+      "http://localhost:9/v1",
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout) as {
+      engine: string;
+      checks: Array<{ id: string; status: string }>;
+      summary: { error: number };
+    };
+    assert.equal(report.engine, "openai");
+    assert.equal(report.summary.error, 0);
+    assert.equal(report.checks.find((check) => check.id === "model")?.status, "ok");
+    assert.equal(report.checks.find((check) => check.id === "credentials")?.status, "ok");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

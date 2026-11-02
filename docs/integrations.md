@@ -11,18 +11,18 @@ There are two integration levels:
    stdout. Works anywhere with a terminal tool.
 
 The MCP server is local, stores no code, and sends data only to the model
-provider configured in OpenCode.
+provider configured for the selected engine.
 
 ## Requirements
 
 - Node.js 22+
-- OpenCode 2.x for the model-backed tools (`review`, `test_fix`, `docgen`,
-  `custom`). `scan` is fully offline.
+- One model engine: OpenCode 2.x, or any OpenAI-compatible API endpoint and key.
+  `scan` is fully offline.
 - The project to analyze is the server's working directory.
 
 ```sh
 # Works now, before the first npm release (pin the tag):
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.3.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.0.tar.gz
 oc-pilot --version
 oc-pilot mcp --version
 ```
@@ -38,13 +38,42 @@ node dist/mcp.js --cwd /absolute/path/to/project
 Use an **absolute** `--cwd`. MCP clients often start servers from `/` or from
 their own install directory, not from your repository.
 
-Most clients can be configured automatically:
+Most clients can be configured automatically. With no `--client`, `setup`
+detects installed clients from commands and config directories:
 
 ```sh
+oc-pilot setup
 oc-pilot setup --client claude --local
 oc-pilot setup --client codex --global
 oc-pilot setup --client cursor --local --print
 ```
+
+### Engine and credentials
+
+The default `opencode` engine gives the agent read-only `read`/`glob`/`grep`
+tools. The `openai` engine needs no OpenCode installation: it calls
+`/chat/completions` and automatically includes the full changed files.
+
+```sh
+# OpenCode
+oc-pilot review
+
+# OpenAI-compatible API
+export OC_PILOT_API_KEY="..."
+oc-pilot review --engine openai --model deepseek-chat \
+  --base-url https://api.deepseek.com/v1
+
+# Local Ollama, no key required for loopback
+oc-pilot review --engine openai --model qwen2.5-coder \
+  --base-url http://127.0.0.1:11434/v1
+```
+
+For an MCP client, export the key in the environment that launches the client,
+or set `engine`, `baseUrl`, and `apiKeyEnv` in `.oc-pilot.json`. Run
+`oc-pilot doctor` to verify the whole chain.
+
+The key is read from `OC_PILOT_API_KEY` or `OPENAI_API_KEY`; configure another
+variable with `--api-key-env`. Values are never printed in logs or errors.
 
 `setup` preserves existing servers and unrelated settings. Use `--http` and
 `--token` to point a client at a remote server instead of a local stdio process.
@@ -303,7 +332,7 @@ server. Add it to `~/.dsh/profiles/web/cordis.patch.yml`:
         serverName: oc_pilot
         transport: stdio
         command: npx
-        args: ['-y', 'oc-pilot@0.4.3', 'mcp', '--cwd', '/absolute/path/to/project']
+        args: ['-y', 'oc-pilot@0.5.0', 'mcp', '--cwd', '/absolute/path/to/project']
         toolCallTimeoutMs: 300000
 ```
 
@@ -365,6 +394,18 @@ In GitHub Actions, `--github` prints inline annotations instead of JSON:
 
 ```sh
 oc-pilot review --base origin/main --fail-on warning --github
+```
+
+The repository also ships a composite action, so the whole gate is:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- uses: MyNameIsNikki/oc-pilot@v0.5.0
+  with:
+    command: scan
+    args: --base origin/${{ github.base_ref }} --fail-on-secrets
 ```
 
 A tested patch loop is also available, but it writes to the checkout:

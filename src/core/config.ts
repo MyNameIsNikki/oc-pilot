@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import type { ConfigOverrides, FailOn, LoadedConfig, PromptLang, ResolvedConfig } from "../types.js";
+import type { ConfigOverrides, Engine, FailOn, LoadedConfig, PromptLang, ResolvedConfig } from "../types.js";
+import { parseBaseUrl, parseEngine } from "./engine.js";
 import { PilotError } from "./errors.js";
 import { parseFailOn } from "./findings.js";
 import { parsePromptLang } from "./lang.js";
@@ -9,6 +10,7 @@ import { log } from "./log.js";
 const CONFIG_FILENAME = ".oc-pilot.json";
 
 export const DEFAULT_CONFIG: ResolvedConfig = {
+  engine: "opencode",
   agent: "oc-pilot",
   maxDiffChars: 120_000,
   maxOutputChars: 40_000,
@@ -104,12 +106,31 @@ function optionalLang(value: unknown, name: string): PromptLang | undefined {
   return parsePromptLang(value, name);
 }
 
+function optionalEngine(value: unknown, name: string): Engine | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new PilotError(`Поле ${name} в конфиге должно быть строкой: opencode или openai`);
+  }
+  return parseEngine(value, name);
+}
+
+function optionalBaseUrl(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new PilotError(`Поле ${name} в конфиге должно быть непустым URL`);
+  }
+  return parseBaseUrl(value, name);
+}
+
 function fromFile(file: string): Partial<ResolvedConfig> {
   const data = readObject(file);
   const known = new Set([
     "$schema",
+    "engine",
     "model",
     "agent",
+    "baseUrl",
+    "apiKeyEnv",
     "maxDiffChars",
     "maxOutputChars",
     "timeoutSeconds",
@@ -127,8 +148,11 @@ function fromFile(file: string): Partial<ResolvedConfig> {
   }
 
   return {
+    engine: optionalEngine(data.engine, "engine"),
     model: optionalString(data.model, "model"),
     agent: optionalString(data.agent, "agent"),
+    baseUrl: optionalBaseUrl(data.baseUrl, "baseUrl"),
+    apiKeyEnv: optionalString(data.apiKeyEnv, "apiKeyEnv"),
     maxDiffChars: optionalPositiveInt(data.maxDiffChars, "maxDiffChars"),
     maxOutputChars: optionalPositiveInt(data.maxOutputChars, "maxOutputChars"),
     timeoutSeconds: optionalPositiveInt(data.timeoutSeconds, "timeoutSeconds"),
@@ -178,10 +202,25 @@ function envLang(): PromptLang | undefined {
   return parsePromptLang(raw, "OC_PILOT_LANG");
 }
 
+function envEngine(): Engine | undefined {
+  const raw = process.env.OC_PILOT_ENGINE;
+  if (raw === undefined || raw.trim() === "") return undefined;
+  return parseEngine(raw, "OC_PILOT_ENGINE");
+}
+
+function envBaseUrl(): string | undefined {
+  const raw = process.env.OC_PILOT_BASE_URL;
+  if (raw === undefined || raw.trim() === "") return undefined;
+  return parseBaseUrl(raw, "OC_PILOT_BASE_URL");
+}
+
 function fromEnv(): Partial<ResolvedConfig> {
   return {
+    engine: envEngine(),
     model: process.env.OC_PILOT_MODEL?.trim() || undefined,
     agent: process.env.OC_PILOT_AGENT?.trim() || undefined,
+    baseUrl: envBaseUrl(),
+    apiKeyEnv: process.env.OC_PILOT_API_KEY_ENV?.trim() || undefined,
     maxDiffChars: envPositiveInt("OC_PILOT_MAX_DIFF_CHARS"),
     maxOutputChars: envPositiveInt("OC_PILOT_MAX_OUTPUT_CHARS"),
     timeoutSeconds: envPositiveInt("OC_PILOT_TIMEOUT_SECONDS"),
@@ -236,6 +275,7 @@ export function loadConfig(options: LoadOptions): LoadedConfig {
 export function configTemplate(): string {
   return `${JSON.stringify(
     {
+      engine: DEFAULT_CONFIG.engine,
       agent: DEFAULT_CONFIG.agent,
       maxDiffChars: DEFAULT_CONFIG.maxDiffChars,
       maxOutputChars: DEFAULT_CONFIG.maxOutputChars,

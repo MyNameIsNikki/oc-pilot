@@ -4,7 +4,7 @@ Local AI code review, failing-test analysis, documentation generation, and secre
 
 `oc-pilot` is a small CLI and MCP server for developers who write code with AI agents. It reviews an uncommitted diff, follows the project beyond the changed lines, catches leaked credentials before they reach a model, explains a failing test, and returns findings as human-readable Markdown or machine-readable JSON.
 
-It works with OpenCode out of the box, and with any MCP-capable agent: Claude Code, OpenAI Codex CLI, Cursor CLI, Gemini CLI, and others.
+It works with OpenCode out of the box, with any OpenAI-compatible API (OpenAI, DeepSeek, Groq, OpenRouter, Ollama), and with any MCP-capable agent: Claude Code, OpenAI Codex CLI, Cursor CLI, Gemini CLI, and others.
 
 [Русская документация](README.ru.md)
 
@@ -23,7 +23,7 @@ Agents are good at producing code and bad at reviewing their own work. A normal 
 ## Requirements
 
 - Node.js 22 or newer.
-- OpenCode 2.x for the built-in OpenCode workflow.
+- OpenCode 2.x for the default repo-aware engine, **or** an OpenAI-compatible API endpoint and key.
 - Any MCP client for the server workflow.
 
 ## Install
@@ -31,7 +31,7 @@ Agents are good at producing code and bad at reviewing their own work. A normal 
 From GitHub, pinned to a release tag (works before the first npm release):
 
 ```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.3.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.0.tar.gz
 ```
 
 From npm, once published:
@@ -65,13 +65,20 @@ For development, run `node dist/cli.js` and `node dist/mcp.js` directly.
 ```bash
 cd /path/to/project
 
-# Configure your agent in one command (Claude Code, Codex, Cursor, Gemini, OpenCode)
-oc-pilot setup --client claude --local
+# Configure every MCP client detected on this machine
+oc-pilot setup
+
+# Check installation, engine, key, git and MCP configs
+oc-pilot doctor
 
 # Fast offline gate, then model-backed review
 oc-pilot scan
 oc-pilot review --staged --fail-on-secrets
 oc-pilot review --base main --fail-on warning --json
+
+# No OpenCode? Use any OpenAI-compatible endpoint
+export OC_PILOT_API_KEY="..."
+oc-pilot review --engine openai --model deepseek-chat
 
 # Explain a failing test and propose a tested patch
 oc-pilot test-fix
@@ -89,11 +96,36 @@ The default model prompt is English. Use `--lang ru` for Russian findings and do
 2. It scans added lines for secrets and replaces detected values with `[REDACTED:<kind>]`.
 3. It loads project rules from `.oc-pilot/rules.md` (optional).
 4. It builds an input with `PROJECT_TYPE`, `RECIPE`, repository context, rules, the secret report, and `GIT_DIFF`.
-5. A read-only OpenCode agent can use `read`, `glob`, and `grep` to inspect call sites and contracts. `edit`, `shell`, web access, and external directories are denied.
+5. With the OpenCode engine, a read-only agent can use `read`, `glob`, and `grep` to inspect call sites and contracts. `edit`, `shell`, web access, and external directories are denied.
 6. The model returns a fixed Markdown schema. `oc-pilot` parses severity and emits JSON on request.
 7. `--fail-on` and `--fail-on-secrets` turn findings into CI exit codes.
 
 With `--no-repo-context`, the agent gets no tools. `oc-pilot` instead includes full changed files (`FULL_FILE_CONTEXT`) within the context budget.
+
+## Engines
+
+Choose where the model call goes. `opencode` is the default and gives the best review because the agent can read call sites and contracts. `openai` removes the OpenCode dependency: it calls any OpenAI-compatible `/chat/completions` endpoint and automatically includes the full changed files as context.
+
+```bash
+# Default: repo-aware OpenCode agent
+oc-pilot review
+
+# Any OpenAI-compatible API, no OpenCode required
+export OC_PILOT_API_KEY="..."
+oc-pilot review --engine openai --model deepseek-chat \
+  --base-url https://api.deepseek.com/v1
+
+# Local model through Ollama (no key needed on loopback)
+oc-pilot review --engine openai --model qwen2.5-coder \
+  --base-url http://127.0.0.1:11434/v1
+```
+
+| Engine | Best for | Repository tools | Requires |
+| --- | --- | --- | --- |
+| `opencode` | Cross-file bugs and contract changes | Read, glob, grep (read-only) | OpenCode + provider auth |
+| `openai` | Zero extra CLIs, CI, DeepSeek/OpenRouter/local models | No; full changed files are included | API endpoint and key |
+
+The key is read from `OC_PILOT_API_KEY`, or `OPENAI_API_KEY` when the default variable name is used. Set `apiKeyEnv` to use another variable. Logs and errors never print the key. With the `openai` engine, `repoContext` is forced off and `FULL_FILE_CONTEXT` is added automatically.
 
 ## Commands
 
@@ -228,7 +260,19 @@ oc-pilot setup --client claude --local \
 
 `setup` never writes the bearer token into a client config. It writes an `OC_PILOT_MCP_TOKEN` reference; export the secret in the environment that launches the client.
 
-`setup` writes only MCP client config. It does not install packages or change your source.
+`setup` writes only MCP client config. It does not install packages or change your source. With no `--client`, it detects Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, and Windsurf from installed commands and config directories.
+
+### `doctor`
+
+One command that explains why a setup is not working:
+
+```bash
+oc-pilot doctor
+oc-pilot doctor --json
+oc-pilot doctor --engine openai --model deepseek-chat
+```
+
+It checks Node, the active engine, API credentials, git and repository state, the detected test command, project rules, and every MCP client config. Errors return exit code 1; `--strict` also fails on warnings. No secret values are printed.
 
 ### `init`
 
@@ -243,7 +287,10 @@ Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--for
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `-C, --cwd <dir>` | current directory | Project directory |
-| `-m, --model <id>` | OpenCode default | Model in `provider/model` form |
+| `-m, --model <id>` | engine default | Model id (`provider/model` for OpenCode) |
+| `--engine <name>` | `opencode` | `opencode` or `openai` (any compatible API) |
+| `--base-url <url>` | `https://api.openai.com/v1` | OpenAI-compatible endpoint |
+| `--api-key-env <name>` | `OC_PILOT_API_KEY` | Environment variable holding the API key |
 | `--agent <name>` | `oc-pilot` | Use another OpenCode agent |
 | `--lang <en\|ru>` | `en` | Model-facing prompt and output language |
 | `--no-repo-context` | off | Diff-only mode; no repository tools |
@@ -314,6 +361,7 @@ Markdown response:
   ],
   "secrets": [],
   "meta": {
+    "engine": "opencode",
     "agent": "oc-pilot",
     "model": "openai/gpt-5.5",
     "lang": "en",
@@ -338,6 +386,7 @@ Markdown response:
 
 ```json
 {
+  "engine": "opencode",
   "model": "anthropic/claude-sonnet-4-5",
   "agent": "oc-pilot",
   "lang": "en",
@@ -352,7 +401,9 @@ Markdown response:
 }
 ```
 
-Environment variables: `OC_PILOT_MODEL`, `OC_PILOT_AGENT`, `OC_PILOT_LANG`, `OC_PILOT_REPO_CONTEXT`, `OC_PILOT_FAIL_ON`, `OC_PILOT_RULES`, `OC_PILOT_MAX_DIFF_CHARS`, `OC_PILOT_MAX_OUTPUT_CHARS`, `OC_PILOT_MAX_FILE_CHARS`, `OC_PILOT_TIMEOUT_SECONDS`, `OC_PILOT_TEST_COMMAND`, `OC_PILOT_REDACT_SECRETS`.
+For the API engine, set `"engine": "openai"`, `"model": "deepseek-chat"`, `"baseUrl": "https://api.deepseek.com/v1"`, and optionally `"apiKeyEnv": "DEEPSEEK_API_KEY"` in the same file.
+
+Environment variables: `OC_PILOT_ENGINE`, `OC_PILOT_BASE_URL`, `OC_PILOT_API_KEY_ENV`, `OC_PILOT_MODEL`, `OC_PILOT_AGENT`, `OC_PILOT_LANG`, `OC_PILOT_REPO_CONTEXT`, `OC_PILOT_FAIL_ON`, `OC_PILOT_RULES`, `OC_PILOT_MAX_DIFF_CHARS`, `OC_PILOT_MAX_OUTPUT_CHARS`, `OC_PILOT_MAX_FILE_CHARS`, `OC_PILOT_TIMEOUT_SECONDS`, `OC_PILOT_TEST_COMMAND`, `OC_PILOT_REDACT_SECRETS`.
 
 ## MCP server
 
@@ -363,16 +414,19 @@ Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`. The server is re
 Configure a client automatically:
 
 ```bash
+oc-pilot setup                      # every detected client
 oc-pilot setup --client claude --local
 oc-pilot setup --client cursor --global
 ```
+
+The MCP server uses the configured engine. With `engine: "openai"` and `OC_PILOT_API_KEY` exported in the client's environment, no OpenCode installation is needed.
 
 Start the server manually with an explicit project directory:
 
 ```bash
 oc-pilot-mcp --cwd /absolute/path/to/project
 # after the npm release, pinned for reproducibility:
-npx -y oc-pilot@0.4.3 mcp --cwd /absolute/path/to/project
+npx -y oc-pilot@0.5.0 mcp --cwd /absolute/path/to/project
 ```
 
 The `diff` and `log` tool arguments are text, not file paths. `paths` and `files` are project-relative and cannot escape the project directory. `context` is literal text, not an `@file` reference. `base` must be a git ref. `lang`, `fail_on`, `repo_context`, and `no_secret_scan` are available where the corresponding CLI command supports them.
@@ -522,6 +576,28 @@ Or use `docker-compose up`; the compose file requires `OC_PILOT_MCP_TOKEN`. The 
 
 See [docs/integrations.md](docs/integrations.md) for protocols, result shapes, setup details, and shell-only fallbacks.
 
+## GitHub Action
+
+The repository ships a composite action, so a pull request gate can be three lines:
+
+```yaml
+name: review
+on: [pull_request]
+jobs:
+  oc-pilot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: MyNameIsNikki/oc-pilot@v0.5.0
+        with:
+          command: scan
+          args: --base origin/${{ github.base_ref }} --fail-on-secrets
+```
+
+Inputs: `command` (`scan`, `review`, `test-fix`, `docgen`, `custom`), `args`, `working-directory`, `annotations`, and `version` (install a published npm version instead of the action checkout). `scan` needs no API key. For a model-backed review, set the engine and provider environment variables on the step.
+
 ## CI
 
 ```yaml
@@ -537,7 +613,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.3.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
@@ -561,7 +637,7 @@ jobs:
 ## Limitations
 
 - The quality of the review depends on the selected model and the context budget.
-- A diff-only review cannot see every caller; use repo context for contract changes.
+- A diff-only review cannot see every caller; use the OpenCode engine or repo context for contract changes. The `openai` engine sees the full changed files, not arbitrary call sites.
 - Secret detection is pattern-based and can miss novel formats or produce false positives.
 - Auto-detection of test commands may need `--command` / `testCommand`.
 - Project-level OpenCode config is not loaded in isolated `--no-repo-context` mode.

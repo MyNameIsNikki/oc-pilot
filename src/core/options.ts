@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import type { CommandContext, ConfigOverrides } from "../types.js";
 import { loadConfig } from "./config.js";
+import { parseBaseUrl, parseEngine } from "./engine.js";
 import { PilotError } from "./errors.js";
 import { parsePromptLang } from "./lang.js";
 import { parseFailOn } from "./findings.js";
@@ -12,6 +13,9 @@ export type OptionSpec = Record<string, { type: "string" | "boolean"; short?: st
 
 export const COMMON_OPTIONS: OptionSpec = {
   cwd: { type: "string", short: "C" },
+  engine: { type: "string" },
+  "base-url": { type: "string" },
+  "api-key-env": { type: "string" },
   model: { type: "string", short: "m" },
   agent: { type: "string" },
   config: { type: "string" },
@@ -61,6 +65,9 @@ export function resolveContext(values: ArgsValues): CommandContext {
   }
 
   const overrides: ConfigOverrides = {};
+  const engine = asString(values, "engine");
+  const baseUrl = asString(values, "base-url");
+  const apiKeyEnv = asString(values, "api-key-env");
   const model = asString(values, "model");
   const agent = asString(values, "agent");
   const maxDiff = asString(values, "max-diff");
@@ -70,6 +77,9 @@ export function resolveContext(values: ArgsValues): CommandContext {
   const rules = asString(values, "rules");
   const lang = asString(values, "lang");
 
+  if (engine !== undefined) overrides.engine = parseEngine(engine);
+  if (baseUrl !== undefined) overrides.baseUrl = parseBaseUrl(baseUrl);
+  if (apiKeyEnv !== undefined) overrides.apiKeyEnv = apiKeyEnv;
   if (model !== undefined) overrides.model = model;
   if (agent !== undefined) overrides.agent = agent;
   if (maxDiff !== undefined) overrides.maxDiffChars = parseSize(maxDiff, "max-diff");
@@ -114,7 +124,10 @@ export function resolveContext(values: ArgsValues): CommandContext {
 }
 
 export const COMMON_HELP = `  -C, --cwd <dir>       Рабочая директория (по умолчанию текущая)
-  -m, --model <id>      Модель OpenCode в формате provider/model
+      --engine <name>   Движок: opencode (по умолчанию) или openai
+      --base-url <url>  Base URL OpenAI-совместимого API (engine=openai)
+      --api-key-env <n> Переменная с API-ключом (по умолчанию OC_PILOT_API_KEY)
+  -m, --model <id>      Модель: provider/model для OpenCode или имя модели для API
       --agent <name>    Агент OpenCode (по умолчанию oc-pilot: read-only контекст)
       --no-repo-context Запретить агенту читать файлы проекта (только diff)
       --lang <en|ru>    Язык ответа модели (по умолчанию en)

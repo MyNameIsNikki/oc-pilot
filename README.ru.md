@@ -2,7 +2,7 @@
 
 [English version](README.md)
 
-AI-ассистент разработчика для терминала: ревью git-diff, разбор падающих тестов, генерация документации и офлайн-поиск секретов. Работает поверх [OpenCode](https://opencode.ai) CLI, читает файлы проекта только для контекста и не меняет их. Доступен как MCP-сервер `oc-pilot-mcp` для Claude Code, Codex, Cursor, Gemini CLI, DeepSeek Harness и OpenCode.
+AI-ассистент разработчика для терминала: ревью git-diff, разбор падающих тестов, генерация документации и офлайн-поиск секретов. Работает поверх [OpenCode](https://opencode.ai) CLI или любого OpenAI-совместимого API, читает файлы проекта только для контекста и не меняет их. Доступен как MCP-сервер `oc-pilot-mcp` для Claude Code, Codex, Cursor, Gemini CLI, DeepSeek Harness и OpenCode.
 
 ```
 oc-pilot review          # баги, уязвимости, идиомы языка
@@ -14,8 +14,8 @@ oc-pilot scan            # секреты в diff без вызова модел
 ## Требования
 
 - Node.js **22+**
-- OpenCode CLI **2.x** в `PATH` (`opencode --version`)
-- Настроенная модель и авторизация OpenCode (`opencode auth list`)
+- OpenCode CLI **2.x** в `PATH` (`opencode --version`) для движка по умолчанию **или** OpenAI-совместимый endpoint и ключ
+- Настроенная модель и авторизация выбранного движка
 - Для MCP-режима — любой агент с поддержкой MCP (Claude Code, Codex, Cursor, Gemini CLI, DeepSeek Harness, OpenCode)
 
 ## Установка
@@ -23,7 +23,7 @@ oc-pilot scan            # секреты в diff без вызова модел
 Из GitHub, с фиксацией на теге релиза (работает до первого релиза в npm):
 
 ```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.3.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.0.tar.gz
 ```
 
 Из npm, после публикации:
@@ -54,13 +54,17 @@ oc-pilot --version
 ```bash
 cd /path/to/your-project
 
-oc-pilot init                 # создать .oc-pilot.json (необязательно)
-oc-pilot setup --client claude --local  # настроить MCP-клиент
+oc-pilot setup                # настроить все найденные MCP-клиенты
+oc-pilot doctor               # проверить установку, движок, ключи, git и MCP
 oc-pilot scan                 # офлайн-проверка секретов
 oc-pilot review               # diff HEAD (staged + unstaged)
 oc-pilot review --staged
 oc-pilot review --base main
 git diff | oc-pilot review --stdin
+
+# Без OpenCode:
+export OC_PILOT_API_KEY="..."
+oc-pilot review --engine openai --model deepseek-chat
 
 oc-pilot test-fix             # разобрать падающий тест
 oc-pilot fix --apply --command "npm test"  # патч + тесты
@@ -73,9 +77,9 @@ oc-pilot fix --apply --command "npm test"  # патч + тесты
 1. `oc-pilot` собирает diff: `git diff HEAD`, `--staged`, `--base <ref>`, файл или stdin.
 2. Определяет язык по изменённым файлам и манифестам проекта.
 3. Сканирует **добавленные строки** на секреты и заменяет найденные значения маркерами `[REDACTED:<kind>]`.
-4. Запускает `opencode run --format json` и передаёт входные данные через stdin (без ограничений длины командной строки Windows).
-5. Встроенный агент `oc-pilot` получает настоящий system prompt через `OPENCODE_CONFIG_CONTENT` и `--standalone`. В режиме по умолчанию ему разрешены только `read`, `glob`, `grep`; `edit`, `shell`, `webfetch`, `external_directory` и доступ к `.env`/ключам запрещены. Модель может проверить сигнатуры и вызовы в репозитории, но не изменить файлы.
-6. С флагом `--no-repo-context` создаётся изолированный временный проект с агентом без инструментов. В промпт дополнительно попадает `FULL_FILE_CONTEXT` — полные изменённые файлы (до 60 000 символов, секреты редактируются), поэтому модель видит контекст функции даже без доступа к репозиторию.
+4. Движок `opencode` (по умолчанию) запускает `opencode run --format json` и передаёт входные данные через stdin. Движок `openai` вызывает `/chat/completions` любого совместимого API и не требует OpenCode.
+5. Встроенный агент OpenCode `oc-pilot` получает настоящий system prompt через `OPENCODE_CONFIG_CONTENT` и `--standalone`. В режиме по умолчанию ему разрешены только `read`, `glob`, `grep`; `edit`, `shell`, `webfetch`, `external_directory` и доступ к `.env`/ключам запрещены. Модель может проверить сигнатуры и вызовы в репозитории, но не изменить файлы.
+6. С флагом `--no-repo-context` или движком `openai` создаётся изолированный контекст без инструментов. В промпт дополнительно попадает `FULL_FILE_CONTEXT` — полные изменённые файлы (до 60 000 символов, секреты редактируются), поэтому модель видит контекст функции без доступа к репозиторию.
 7. Ответ печатается в stdout как Markdown; диагностика и предупреждения идут в stderr. `--fail-on` превращает найденные замечания в exit code 3 для CI.
 
 Системные промпты лежат в [`prompts/oc-pilot.en.md`](prompts/oc-pilot.en.md), [`prompts/oc-pilot.ru.md`](prompts/oc-pilot.ru.md) и в [`src/core/prompt.ts`](src/core/prompt.ts). Готовая конфигурация агента для OpenCode — [`.opencode/agents/oc-pilot.md`](.opencode/agents/oc-pilot.md).
@@ -83,6 +87,26 @@ oc-pilot fix --apply --command "npm test"  # патч + тесты
 ### Свой агент
 
 По умолчанию используется встроенный `oc-pilot`. Флаг `--agent <name>` переключает на любой существующий агент OpenCode; в этом режиме системный промпт передаётся в сообщении пользователя, а права и инструменты определяются выбранным агентом. Это расширенный режим: провайдер может отфильтровать большой промпт как попытку инъекции, а `--no-repo-context` не сможет отозвать права чужого агента.
+
+## Движки
+
+`opencode` (по умолчанию) даёт лучшее ревью: агент читает вызовы и контракты в репозитории. `openai` убирает зависимость от OpenCode и работает с OpenAI, DeepSeek, Groq, OpenRouter, Ollama и любым совместимым endpoint; полные изменённые файлы передаются в промпт автоматически.
+
+```bash
+# OpenCode, read-only контекст репозитория
+oc-pilot review
+
+# Любой OpenAI-совместимый API
+export OC_PILOT_API_KEY="..."
+oc-pilot review --engine openai --model deepseek-chat \
+  --base-url https://api.deepseek.com/v1
+
+# Локальная модель через Ollama (ключ для localhost не нужен)
+oc-pilot review --engine openai --model qwen2.5-coder \
+  --base-url http://127.0.0.1:11434/v1
+```
+
+Ключ читается из `OC_PILOT_API_KEY` или `OPENAI_API_KEY`; переменную можно переименовать через `--api-key-env` / `apiKeyEnv`. Ключ не попадает в логи и ошибки.
 
 ## Команды
 
@@ -102,6 +126,9 @@ oc-pilot review [пути...] [опции]
 | `--include-untracked` | добавить новые файлы (до 200) |
 | `--context <text\|@file>` | дополнительный контекст |
 | `--lang <en\|ru>` | язык системного промпта и ответа (по умолчанию `en`) |
+| `--engine <opencode\|openai>` | движок модели (по умолчанию `opencode`) |
+| `--base-url <url>` | OpenAI-совместимый endpoint |
+| `--api-key-env <name>` | переменная с API-ключом (по умолчанию `OC_PILOT_API_KEY`) |
 | `--no-repo-context` | не давать агенту читать файлы (только diff) |
 | `--rules <path>` | файл правил проекта |
 | `--fail-on <level>` | exit 3 при замечаниях `critical`, `warning` или `style` |
@@ -193,6 +220,7 @@ git diff main...HEAD | oc-pilot scan --stdin --json
 Настраивает MCP-клиент на запуск `oc-pilot-mcp`, сохраняя чужие серверы и настройки. По умолчанию используется текущая установка (`node dist/mcp.js`); `--npx` записывает `npx -y oc-pilot@<version> mcp`, `--local` принудительно выбирает локальный путь. Сгенерированный сервер read-only; `--allow-write` разрешает агенту применять патчи и запускать тесты.
 
 ```bash
+oc-pilot setup                # все найденные клиенты
 oc-pilot setup --client claude --local
 oc-pilot setup --client opencode --client cursor --local
 oc-pilot setup --client codex --global
@@ -201,7 +229,19 @@ oc-pilot setup --client claude --local \
   --http https://oc-pilot.example.com/mcp --token "$OC_PILOT_MCP_TOKEN"
 ```
 
-Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`. Опции: `--all`, `--client` (повторяемый), `--global` (иначе проект), `--local` (абсолютный путь текущей установки), `--npx` (команда `npx` с закреплённой версией), `--allow-write`, `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты. Bearer-токен не записывается в конфиг: клиент читает его из `OC_PILOT_MCP_TOKEN`.
+Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`. Без `--client` `setup` сам находит установленные клиенты по командам и каталогам конфигов. Опции: `--all`, `--client` (повторяемый), `--global` (иначе проект), `--local` (абсолютный путь текущей установки), `--npx` (команда `npx` с закреплённой версией), `--allow-write`, `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты. Bearer-токен не записывается в конфиг: клиент читает его из `OC_PILOT_MCP_TOKEN`.
+
+### `doctor`
+
+Проверяет установку и объясняет, что мешает работе:
+
+```bash
+oc-pilot doctor
+oc-pilot doctor --json
+oc-pilot doctor --engine openai --model deepseek-chat
+```
+
+Проверки: Node, движок, ключ API, git и репозиторий, тестовая команда, правила проекта и конфиги MCP-клиентов. Ошибки дают exit 1; `--strict` также падает на предупреждениях. Секреты не печатаются.
 
 ### `init`
 
@@ -218,6 +258,7 @@ oc-pilot init --force
 
 ```json
 {
+  "engine": "opencode",
   "agent": "oc-pilot",
   "model": "anthropic/claude-sonnet-4-5",
   "maxDiffChars": 120000,
@@ -245,7 +286,9 @@ oc-pilot init --force
 | `failOn` | `none` | exit 3 при замечаниях: `critical`, `warning`, `style`, `none` |
 | `rules` | авто | путь к файлу правил (иначе `.oc-pilot/rules.md` вверх по дереву) |
 
-Переменные окружения: `OC_PILOT_MODEL`, `OC_PILOT_AGENT`, `OC_PILOT_MAX_DIFF_CHARS`, `OC_PILOT_MAX_OUTPUT_CHARS`, `OC_PILOT_MAX_FILE_CHARS`, `OC_PILOT_TIMEOUT_SECONDS`, `OC_PILOT_TEST_COMMAND`, `OC_PILOT_REDACT_SECRETS`, `OC_PILOT_REPO_CONTEXT`, `OC_PILOT_FAIL_ON`, `OC_PILOT_RULES`.
+Для API-движка: `"engine": "openai"`, `"model": "deepseek-chat"`, `"baseUrl": "https://api.deepseek.com/v1"` и при необходимости `"apiKeyEnv": "DEEPSEEK_API_KEY"`.
+
+Переменные окружения: `OC_PILOT_ENGINE`, `OC_PILOT_BASE_URL`, `OC_PILOT_API_KEY_ENV`, `OC_PILOT_MODEL`, `OC_PILOT_AGENT`, `OC_PILOT_MAX_DIFF_CHARS`, `OC_PILOT_MAX_OUTPUT_CHARS`, `OC_PILOT_MAX_FILE_CHARS`, `OC_PILOT_TIMEOUT_SECONDS`, `OC_PILOT_TEST_COMMAND`, `OC_PILOT_REDACT_SECRETS`, `OC_PILOT_REPO_CONTEXT`, `OC_PILOT_FAIL_ON`, `OC_PILOT_RULES`.
 
 ## Безопасность
 
@@ -318,7 +361,7 @@ oc-pilot setup --client cursor --global
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # после релиза в npm, версия зафиксирована:
-npx -y oc-pilot@0.4.3 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.5.0 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -364,6 +407,28 @@ docker run --rm -p 8787:8787 \
 Agent Skill для Claude Code/Codex/OpenCode лежит в [`skills/oc-pilot/SKILL.md`](skills/oc-pilot/SKILL.md): он объясняет агенту, когда вызывать `scan`, `review`, `test-fix`, `fix` и `docgen`.
 
 Конфигурации для Codex, Cursor, Gemini CLI и OpenCode, формат результата и CI-примеры — в [docs/integrations.md](docs/integrations.md). Инструменты принимают `diff` и `log` как текст, а `paths` — относительно `--cwd`.
+
+## GitHub Action
+
+В репозитории есть composite action: gate для pull request настраивается в три строки.
+
+```yaml
+name: review
+on: [pull_request]
+jobs:
+  oc-pilot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: MyNameIsNikki/oc-pilot@v0.5.0
+        with:
+          command: scan
+          args: --base origin/${{ github.base_ref }} --fail-on-secrets
+```
+
+Входы: `command` (`scan`, `review`, `test-fix`, `docgen`, `custom`), `args`, `working-directory`, `annotations`, `version`. `scan` не требует API-ключа; для review задайте движок и переменные провайдера на шаге.
 
 ## CI
 

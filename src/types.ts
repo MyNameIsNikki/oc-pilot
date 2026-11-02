@@ -2,6 +2,8 @@ export type Recipe = "review" | "test-fix" | "docgen" | "custom";
 
 export type PromptLang = "en" | "ru";
 
+export type Engine = "opencode" | "openai";
+
 export type SecretSeverity = "critical" | "warning";
 
 export type FindingSeverity = "critical" | "warning" | "style";
@@ -34,8 +36,14 @@ export interface DiffStats {
 }
 
 export interface ResolvedConfig {
+  /** How model calls are executed. */
+  engine: Engine;
   model?: string;
   agent: string;
+  /** OpenAI-compatible base URL, used when engine is "openai". */
+  baseUrl?: string;
+  /** Environment variable that stores the API key. */
+  apiKeyEnv?: string;
   maxDiffChars: number;
   maxOutputChars: number;
   timeoutSeconds: number;
@@ -53,7 +61,10 @@ export interface ResolvedConfig {
 }
 
 export interface ConfigOverrides {
+  engine?: Engine;
   model?: string;
+  baseUrl?: string;
+  apiKeyEnv?: string;
   agent?: string;
   maxDiffChars?: number;
   maxFileChars?: number;

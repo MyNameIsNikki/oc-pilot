@@ -1,0 +1,68 @@
+name: oc-pilot
+description: Local secret scan, AI code review and fail-on gate for pull requests
+author: MyNameIsNikki
+
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  command:
+    description: "Command to run: scan, review, test-fix, docgen or custom"
+    required: false
+    default: scan
+  args:
+    description: "Extra arguments passed to the command, e.g. --staged --fail-on-secrets"
+    required: false
+    default: ""
+  working-directory:
+    description: "Directory to analyze"
+    required: false
+    default: "."
+  version:
+    description: "Install this oc-pilot version from npm. Empty installs the action checkout."
+    required: false
+    default: ""
+  annotations:
+    description: "Emit GitHub annotations for review findings (adds --github)"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+
+    - name: Install oc-pilot
+      shell: bash
+      env:
+        OC_PILOT_ACTION_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [ -n "${OC_PILOT_ACTION_VERSION}" ]; then
+          npm install -g "oc-pilot@${OC_PILOT_ACTION_VERSION}"
+        else
+          npm install -g "${GITHUB_ACTION_PATH}"
+        fi
+
+    - name: Run analysis
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_ARGS: ${{ inputs.args }}
+        INPUT_ANNOTATIONS: ${{ inputs.annotations }}
+      run: |
+        set -euo pipefail
+        args=()
+        if [ -n "${INPUT_ARGS}" ]; then
+          # word splitting is intentional: args is a command-line fragment
+          read -r -a args <<< "${INPUT_ARGS}"
+        fi
+        if [ "${INPUT_ANNOTATIONS}" = "true" ] && [ "${INPUT_COMMAND}" = "review" ]; then
+          args+=(--github)
+        fi
+        oc-pilot "${INPUT_COMMAND}" "${args[@]}"

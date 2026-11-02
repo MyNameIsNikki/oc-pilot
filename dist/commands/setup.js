@@ -16,8 +16,55 @@ const CLIENT_NAMES = {
     vscode: "VS Code / Copilot",
     windsurf: "Windsurf",
 };
-const DEFAULT_CLIENTS = ["claude", "cursor", "opencode", "vscode"];
+const FALLBACK_CLIENTS = ["claude"];
 const ALL_CLIENTS = ["claude", "cursor", "opencode", "codex", "gemini", "vscode", "windsurf"];
+function findExecutable(name) {
+    const path = process.env.PATH;
+    if (!path)
+        return undefined;
+    const extensions = process.platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
+    for (const directory of path.split(process.platform === "win32" ? ";" : ":")) {
+        if (!directory)
+            continue;
+        for (const extension of extensions) {
+            const candidate = join(directory, `${name}${extension}`);
+            if (existsSync(candidate))
+                return candidate;
+        }
+    }
+    return undefined;
+}
+function detectClients(cwd) {
+    const home = homedir();
+    const found = [];
+    if (findExecutable("claude") || existsSync(join(home, ".claude")) || existsSync(join(home, ".claude.json")) || existsSync(join(cwd, ".mcp.json"))) {
+        found.push("claude");
+    }
+    if (findExecutable("cursor") ||
+        findExecutable("cursor-agent") ||
+        existsSync(join(home, ".cursor")) ||
+        existsSync(join(cwd, ".cursor"))) {
+        found.push("cursor");
+    }
+    if (findExecutable("opencode") ||
+        existsSync(join(cwd, "opencode.json")) ||
+        existsSync(join(cwd, ".opencode", "opencode.json")) ||
+        existsSync(join(process.env.XDG_CONFIG_HOME ?? join(home, ".config"), "opencode"))) {
+        found.push("opencode");
+    }
+    if (findExecutable("codex") || existsSync(join(home, ".codex")))
+        found.push("codex");
+    if (findExecutable("gemini") || existsSync(join(home, ".gemini")) || existsSync(join(cwd, ".gemini"))) {
+        found.push("gemini");
+    }
+    if (findExecutable("code") || existsSync(join(cwd, ".vscode")) || existsSync(join(home, ".vscode"))) {
+        found.push("vscode");
+    }
+    if (findExecutable("windsurf") || existsSync(join(home, ".codeium", "windsurf"))) {
+        found.push("windsurf");
+    }
+    return found;
+}
 const OPTIONS = {
     cwd: { type: "string", short: "C" },
     client: { type: "string", multiple: true },
@@ -43,7 +90,7 @@ configuration files. Existing settings and other MCP servers are preserved.
 Options:
   -C, --cwd <dir>            Project directory (default: current)
       --client <name>        claude, cursor, opencode, codex, gemini, vscode, windsurf
-                             Repeatable. Default: claude, cursor, opencode, vscode
+                             Repeatable. Default: auto-detect installed clients
       --all                  Configure every supported client
       --global               Write user-level config instead of project config
       --print                Print configs without writing files
@@ -271,18 +318,27 @@ export async function runSetup(argv) {
     if (!existsSync(cwd))
         throw new PilotError(`Directory not found: ${cwd}`, { exitCode: 2 });
     const requested = strings(values, "client");
-    const ids = (asBoolean(values, "all")
-        ? ALL_CLIENTS
-        : requested.length > 0
-            ? requested
-            : DEFAULT_CLIENTS);
-    for (const id of ids) {
+    for (const id of requested) {
         if (!(id in CLIENT_NAMES)) {
             throw new PilotError(`Unknown client: ${id}`, {
                 hint: `Use one of: ${ALL_CLIENTS.join(", ")}`,
                 exitCode: 2,
             });
         }
+    }
+    const detected = detectClients(cwd);
+    const ids = (asBoolean(values, "all")
+        ? ALL_CLIENTS
+        : requested.length > 0
+            ? requested
+            : detected.length > 0
+                ? detected
+                : FALLBACK_CLIENTS);
+    if (requested.length === 0 && !asBoolean(values, "all") && detected.length > 0) {
+        log.info(`Detected MCP clients: ${ids.map((id) => CLIENT_NAMES[id]).join(", ")}`);
+    }
+    if (requested.length === 0 && !asBoolean(values, "all") && detected.length === 0) {
+        log.warn(`No MCP clients detected; configuring ${CLIENT_NAMES[FALLBACK_CLIENTS[0]]}. Use --client or --all to choose.`);
     }
     const http = asString(values, "http");
     const token = asString(values, "token") ?? process.env.OC_PILOT_MCP_TOKEN;

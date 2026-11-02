@@ -3,6 +3,7 @@ import { truncateDiff, truncateText } from "./diff.js";
 import { buildFileContext } from "./file-context.js";
 import { describeFindings, countFindings, parseFindings, shouldFail } from "./findings.js";
 import { buildJsonAnalysis, validateAnalysis } from "./format.js";
+import { DEFAULT_API_BASE_URL, normalizeBaseUrl, runOpenAiCompatible } from "./engine.js";
 import { writeOutput } from "./io.js";
 import { log } from "./log.js";
 import { runOpenCode } from "./opencode.js";
@@ -90,6 +91,7 @@ function enforcePromptLimit(payload, redacted, repoContext, lang) {
 }
 export async function executeRecipeDetailed(payload, ctx, options = {}) {
     const scanSecrets = !payload.noSecretScan;
+    const effectiveRepoContext = ctx.config.repoContext && ctx.config.engine === "opencode";
     const rules = loadRules(ctx.cwd, ctx.config.rules);
     const prefixes = [];
     let secretFindings = payload.secretFindings;
@@ -106,7 +108,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
         if (rules.truncated)
             log.warn(`Правила проекта обрезаны до ${20_000} символов.`);
     }
-    if (!ctx.config.repoContext && payload.recipe !== "docgen" && payload.changedFiles.length > 0) {
+    if (!effectiveRepoContext && payload.recipe !== "docgen" && payload.changedFiles.length > 0) {
         const fileContext = buildFileContext(ctx.cwd, payload.changedFiles, {
             redact: scanSecrets && ctx.config.redactSecrets,
         });
@@ -123,7 +125,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
     const additionalContext = prefixes.length > 0 ? [...prefixes, payload.additionalContext].join("\n\n") : payload.additionalContext;
     const effective = { ...payload, additionalContext, secretFindings };
     const systemPrompt = systemPromptFor(ctx.config.lang);
-    const input = enforcePromptLimit(effective, ctx.config.redactSecrets, ctx.config.repoContext, ctx.config.lang);
+    const input = enforcePromptLimit(effective, ctx.config.redactSecrets, effectiveRepoContext, ctx.config.lang);
     const fullPrompt = `${systemPrompt}\n\n=== INPUT ===\n${input}\n=== END INPUT ===`;
     const criticalSecrets = payload.secretFindings.filter((finding) => finding.severity === "critical");
     printSecretWarnings(secretFindings, ctx.config.redactSecrets);
@@ -135,7 +137,10 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
                 projectType: payload.projectType,
                 filesChanged: payload.changedFiles,
                 secrets: secretFindings,
-                repoContext: ctx.config.repoContext,
+                engine: ctx.config.engine,
+                baseUrl: ctx.config.engine === "openai" ? normalizeBaseUrl(ctx.config.baseUrl) : null,
+                repoContext: effectiveRepoContext,
+                repoContextRequested: ctx.config.repoContext,
                 lang: ctx.config.lang,
                 failOn: ctx.config.failOn,
                 rules: rules?.path ?? null,
@@ -160,17 +165,31 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
         return { exitCode: 0 };
     }
     const modelLabel = ctx.config.model ?? "модель по умолчанию";
-    log.step(`OpenCode: ${modelLabel} · агент ${ctx.config.agent} · ${ctx.config.repoContext ? "read-only repo context" : "diff-only"}`);
-    const analysis = await runOpenCode({
-        systemPrompt,
-        input,
-        cwd: ctx.cwd,
-        model: ctx.config.model,
-        agent: ctx.config.agent,
-        timeoutMs: ctx.config.timeoutSeconds * 1000,
-        verbose: ctx.flags.verbose,
-        repoContext: ctx.config.repoContext,
-    });
+    if (ctx.config.engine === "openai") {
+        log.step(`API: ${modelLabel} · ${normalizeBaseUrl(ctx.config.baseUrl) || DEFAULT_API_BASE_URL} · diff-only context`);
+    }
+    else {
+        log.step(`OpenCode: ${modelLabel} · агент ${ctx.config.agent} · ${effectiveRepoContext ? "read-only repo context" : "diff-only"}`);
+    }
+    const analysis = ctx.config.engine === "openai"
+        ? await runOpenAiCompatible({
+            systemPrompt,
+            input,
+            baseUrl: ctx.config.baseUrl,
+            apiKeyEnv: ctx.config.apiKeyEnv,
+            model: ctx.config.model,
+            timeoutMs: ctx.config.timeoutSeconds * 1000,
+        })
+        : await runOpenCode({
+            systemPrompt,
+            input,
+            cwd: ctx.cwd,
+            model: ctx.config.model,
+            agent: ctx.config.agent,
+            timeoutMs: ctx.config.timeoutSeconds * 1000,
+            verbose: ctx.flags.verbose,
+            repoContext: effectiveRepoContext,
+        });
     const warnings = validateAnalysis(analysis.text, payload.recipe);
     for (const warning of warnings) {
         log.warn(`Ответ не соответствует OUTPUT SCHEMA: ${warning.message}`);
@@ -186,6 +205,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
     const meta = {
         recipe: payload.recipe,
         projectType: payload.projectType,
+        engine: ctx.config.engine,
         agent: ctx.config.agent,
         model: ctx.config.model ?? null,
         durationMs: analysis.durationMs,
@@ -194,7 +214,8 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
         cost: analysis.cost,
         formatValid: warnings.length === 0,
         formatWarnings: warnings.map((warning) => warning.message),
-        repoContext: ctx.config.repoContext,
+        repoContext: effectiveRepoContext,
+        repoContextRequested: ctx.config.repoContext,
         rules: rules?.path ?? null,
         fileContext: fileContextCount,
         findings: countFindings(analysisFindings),

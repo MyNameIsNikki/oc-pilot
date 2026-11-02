@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+- Добавлен движок `openai`: любой OpenAI-совместимый `/chat/completions` (OpenAI, DeepSeek, Groq, OpenRouter, Ollama). OpenCode больше не обязателен.
+- Новые флаги `--engine`, `--base-url`, `--api-key-env`; конфиг `engine`, `baseUrl`, `apiKeyEnv`; env `OC_PILOT_ENGINE`, `OC_PILOT_BASE_URL`, `OC_PILOT_API_KEY_ENV`. Ключ читается из `OC_PILOT_API_KEY`/`OPENAI_API_KEY` и не попадает в ошибки.
+- Для движка `openai` автоматически включается `FULL_FILE_CONTEXT`, а инструменты репозитория отключаются.
+- Добавлена команда `oc-pilot doctor`: проверяет Node, движок, ключ, git, тестовую команду, MCP-конфиги и правила; `--json`, exit 1 при ошибках, `--strict` для предупреждений.
+- `oc-pilot setup` без `--client` сам находит установленные Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code и Windsurf.
+- Добавлен composite GitHub Action `action.yml` для PR-гейта в три строки.
+- README EN/RU и `docs/integrations.md` обновлены: движки, doctor, авто-настройка, Action.
+- 111 тестов; версия 0.5.0.
+
 ## 0.4.3
 
 - Fixed remote MCP config shapes: Gemini uses `httpUrl`, Windsurf uses `serverUrl`.
