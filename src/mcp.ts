@@ -58,7 +58,7 @@ const TOOLS = [
     name: "test_fix",
     description:
       "Run the project's tests (or analyze captured test output) and explain the root cause with a minimal fix. Returns JSON.",
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     inputSchema: {
       type: "object",
       additionalProperties: false,
