@@ -194,8 +194,11 @@ oc-pilot review --github
 | `--command <cmd>` | Test command after applying; defaults to `testCommand` or auto-detection |
 | `--no-tests` | Apply without running tests |
 | `--keep-on-test-failure` | Do not revert a patch when tests fail |
+| `--no-snapshot` | Skip the safety snapshot before applying |
 
 `fix` never commits or pushes. The patch is reverted when tests fail unless `--keep-on-test-failure` is used. Unrelated working-tree changes are not reverted.
+
+Before applying, `fix` saves a snapshot under `.git/oc-pilot/snapshots/` (tracked changes as a binary patch plus copies of untracked files). Snapshots stay local: they are never committed or pushed. Restore the snapshot with `oc-pilot restore`; skip it with `--no-snapshot`.
 
 ### `docgen`
 
@@ -223,9 +226,36 @@ Offline secret scan. No model call.
 oc-pilot scan
 oc-pilot scan --staged --json
 git diff main...HEAD | oc-pilot scan --stdin
+
+# SARIF 2.1.0 for GitHub Code Scanning
+oc-pilot scan --staged --format sarif -o oc-pilot.sarif
 ```
 
-Exit 1 means critical secrets were found. `--strict` also fails on warnings.
+Exit 1 means critical secrets were found. `--strict` also fails on warnings. `--format sarif` writes a SARIF 2.1.0 report (rules `oc-pilot/secret`, `oc-pilot/critical`, `oc-pilot/warning`) that GitHub Code Scanning can upload; secret previews stay redacted.
+
+### `install-hook`
+
+Installs native git hooks without husky or any dependency. The managed `pre-commit` hook runs `oc-pilot scan --staged`; `--pre-push` also installs a `pre-push` hook that runs `oc-pilot review --fail-on critical --fail-on-secrets`.
+
+```bash
+oc-pilot install-hook
+oc-pilot install-hook --pre-push
+oc-pilot install-hook --uninstall
+```
+
+Hooks are opt-in and reversible. A hook that does not belong to oc-pilot is never overwritten unless `--force` is passed, and then the old file is kept as `<hook>.oc-pilot.bak`. Set `OC_PILOT_SKIP=1` to bypass the hooks for a single command. `core.hooksPath` and worktrees are respected.
+
+### `restore`
+
+Restores the working tree from the latest snapshot taken before `fix --apply`.
+
+```bash
+oc-pilot restore          # latest snapshot
+oc-pilot restore --list   # list saved snapshots
+oc-pilot restore <id>     # a specific snapshot
+```
+
+Snapshots live under `.git/oc-pilot/snapshots/` and never enter commits. Restore refuses to run when the branch head has moved since the snapshot, so committed work is never lost. The staged/unstaged split is not restored, and untracked files created after the snapshot are not deleted.
 
 ### `setup`
 
@@ -304,6 +334,7 @@ Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--for
 | `--max-file <size>` | `60000` | Per-file budget for docgen |
 | `--timeout <duration>` | `300` | Model/test timeout; supports `5m` |
 | `-o, --output <path>` | stdout | Write the result to a file |
+| `--format <f>` | `text` | Output format: `text`, `json`, `sarif` (`scan`, `review`) |
 | `--json` | off | Machine-readable output |
 | `--dry-run` | off | Print the prompt without calling a model |
 | `--strict` | off | Exit 3 when the output schema is invalid |
@@ -329,7 +360,21 @@ The scanner looks at added diff lines and common source-file patterns:
 - private key blocks;
 - OpenAI, Anthropic, Hugging Face, Groq, Google, GitHub, GitLab, npm, PyPI, Slack, Discord, Telegram, Stripe, SendGrid, DigitalOcean, and AWS keys;
 - Azure storage account keys;
-- JWTs, credentials in URLs, and sensitive `.env` assignments.
+- JWTs, credentials in URLs, and sensitive `.env` assignments;
+- high-entropy assignments (Shannon entropy over 4 bits for values of 20+ characters) reported as critical.
+
+To silence a false positive, add path globs to `.oc-pilot/ignore` (one per line, `#` starts a comment), or append the inline marker to the source line:
+
+```
+# .oc-pilot/ignore
+fixtures/**
+docs/examples/**
+
+# inline, any language
+const TOKEN = "sk-proj-..."; // oc-pilot:ignore-secret
+```
+
+Ignore rules are path- and line-scoped, apply to every scanning point (diff, rules, docgen, full-file context), and never disable scanning for the rest of the project.
 
 Detected values never appear in full in logs or JSON. The model receives `[REDACTED:<kind>]` and a masked preview. Review the provider's data policy before sending proprietary code.
 
@@ -596,7 +641,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.5.2
+      - uses: MyNameIsNikki/oc-pilot@v0.6.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -619,7 +664,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.2.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.6.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
@@ -627,6 +672,15 @@ jobs:
 ```
 
 `--github` turns parsed findings into inline `::error file=...,line=...` and `::warning` annotations. `scan` needs no API key and is suitable for a fast first gate. Add `--json` instead when a later step needs the structured report.
+
+To upload results to GitHub Code Scanning, write a SARIF report and upload it:
+
+```yaml
+      - run: oc-pilot scan --base origin/${{ github.base_ref }} --format sarif -o oc-pilot.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: oc-pilot.sarif
+```
 
 ## Security model
 
@@ -636,7 +690,8 @@ jobs:
 - Diff, rules, and full-file content are scanned before being sent to the model.
 - Project rules and code comments are data, not instructions. The system prompt explicitly treats injected instructions as untrusted.
 - The repo-context agent runs inside the analyzed project, so project-level OpenCode config and plugins may load. Use `--no-repo-context` for untrusted repositories.
-- Only `fix --apply` writes to the working tree. It rejects patches that touch files outside the reviewed diff, checks the patch with `git apply --check`, runs the configured tests, and reverts the patch when they fail. It never commits or pushes.
+- Only `fix --apply` writes to the working tree. It rejects patches that touch files outside the reviewed diff, checks the patch with `git apply --check`, saves a local snapshot under `.git/oc-pilot/snapshots/` before applying, runs the configured tests, and reverts the patch when they fail. It never commits or pushes.
+- `install-hook` writes only managed hook files inside the git hooks directory, marks them with a header comment, keeps backups when `--force` replaces a foreign hook, and is fully reversible with `--uninstall`.
 - The HTTP transport uses the MCP session header and an optional bearer token. Plain HTTP has no transport encryption; use a TLS proxy for remote deployments, and do not expose it without a token.
 - No file is modified by `review`, `test-fix`, `docgen`, or `custom`.
 

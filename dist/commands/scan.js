@@ -4,6 +4,7 @@ import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
 import { asBoolean } from "../core/parse.js";
 import { formatFindings, severityIcon } from "../core/secrets.js";
+import { buildSarif, secretFindingsToSarifResults } from "../core/sarif.js";
 const OPTIONS = withCommon({
     staged: { type: "boolean" },
     unstaged: { type: "boolean" },
@@ -26,6 +27,7 @@ const HELP = `Использование:
       --stdin               читать diff из stdin
       --include-untracked   включить новые файлы
       --no-fail             всегда exit 0
+      --format sarif       SARIF 2.1.0 для GitHub Code Scanning
 ${COMMON_HELP}
 
 Коды возврата:
@@ -36,6 +38,7 @@ ${COMMON_HELP}
 Примеры:
   oc-pilot scan
   oc-pilot scan --staged --strict
+  oc-pilot scan --staged --format sarif -o oc-pilot.sarif
   git diff main...HEAD | oc-pilot scan --stdin --json
 `;
 export async function runScan(argv) {
@@ -51,7 +54,13 @@ export async function runScan(argv) {
         return 0;
     }
     const findings = data.findings;
-    if (ctx.flags.json) {
+    if (ctx.flags.format === "sarif") {
+        const sarif = buildSarif(secretFindingsToSarifResults(findings));
+        const path = writeOutput(JSON.stringify(sarif, null, 2), ctx.flags.output);
+        if (path)
+            log.success(`SARIF записан: ${path}`);
+    }
+    else if (ctx.flags.json) {
         const payload = {
             findings,
             meta: {

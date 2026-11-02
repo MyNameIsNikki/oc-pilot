@@ -1,5 +1,81 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { PromptLang, SecretFinding, SecretScanResult, SecretSeverity } from "../types.js";
 import { parseGitPath } from "./diff.js";
+
+export interface SecretScanOptions {
+  /** Paths or simple glob patterns from .oc-pilot/ignore. */
+  ignore?: string[];
+  /** Enable the Shannon entropy check. Defaults to true. */
+  entropy?: boolean;
+}
+
+/** Reads .oc-pilot/ignore from the project root. Missing files are valid. */
+export function loadSecretIgnore(cwd: string): string[] {
+  const path = join(cwd, ".oc-pilot", "ignore");
+  if (!existsSync(path)) return [];
+  try {
+    return readFileSync(path, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+  } catch {
+    return [];
+  }
+}
+
+function globToRegExp(pattern: string): RegExp {
+  const normalized = pattern.replace(/\\/g, "/").replace(/^\.\//, "");
+  let source = "";
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index]!;
+    if (char === "*") {
+      if (normalized[index + 1] === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+    } else if (char === "?") {
+      source += "[^/]";
+    } else {
+      source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  return new RegExp(`^${source}$`);
+}
+
+function isIgnored(file: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+  const normalized = file.replace(/\\/g, "/").replace(/^\.\//, "");
+  for (const pattern of patterns) {
+    if (!pattern || pattern.startsWith("!")) continue;
+    const candidate = pattern.replace(/\\/g, "/");
+    if (candidate.endsWith("/")) {
+      if (normalized.startsWith(candidate) || normalized.includes(`/${candidate}`)) return true;
+      continue;
+    }
+    const regex = globToRegExp(candidate);
+    if (regex.test(normalized)) return true;
+    if (!candidate.includes("/") && regex.test(normalized.split("/").pop() ?? "")) return true;
+  }
+  return false;
+}
+
+function shannonEntropy(value: string): number {
+  if (value.length === 0) return 0;
+  const counts = new Map<string, number>();
+  for (const char of value) counts.set(char, (counts.get(char) ?? 0) + 1);
+  let entropy = 0;
+  for (const count of counts.values()) {
+    const probability = count / value.length;
+    entropy -= probability * Math.log2(probability);
+  }
+  return entropy;
+}
+
+const ENTROPY_ASSIGNMENT =
+  /(?:api[_-]?key|secret(?:[_-]?key)?|token|password|passwd|pwd|access[_-]?key|auth(?:orization)?|private[_-]?key)\s*[:=]\s*['"`]?([A-Za-z0-9+/=_-]{20,})['"`]?/gi;
 
 interface SecretRule {
   kind: string;
@@ -172,11 +248,22 @@ interface LineScan {
   isPrivateKeyFooter: boolean;
 }
 
-function scanLine(line: string, file: string, lineNumber: number, seen: Set<string>): LineScan {
+function scanLine(
+  line: string,
+  file: string,
+  lineNumber: number,
+  seen: Set<string>,
+  checkEntropy = true,
+): LineScan {
   const findings: InternalFinding[] = [];
   let redactedLine = line;
+  const criticalRaws = new Set<string>();
   const isPrivateKeyHeader = /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/.test(line);
   const isPrivateKeyFooter = /-----END (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/.test(line);
+
+  if (/oc-pilot:ignore-secret/i.test(line)) {
+    return { findings: [], redactedLine: line, isPrivateKeyHeader: false, isPrivateKeyFooter: false };
+  }
 
   for (const rule of RULES) {
     const pattern = new RegExp(rule.pattern.source, rule.pattern.flags);
@@ -196,9 +283,32 @@ function scanLine(line: string, file: string, lineNumber: number, seen: Set<stri
         preview: redactValue(raw, rule.kind),
         raw,
       });
+      if (rule.severity === "critical") criticalRaws.add(raw);
 
       if (redactedLine.includes(raw)) {
         redactedLine = redactedLine.split(raw).join(marker(rule.kind));
+      }
+    }
+  }
+
+  if (checkEntropy) {
+    const pattern = new RegExp(ENTROPY_ASSIGNMENT.source, ENTROPY_ASSIGNMENT.flags);
+    for (let match = pattern.exec(line); match; match = pattern.exec(line)) {
+      const raw = match[1];
+      if (!raw || raw.length < 20 || isPlaceholder(raw) || shannonEntropy(raw) < 4) continue;
+      // A precise critical rule already covers this value; entropy would only duplicate it.
+      if (criticalRaws.has(raw)) continue;
+      // Values caught by a generic (warning) rule are upgraded to critical here.
+      findings.push({
+        file,
+        line: lineNumber,
+        kind: "High-entropy secret",
+        severity: "critical",
+        preview: redactValue(raw, "High-entropy secret"),
+        raw,
+      });
+      if (redactedLine.includes(raw)) {
+        redactedLine = redactedLine.split(raw).join(marker("High-entropy secret"));
       }
     }
   }
@@ -210,7 +320,8 @@ function toPublic(findings: InternalFinding[]): SecretFinding[] {
   return findings.map(({ file, line, kind, severity, preview }) => ({ file, line, kind, severity, preview }));
 }
 
-export function scanText(text: string, file: string): SecretScanResult {
+export function scanText(text: string, file: string, options: SecretScanOptions = {}): SecretScanResult {
+  if (isIgnored(file, options.ignore ?? [])) return { findings: [], redacted: text };
   const findings: InternalFinding[] = [];
   const seen = new Set<string>();
   const output: string[] = [];
@@ -228,7 +339,7 @@ export function scanText(text: string, file: string): SecretScanResult {
       continue;
     }
 
-    const scanned = scanLine(line, file, lineNumber, seen);
+    const scanned = scanLine(line, file, lineNumber, seen, options.entropy !== false);
     if (scanned.isPrivateKeyHeader) {
       privateKeyBlock = !scanned.isPrivateKeyFooter;
       findings.push(...scanned.findings);
@@ -246,11 +357,12 @@ export function scanText(text: string, file: string): SecretScanResult {
  * Scans only added lines of a unified diff, preserves hunk line numbers, and
  * returns a copy of the diff with secrets replaced by markers.
  */
-export function scanDiff(diff: string): SecretScanResult {
+export function scanDiff(diff: string, options: SecretScanOptions = {}): SecretScanResult {
   const findings: InternalFinding[] = [];
   const seen = new Set<string>();
   const output: string[] = [];
   let file = "";
+  let ignored = false;
   let newLine = 0;
   let inHunk = false;
   let privateKeyBlock = false;
@@ -258,6 +370,7 @@ export function scanDiff(diff: string): SecretScanResult {
   for (const line of diff.split("\n")) {
     if (line.startsWith("diff --git ")) {
       file = "";
+      ignored = false;
       newLine = 0;
       inHunk = false;
       privateKeyBlock = false;
@@ -270,6 +383,7 @@ export function scanDiff(diff: string): SecretScanResult {
     if (!inHunk && line.startsWith("+++ ")) {
       const path = parseGitPath(line.slice(4));
       file = path === "/dev/null" ? "" : path;
+      ignored = isIgnored(file, options.ignore ?? []);
       output.push(line);
       continue;
     }
@@ -287,6 +401,12 @@ export function scanDiff(diff: string): SecretScanResult {
       continue;
     }
 
+    if (ignored) {
+      if (line.startsWith("+")) newLine += 1;
+      output.push(line);
+      continue;
+    }
+
     if (line.startsWith("+")) {
       const content = line.slice(1);
       if (privateKeyBlock) {
@@ -296,7 +416,7 @@ export function scanDiff(diff: string): SecretScanResult {
           privateKeyBlock = false;
         }
       } else {
-        const scanned = scanLine(content, file, newLine, seen);
+        const scanned = scanLine(content, file, newLine, seen, options.entropy !== false);
         findings.push(...scanned.findings);
         output.push(scanned.isPrivateKeyHeader ? `+${marker("Private key block")}` : `+${scanned.redactedLine}`);
         if (scanned.isPrivateKeyHeader && !scanned.isPrivateKeyFooter) privateKeyBlock = true;

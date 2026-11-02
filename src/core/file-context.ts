@@ -2,7 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { SecretFinding } from "../types.js";
 import { truncateText } from "./diff.js";
-import { scanText } from "./secrets.js";
+import { loadSecretIgnore, scanText } from "./secrets.js";
 
 export interface FileContextOptions {
   maxTotalChars?: number;
@@ -64,7 +64,9 @@ export function buildFileContext(
       continue;
     }
 
-    const scan = redact ? scanText(content, rel) : { findings: [], redacted: content };
+    const scan = redact
+      ? scanText(content, rel, { ignore: loadSecretIgnore(cwd) })
+      : { findings: [], redacted: content };
     findings.push(...scan.findings);
     const perFile = truncateText(scan.redacted, maxFile, { mode: "head" });
     const block = `--- FILE: ${rel} ---\n${perFile.text.trimEnd()}`;

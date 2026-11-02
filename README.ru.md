@@ -165,8 +165,11 @@ oc-pilot review --github                         # аннотации GitHub Act
 | `--command <cmd>` | тесты после применения; иначе `testCommand` или автоопределение |
 | `--no-tests` | применить без запуска тестов |
 | `--keep-on-test-failure` | не откатывать патч при падении тестов |
+| `--no-snapshot` | не создавать снимок перед применением |
 
 `fix` не делает commit и push. При падении тестов патч откатывается, если не указан `--keep-on-test-failure`. Чужие незакоммиченные изменения не откатываются.
+
+Перед применением `fix` сохраняет снимок рабочего дерева в `.git/oc-pilot/snapshots/` (tracked-изменения бинарным патчем + копии untracked-файлов). Снимки локальны: они не попадают в коммиты. Откат — `oc-pilot restore`; отключить снимок — `--no-snapshot`.
 
 ### `docgen`
 
@@ -211,9 +214,36 @@ oc-pilot custom "Объясни архитектуру" --context @ARCHITECTURE.
 oc-pilot scan
 oc-pilot scan --staged --strict
 git diff main...HEAD | oc-pilot scan --stdin --json
+
+# SARIF 2.1.0 для GitHub Code Scanning
+oc-pilot scan --staged --format sarif -o oc-pilot.sarif
 ```
 
-Код возврата `1` при critical-находках (или при любых с `--strict`), `0` — чисто, `--no-fail` — всегда `0`.
+Код возврата `1` при critical-находках (или при любых с `--strict`), `0` — чисто, `--no-fail` — всегда `0`. `--format sarif` пишет отчёт SARIF 2.1.0 (правила `oc-pilot/secret`, `oc-pilot/critical`, `oc-pilot/warning`), который загружается в GitHub Code Scanning; превью секретов остаются замаскированными.
+
+### `install-hook`
+
+Ставит нативные git-хуки без husky и зависимостей. Хук `pre-commit` запускает `oc-pilot scan --staged`; с `--pre-push` дополнительно ставится `pre-push` с `oc-pilot review --fail-on critical --fail-on-secrets`.
+
+```bash
+oc-pilot install-hook
+oc-pilot install-hook --pre-push
+oc-pilot install-hook --uninstall
+```
+
+Хуки опциональны и обратимы. Чужой хук не перезаписывается без `--force`, а при замене сохраняется как `<hook>.oc-pilot.bak`. Обход на одну команду — `OC_PILOT_SKIP=1`. Поддерживаются `core.hooksPath` и worktrees.
+
+### `restore`
+
+Восстанавливает рабочее дерево из последнего снимка, сделанного перед `fix --apply`.
+
+```bash
+oc-pilot restore          # последний снимок
+oc-pilot restore --list   # список снимков
+oc-pilot restore <id>     # конкретный снимок
+```
+
+Снимки хранятся в `.git/oc-pilot/snapshots/` и не попадают в коммиты. Восстановление отказывается работать, если HEAD ушёл вперёд после снимка, чтобы не потерять закоммиченную работу. Разделение staged/unstaged не восстанавливается; untracked-файлы, созданные после снимка, не удаляются.
 
 ### `setup`
 
@@ -293,6 +323,19 @@ oc-pilot init --force
 ## Безопасность
 
 - Сканер ищет AWS/GitHub/GitLab/Slack/Stripe/Google/OpenAI/Anthropic/npm/Hugging Face/Groq/Discord/SendGrid/DigitalOcean/PyPI/Azure-токены, Telegram-бот-токены, JWT, приватные ключи, credentials в URL, generic-присваивания (`password: "..."`) и `.env`-строки (`DB_PASSWORD=...`).
+- Присваивания длиной от 20 символов с энтропией Шеннона выше 4 бит помечаются как critical `High-entropy secret`.
+- Ложные срабатывания отключаются точечно: маски путей в `.oc-pilot/ignore` (по одной на строку, `#` — комментарий) или инлайн-маркер в конце строки кода:
+
+```
+# .oc-pilot/ignore
+fixtures/**
+docs/examples/**
+
+# инлайн, любой язык
+const TOKEN = "sk-proj-..."; // oc-pilot:ignore-secret
+```
+
+  Правила действуют по путям и строкам во всех точках сканирования (diff, правила, docgen, full-file контекст) и не отключают сканер для остального проекта.
 - Проверяются только **добавленные** строки diff; удалённые и контекстные строки не считаются утечкой.
 - Найденные значения заменяются маркерами до отправки модели. В отчётах показывается только маска вида `AKIA…MPLE`.
 - Блок приватного ключа редактируется целиком, включая тело.
@@ -424,7 +467,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.5.2
+      - uses: MyNameIsNikki/oc-pilot@v0.6.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -463,6 +506,16 @@ jobs:
 ```
 
 `--github` печатает inline-аннотации `::error file=...,line=...` и `::warning`. Для машинного отчёта используйте `--json --output review.json`. Провайдер и переменные авторизации зависят от вашей конфигурации OpenCode. В CI заранее выполните `opencode auth` или передайте ключ провайдера через секреты.
+
+Загрузка результатов в GitHub Code Scanning:
+
+```yaml
+      - run: node dist/cli.js scan --base "origin/${{ github.base_ref }}" --format sarif -o oc-pilot.sarif
+        working-directory: oc-pilot
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: oc-pilot.sarif
+```
 
 ## Ограничения
 

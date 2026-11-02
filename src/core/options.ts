@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
-import type { CommandContext, ConfigOverrides } from "../types.js";
+import type { CommandContext, ConfigOverrides, OutputFormat } from "../types.js";
 import { loadConfig } from "./config.js";
 import { parseBaseUrl, parseEngine } from "./engine.js";
 import { PilotError } from "./errors.js";
@@ -24,6 +24,7 @@ export const COMMON_OPTIONS: OptionSpec = {
   "max-diff": { type: "string" },
   "max-file": { type: "string" },
   output: { type: "string", short: "o" },
+  format: { type: "string" },
   "no-repo-context": { type: "boolean" },
   "fail-on": { type: "string" },
   rules: { type: "string" },
@@ -55,6 +56,15 @@ export function parseCommandArgs(args: string[], options: OptionSpec): ParsedCom
       exitCode: 2,
     });
   }
+}
+
+function parseOutputFormat(value: string): OutputFormat {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "text" || normalized === "json" || normalized === "sarif") return normalized;
+  throw new PilotError(`Некорректный --format: ${value}`, {
+    hint: "Допустимые значения: text, json, sarif",
+    exitCode: 2,
+  });
 }
 
 export function resolveContext(values: ArgsValues): CommandContext {
@@ -106,6 +116,8 @@ export function resolveContext(values: ArgsValues): CommandContext {
   });
 
   const outputRaw = asString(values, "output");
+  const formatRaw = asString(values, "format");
+  const format = formatRaw !== undefined ? parseOutputFormat(formatRaw) : undefined;
 
   return {
     cwd,
@@ -113,12 +125,13 @@ export function resolveContext(values: ArgsValues): CommandContext {
     configPath: loaded.path,
     flags: {
       cwd,
-      json: asBoolean(values, "json"),
+      json: format === "json" ? true : asBoolean(values, "json"),
       dryRun: asBoolean(values, "dry-run"),
       verbose: asBoolean(values, "verbose"),
       strict: asBoolean(values, "strict"),
       github: asBoolean(values, "github"),
       output: outputRaw ? resolve(cwd, outputRaw) : undefined,
+      format,
     },
   };
 }
@@ -138,6 +151,7 @@ export const COMMON_HELP = `  -C, --cwd <dir>       Рабочая директ�
       --max-file <size> Лимит одного файла для docgen (по умолчанию 60000)
       --fail-on <level> Exit 3 при замечаниях: critical, warning, style, none
   -o, --output <path>   Записать результат в файл
+      --format <f>      Формат вывода: text, json, sarif (scan/review)
       --json            Машиночитаемый JSON в stdout
       --dry-run         Показать промпт, не вызывать модель
       --strict          Код 3, если ответ не соответствует OUTPUT SCHEMA

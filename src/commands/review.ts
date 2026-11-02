@@ -3,7 +3,10 @@ import { describeDiffSource, loadDiff } from "../core/diff-source.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, type OptionSpec } from "../core/options.js";
 import { detectProjectType } from "../core/project.js";
-import { executeRecipe } from "../core/run.js";
+import { parseFindings } from "../core/findings.js";
+import { executeRecipe, executeRecipeDetailed } from "../core/run.js";
+import { analysisFindingsToSarifResults, buildSarif } from "../core/sarif.js";
+import { writeOutput } from "../core/io.js";
 
 const OPTIONS: OptionSpec = withCommon({
   staged: { type: "boolean" },
@@ -32,6 +35,7 @@ const HELP = `Использование:
       --context <text|@file> дополнительный контекст
       --no-secret-scan      не искать секреты и не редактировать diff
       --fail-on-secrets     exit 3 при critical-секретах
+      --format sarif        SARIF 2.1.0 вместо текста (GitHub Code Scanning)
 ${COMMON_HELP}
 
 Примеры:
@@ -40,6 +44,7 @@ ${COMMON_HELP}
   oc-pilot review --base main
   git diff | oc-pilot review --stdin
   oc-pilot review src/wallet.go --context "User.Balance не может быть отрицательным"
+  oc-pilot review --base main --format sarif -o oc-pilot.sarif
 `;
 
 export async function runReview(argv: string[]): Promise<number> {
@@ -71,18 +76,29 @@ export async function runReview(argv: string[]): Promise<number> {
     parts.push(`USER_CONTEXT:\n${userContext.trim()}`);
   }
 
-  return executeRecipe(
-    {
-      recipe: "review",
-      projectType: detectProjectType(ctx.cwd, data.changedFiles),
-      additionalContext: parts.join("\n\n"),
-      diff: data.payloadDiff,
-      secretFindings: data.findings,
-      changedFiles: data.changedFiles,
-      failOnSecrets: asBoolean(values, "fail-on-secrets"),
-      noSecretScan: asBoolean(values, "no-secret-scan"),
-      meta: { source: data.source },
-    },
-    ctx,
-  );
+  const payload = {
+    recipe: "review" as const,
+    projectType: detectProjectType(ctx.cwd, data.changedFiles),
+    additionalContext: parts.join("\n\n"),
+    diff: data.payloadDiff,
+    secretFindings: data.findings,
+    changedFiles: data.changedFiles,
+    failOnSecrets: asBoolean(values, "fail-on-secrets"),
+    noSecretScan: asBoolean(values, "no-secret-scan"),
+    meta: { source: data.source },
+  };
+
+  if (ctx.flags.format !== "sarif") {
+    return executeRecipe(payload, ctx);
+  }
+
+  const captureCtx = { ...ctx, flags: { ...ctx.flags, json: false, output: undefined } };
+  const execution = await executeRecipeDetailed(payload, captureCtx, { capture: true });
+  if (ctx.flags.dryRun) return execution.exitCode;
+
+  const analysisFindings = execution.analysis ? parseFindings(execution.analysis) : [];
+  const sarif = buildSarif(analysisFindingsToSarifResults(analysisFindings, ctx.cwd));
+  const path = writeOutput(JSON.stringify(sarif, null, 2), ctx.flags.output);
+  if (path) log.success(`SARIF записан: ${path}`);
+  return execution.exitCode;
 }

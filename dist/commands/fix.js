@@ -8,7 +8,9 @@ import { describeDiffSource, loadDiff } from "../core/diff-source.js";
 import { detectProjectType, detectTestCommand } from "../core/project.js";
 import { parseFindings } from "../core/findings.js";
 import { executeRecipeDetailed, githubAnnotations } from "../core/run.js";
-import { scanDiff } from "../core/secrets.js";
+import { loadSecretIgnore, scanDiff } from "../core/secrets.js";
+import { createSnapshot } from "../core/snapshot.js";
+import { isGitRepo } from "../core/git.js";
 const OPTIONS = withCommon({
     staged: { type: "boolean" },
     unstaged: { type: "boolean" },
@@ -23,6 +25,7 @@ const OPTIONS = withCommon({
     "keep-on-test-failure": { type: "boolean" },
     rounds: { type: "string" },
     "no-secret-scan": { type: "boolean" },
+    "no-snapshot": { type: "boolean" },
 });
 const HELP = `Использование:
   oc-pilot fix [пути...] [опции]
@@ -45,6 +48,7 @@ git apply --check и по желанию применяет. С --apply и те�
       --include-untracked    включить новые файлы
       --context <text|@file> дополнительный контекст
       --no-secret-scan       не искать секреты в diff и патче
+      --no-snapshot          не создавать снимок перед --apply
 ${COMMON_HELP}
 
 Примеры:
@@ -52,6 +56,7 @@ ${COMMON_HELP}
   oc-pilot fix --apply
   oc-pilot fix --apply --command "npm test" --rounds 3
   oc-pilot fix src/wallet.go --apply
+  oc-pilot restore            # откат к снимку последнего fix --apply
 `;
 function failureContext(patch, test) {
     return [
@@ -85,6 +90,17 @@ export async function runFix(argv) {
     const detectedTest = detectTestCommand(ctx.cwd);
     const testCommand = asString(values, "command") ?? detectedTest?.command;
     const userContext = asString(values, "context");
+    let snapshot;
+    if (apply && !ctx.flags.dryRun && !asBoolean(values, "no-snapshot")) {
+        if (isGitRepo(ctx.cwd)) {
+            snapshot = createSnapshot(ctx.cwd);
+            log.success(`Снимок рабочего дерева создан: ${snapshot.id}` +
+                `${snapshot.untrackedCount > 0 ? ` (untracked: ${snapshot.untrackedCount})` : ""}. Откат: oc-pilot restore ${snapshot.id}`);
+        }
+        else {
+            log.warn("Вне git-репозитория: снимок рабочего дерева не создан.");
+        }
+    }
     const baseParts = [
         "FIX_MODE: propose the smallest safe unified diff that fixes the most important problems in GIT_DIFF.",
         "Return the normal output schema. Put exactly one ```diff fenced patch under `#### Solution`.",
@@ -143,7 +159,7 @@ export async function runFix(argv) {
             return 1;
         }
         if (!asBoolean(values, "no-secret-scan")) {
-            const secretScan = scanDiff(patch);
+            const secretScan = scanDiff(patch, { ignore: loadSecretIgnore(ctx.cwd) });
             if (secretScan.findings.some((finding) => finding.severity === "critical")) {
                 log.warn("Патч содержит потенциальный секрет. Применение остановлено.");
                 return 1;

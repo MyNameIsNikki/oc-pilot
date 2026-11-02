@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+
+- `oc-pilot install-hook`: нативные git-хуки pre-commit (`scan --staged`) и опциональный pre-push (`review --fail-on critical --fail-on-secrets`) на чистом POSIX sh, без husky. `--uninstall`, `--force` (чужой хук сохраняется как `.oc-pilot.bak`), `--pre-push`, разовый пропуск через `OC_PILOT_SKIP=1`; учитывает `core.hooksPath` и worktrees.
+- Снимок рабочего дерева перед `fix --apply`: бинарный патч tracked-изменений против HEAD плюс копии untracked-файлов в `.git/oc-pilot/snapshots/<id>/`, ничего не коммитится. Новая команда `oc-pilot restore [id]` (`--list`) откатывает изменения; `fix --no-snapshot` отключает.
+- Игнорирование ложных срабатываний сканера секретов: файл `.oc-pilot/ignore` (glob-шаблоны путей, `#`-комментарии) и инлайн-маркер `// oc-pilot:ignore-secret` / `# oc-pilot:ignore-secret` для конкретной строки. Действует во всех точках сканирования: diff, patch в `fix`, полные файлы, правила, docgen.
+- Shannon-энтропия: высокоэнтропийные присваивания (длина >= 20, энтропия >= 4 бита) помечаются как critical `High-entropy secret`; само значение маскируется и не попадает в логи, JSON и SARIF.
+- `--format sarif` для `scan` и `review`: SARIF 2.1.0 для GitHub Code Scanning, правила `oc-pilot/secret`, `oc-pilot/critical`, `oc-pilot/warning`; `-o results.sarif` пишет файл.
+- 135 тестов; версия 0.6.0.
+
 ## 0.5.2
 
 - Patch release after the npm registry left `0.5.1` reserved but not published. No runtime code changes.

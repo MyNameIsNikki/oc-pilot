@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { findingsForPrompt, scanDiff, scanText } from "./secrets.js";
+import { findingsForPrompt, loadSecretIgnore, scanDiff, scanText } from "./secrets.js";
 
 const AWS_KEY = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
 const OPENAI_KEY = ["sk-proj-", "a".repeat(40)].join("");
@@ -138,4 +141,88 @@ test("findingsForPrompt describes findings without leaking values", () => {
 test("findingsForPrompt reports a clean scan", () => {
   assert.match(findingsForPrompt([], true), /no secrets/i);
   assert.match(findingsForPrompt([], true, "ru"), /чистых/);
+});
+
+test("loadSecretIgnore reads patterns and skips comments and blanks", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-ignore-"));
+  try {
+    mkdirSync(join(dir, ".oc-pilot"), { recursive: true });
+    writeFileSync(
+      join(dir, ".oc-pilot", "ignore"),
+      ["# comment", "", "fixtures/**", "*.snap", "docs/credentials.md"].join("\n"),
+      "utf8",
+    );
+    assert.deepEqual(loadSecretIgnore(dir), ["fixtures/**", "*.snap", "docs/credentials.md"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadSecretIgnore returns empty list without a file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-noignore-"));
+  try {
+    assert.deepEqual(loadSecretIgnore(dir), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("scanText skips ignored paths but scans the rest", () => {
+  const content = `const aws = "${AWS_KEY}";\n`;
+
+  assert.deepEqual(scanText(content, "fixtures/creds.ts", { ignore: ["fixtures/**"] }).findings, []);
+  assert.deepEqual(scanText(content, "docs/creds.ts", { ignore: ["docs/**"] }).findings, []);
+  assert.notEqual(scanText(content, "src/creds.ts", { ignore: ["fixtures/**"] }).findings.length, 0);
+});
+
+test("inline oc-pilot:ignore-secret marker skips a single line", () => {
+  const content = [
+    `const aws = "${AWS_KEY}"; // oc-pilot:ignore-secret`,
+    `const openai = "${OPENAI_KEY}";`,
+  ].join("\n");
+
+  const result = scanText(content, "src/config.ts");
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0]?.line, 2);
+});
+
+test("high-entropy assignments are flagged as critical", () => {
+  const token = "f8G2kQ9zL4xW7nR3vB6mD1s";
+  const result = scanText(`const apiToken = "${token}";\n`, "src/auth.ts");
+  const entropyFinding = result.findings.find((finding) => finding.kind === "High-entropy secret");
+  assert.ok(entropyFinding);
+  assert.equal(entropyFinding.severity, "critical");
+  assert.ok(!result.redacted.includes(token));
+});
+
+test("low-entropy long assignments are not flagged as high entropy", () => {
+  const result = scanText('const password = "aaaaaaaaaaaaaaaaaaaa";\n', "src/auth.ts");
+  assert.ok(!result.findings.some((finding) => finding.kind === "High-entropy secret"));
+});
+
+test("entropy check can be disabled", () => {
+  const token = "f8G2kQ9zL4xW7nR3vB6mD1s";
+  const result = scanText(`const apiToken = "${token}";\n`, "src/auth.ts", { entropy: false });
+  assert.ok(!result.findings.some((finding) => finding.kind === "High-entropy secret"));
+});
+
+test("scanDiff respects ignore patterns per file header", () => {
+  const diff = [
+    "diff --git a/vendor/lib.ts b/vendor/lib.ts",
+    "index 1111111..2222222 100644",
+    "--- a/vendor/lib.ts",
+    "+++ b/vendor/lib.ts",
+    "@@ -1,2 +1,3 @@",
+    " const before = true;",
+    `+const aws = "${AWS_KEY}";`,
+    " const after = true;",
+    "",
+  ].join("\n");
+
+  const ignored = scanDiff(diff, { ignore: ["vendor/**"] });
+  assert.deepEqual(ignored.findings, []);
+  assert.ok(ignored.redacted.includes(AWS_KEY), "ignored files must stay unredacted");
+
+  const scanned = scanDiff(diff, { ignore: ["fixtures/**"] });
+  assert.equal(scanned.findings.length, 1);
 });

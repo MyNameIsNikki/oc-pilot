@@ -5,7 +5,7 @@ import { collectGitDiff } from "./git.js";
 import { readStdin, readTextFile } from "./io.js";
 import { log } from "./log.js";
 import { asBoolean, asString } from "./parse.js";
-import { scanDiff } from "./secrets.js";
+import { loadSecretIgnore, scanDiff } from "./secrets.js";
 /**
  * Human/model-facing source label. The diff content is always embedded in
  * GIT_DIFF, so the label must not look like a file the model should read.
@@ -82,7 +82,9 @@ export async function loadDiff(values, ctx, paths = [], options = {}) {
     const changedFiles = collectChangedFiles(rawDiff);
     const stats = collectDiffStats(rawDiff);
     const scanDisabled = asBoolean(values, "no-secret-scan");
-    const scan = scanDisabled ? { findings: [], redacted: rawDiff } : scanDiff(rawDiff);
+    const scan = scanDisabled
+        ? { findings: [], redacted: rawDiff }
+        : scanDiff(rawDiff, { ignore: loadSecretIgnore(ctx.cwd) });
     if (scanDisabled)
         log.warn("Сканирование секретов отключено (--no-secret-scan).");
     return {

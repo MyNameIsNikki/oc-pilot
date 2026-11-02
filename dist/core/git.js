@@ -21,6 +21,28 @@ function git(args, cwd) {
         stderr: (result.stderr ?? "").trim(),
     };
 }
+/** Runs git with stdin support; used by snapshot apply. */
+export function runGit(args, cwd, input) {
+    if (input === undefined)
+        return git(args, cwd);
+    const result = spawnSync("git", args, {
+        cwd,
+        encoding: "utf8",
+        maxBuffer: MAX_BUFFER,
+        windowsHide: true,
+        input,
+        env: {
+            ...process.env,
+            GIT_PAGER: "cat",
+            GIT_TERMINAL_PROMPT: "0",
+        },
+    });
+    return {
+        status: result.status,
+        stdout: result.stdout ?? "",
+        stderr: (result.stderr ?? "").trim(),
+    };
+}
 function failIfError(result, args) {
     if (result.status === 0)
         return result.stdout;

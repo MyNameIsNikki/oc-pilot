@@ -7,7 +7,7 @@ import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, type OptionS
 import { asBoolean, asString } from "../core/parse.js";
 import { detectProjectType } from "../core/project.js";
 import { executeRecipe } from "../core/run.js";
-import { scanText } from "../core/secrets.js";
+import { loadSecretIgnore, scanText } from "../core/secrets.js";
 
 const OPTIONS: OptionSpec = withCommon({
   context: { type: "string" },
@@ -208,7 +208,9 @@ export async function runDocgen(argv: string[]): Promise<number> {
     }
 
     const display = relative(ctx.cwd, absolute).replace(/\\/g, "/");
-    const scan = scanDisabled ? { findings: [], redacted: content } : scanText(content, display);
+    const scan = scanDisabled
+      ? { findings: [], redacted: content }
+      : scanText(content, display, { ignore: loadSecretIgnore(ctx.cwd) });
     findings.push(...scan.findings);
 
     let body = ctx.config.redactSecrets ? scan.redacted : content;

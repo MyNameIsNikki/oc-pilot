@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { truncateText } from "./diff.js";
-import { scanText } from "./secrets.js";
+import { loadSecretIgnore, scanText } from "./secrets.js";
 const DEFAULT_TOTAL = 60_000;
 const DEFAULT_FILE = 20_000;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -41,7 +41,9 @@ export function buildFileContext(cwd, changedFiles, options = {}) {
             omitted.push(rel);
             continue;
         }
-        const scan = redact ? scanText(content, rel) : { findings: [], redacted: content };
+        const scan = redact
+            ? scanText(content, rel, { ignore: loadSecretIgnore(cwd) })
+            : { findings: [], redacted: content };
         findings.push(...scan.findings);
         const perFile = truncateText(scan.redacted, maxFile, { mode: "head" });
         const block = `--- FILE: ${rel} ---\n${perFile.text.trimEnd()}`;

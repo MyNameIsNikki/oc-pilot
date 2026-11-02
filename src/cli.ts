@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { runCustom } from "./commands/custom.js";
 import { runDoctor } from "./commands/doctor.js";
+import { runInstallHook } from "./commands/install-hook.js";
+import { runRestore } from "./commands/restore.js";
 import { runDocgen } from "./commands/docgen.js";
 import { runFix } from "./commands/fix.js";
 import { runInit } from "./commands/init.js";
@@ -23,6 +25,8 @@ const HANDLERS: Record<string, Handler> = {
   docgen: runDocgen,
   custom: runCustom,
   scan: runScan,
+  "install-hook": runInstallHook,
+  restore: runRestore,
   setup: runSetup,
   doctor: runDoctor,
   mcp: runMcp,
@@ -41,6 +45,10 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   docgen      Генерация GoDoc/RustDoc/JSDoc/docstrings
   custom      Свободный запрос к oc-pilot
   scan        Офлайн-поиск секретов в diff (без LLM)
+
+  install-hook  Установить git-хуки pre-commit/pre-push (scan/review)
+
+  restore     Восстановить рабочее дерево из снимка fix --apply
   setup       Установить MCP-сервер в Claude Code, Cursor, OpenCode, Codex, Gemini, DeepSeek Harness, VS Code
   doctor      Проверить установку, движок, ключи, git и MCP-конфиги
   mcp         Запустить MCP-сервер (stdio или --http)
@@ -98,7 +106,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, fix, docgen, custom, scan, setup, init.",
+      hint: "Доступные команды: review, test-fix, fix, docgen, custom, scan, install-hook, restore, setup, init.",
       exitCode: 2,
     });
   }

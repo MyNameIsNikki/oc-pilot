@@ -7,7 +7,7 @@ import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../co
 import { asBoolean, asString } from "../core/parse.js";
 import { detectProjectType } from "../core/project.js";
 import { executeRecipe } from "../core/run.js";
-import { scanText } from "../core/secrets.js";
+import { loadSecretIgnore, scanText } from "../core/secrets.js";
 const OPTIONS = withCommon({
     context: { type: "string" },
     symbol: { type: "string" },
@@ -193,7 +193,9 @@ export async function runDocgen(argv) {
             continue;
         }
         const display = relative(ctx.cwd, absolute).replace(/\\/g, "/");
-        const scan = scanDisabled ? { findings: [], redacted: content } : scanText(content, display);
+        const scan = scanDisabled
+            ? { findings: [], redacted: content }
+            : scanText(content, display, { ignore: loadSecretIgnore(ctx.cwd) });
         findings.push(...scan.findings);
         let body = ctx.config.redactSecrets ? scan.redacted : content;
         if (body.length > ctx.config.maxFileChars) {

@@ -6,7 +6,7 @@ import { collectGitDiff } from "./git.js";
 import { readStdin, readTextFile } from "./io.js";
 import { log } from "./log.js";
 import { asBoolean, asString, type ArgsValues } from "./parse.js";
-import { scanDiff } from "./secrets.js";
+import { loadSecretIgnore, scanDiff } from "./secrets.js";
 
 export interface DiffData {
   /** Original diff. */
@@ -104,7 +104,9 @@ export async function loadDiff(
   const changedFiles = collectChangedFiles(rawDiff);
   const stats = collectDiffStats(rawDiff);
   const scanDisabled = asBoolean(values, "no-secret-scan");
-  const scan = scanDisabled ? { findings: [], redacted: rawDiff } : scanDiff(rawDiff);
+  const scan = scanDisabled
+    ? { findings: [], redacted: rawDiff }
+    : scanDiff(rawDiff, { ignore: loadSecretIgnore(ctx.cwd) });
   if (scanDisabled) log.warn("Сканирование секретов отключено (--no-secret-scan).");
 
   return {

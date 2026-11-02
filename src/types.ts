@@ -4,6 +4,8 @@ export type PromptLang = "en" | "ru";
 
 export type Engine = "opencode" | "openai";
 
+export type OutputFormat = "text" | "json" | "sarif";
+
 export type SecretSeverity = "critical" | "warning";
 
 export type FindingSeverity = "critical" | "warning" | "style";
@@ -89,6 +91,8 @@ export interface GlobalFlags {
   strict: boolean;
   github: boolean;
   output?: string;
+  /** Output format. "sarif" is honored by scan and review. */
+  format?: OutputFormat;
 }
 
 export interface CommandContext {

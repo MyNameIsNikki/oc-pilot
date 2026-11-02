@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { truncateText } from "./diff.js";
 import { PilotError } from "./errors.js";
-import { scanText } from "./secrets.js";
+import { loadSecretIgnore, scanText } from "./secrets.js";
 const DEFAULT_RULES_PATH = join(".oc-pilot", "rules.md");
 const MAX_RULES_CHARS = 20_000;
 function findDefaultRules(start) {
@@ -51,7 +51,7 @@ export function loadRules(cwd, explicitPath) {
         });
     }
     const truncated = truncateText(content, MAX_RULES_CHARS, { mode: "head" });
-    const scan = scanText(truncated.text, display);
+    const scan = scanText(truncated.text, display, { ignore: loadSecretIgnore(cwd) });
     return {
         path: display,
         text: scan.redacted,

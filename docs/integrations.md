@@ -432,13 +432,27 @@ In GitHub Actions, `--github` prints inline annotations instead of JSON:
 oc-pilot review --base origin/main --fail-on warning --github
 ```
 
+For GitHub Code Scanning, produce a SARIF 2.1.0 report and upload it:
+
+```yaml
+- run: oc-pilot scan --base origin/${{ github.base_ref }} --format sarif -o oc-pilot.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: oc-pilot.sarif
+```
+
+`--format sarif` is supported by `scan` and `review`. Rules are stable ids:
+`oc-pilot/secret` (secrets, error), `oc-pilot/critical` (error),
+`oc-pilot/warning` (warning; style findings are `note`). Secret previews stay
+redacted in the report.
+
 The repository also ships a composite action, so the whole gate is:
 
 ```yaml
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.5.2
+- uses: MyNameIsNikki/oc-pilot@v0.6.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -450,7 +464,44 @@ A tested patch loop is also available, but it writes to the checkout:
 oc-pilot fix --diff changes.diff --apply --command "npm test"
 ```
 
-The patch is reverted when tests fail. Do not run it on a shared working tree.
+Before applying, `fix` saves a snapshot of tracked changes (binary patch) and
+untracked files under `.git/oc-pilot/snapshots/`. The patch is still reverted
+when tests fail. Restore a snapshot with `oc-pilot restore` (or
+`oc-pilot restore --list` to pick one). Snapshots never enter commits;
+`--no-snapshot` skips the safety copy.
+
+## Git hooks
+
+`oc-pilot install-hook` installs native POSIX sh hooks without husky:
+
+```sh
+oc-pilot install-hook              # pre-commit: oc-pilot scan --staged
+oc-pilot install-hook --pre-push   # also pre-push: oc-pilot review --fail-on critical
+oc-pilot install-hook --uninstall  # remove managed hooks, restore backups
+```
+
+A foreign hook file is never overwritten silently: without `--force` the
+install fails, with `--force` the old file is kept as `<hook>.oc-pilot.bak`.
+`OC_PILOT_SKIP=1` bypasses the hooks for a single command. `core.hooksPath`
+and worktrees are respected.
+
+## Secret ignore rules
+
+False positives can be silenced per path or per line. `.oc-pilot/ignore`
+holds one glob per line (`#` starts a comment); the inline marker
+`oc-pilot:ignore-secret` silences a single source line:
+
+```
+# .oc-pilot/ignore
+fixtures/**
+docs/examples/**
+
+const TOKEN = "sk-proj-..."; // oc-pilot:ignore-secret
+```
+
+The rules apply to every scanning point: diffs, project rules, docgen, and
+full-file context. High-entropy assignments (20+ chars, Shannon entropy over
+4 bits) are reported as critical `High-entropy secret`.
 
 ## Troubleshooting
 
