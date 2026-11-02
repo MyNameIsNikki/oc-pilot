@@ -1,0 +1,237 @@
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { PilotError } from "./errors.js";
+import { parseFailOn } from "./findings.js";
+import { parsePromptLang } from "./lang.js";
+import { log } from "./log.js";
+const CONFIG_FILENAME = ".oc-pilot.json";
+export const DEFAULT_CONFIG = {
+    agent: "oc-pilot",
+    maxDiffChars: 120_000,
+    maxOutputChars: 40_000,
+    timeoutSeconds: 300,
+    redactSecrets: true,
+    maxFileChars: 60_000,
+    repoContext: true,
+    failOn: "none",
+    lang: "en",
+};
+function findConfigFile(start) {
+    let directory = resolve(start);
+    for (let depth = 0; depth < 32; depth += 1) {
+        const candidate = join(directory, CONFIG_FILENAME);
+        if (existsSync(candidate) && statSync(candidate).isFile())
+            return candidate;
+        const parent = dirname(directory);
+        if (parent === directory)
+            break;
+        directory = parent;
+    }
+    return undefined;
+}
+function readObject(file) {
+    let raw;
+    try {
+        raw = readFileSync(file, "utf8");
+    }
+    catch (error) {
+        throw new PilotError(`Не удалось прочитать конфиг ${file}`, { hint: String(error) });
+    }
+    try {
+        const parsed = JSON.parse(raw.replace(/^\uFEFF/, ""));
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new PilotError(`Конфиг ${file} должен быть JSON-объектом`);
+        }
+        return parsed;
+    }
+    catch (error) {
+        if (error instanceof PilotError)
+            throw error;
+        throw new PilotError(`Некорректный JSON в ${file}`, { hint: String(error) });
+    }
+}
+function optionalString(value, name) {
+    if (value === undefined)
+        return undefined;
+    if (typeof value !== "string" || value.trim() === "") {
+        throw new PilotError(`Поле ${name} в конфиге должно быть непустой строкой`);
+    }
+    return value.trim();
+}
+function optionalBoolean(value, name) {
+    if (value === undefined)
+        return undefined;
+    if (typeof value !== "boolean") {
+        throw new PilotError(`Поле ${name} в конфиге должно быть boolean`);
+    }
+    return value;
+}
+function optionalPositiveInt(value, name) {
+    if (value === undefined)
+        return undefined;
+    if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+        throw new PilotError(`Поле ${name} в конфиге должно быть положительным целым числом`);
+    }
+    return value;
+}
+function optionalFailOn(value, name) {
+    if (value === undefined)
+        return undefined;
+    if (typeof value !== "string" || value.trim() === "") {
+        throw new PilotError(`Поле ${name} в конфиге должно быть строкой: none, critical, warning или style`);
+    }
+    try {
+        return parseFailOn(value);
+    }
+    catch (error) {
+        throw new PilotError(`Некорректное значение ${name} в конфиге`, {
+            hint: error instanceof Error ? error.message : String(error),
+        });
+    }
+}
+function optionalLang(value, name) {
+    if (value === undefined)
+        return undefined;
+    if (typeof value !== "string" || value.trim() === "") {
+        throw new PilotError(`Поле ${name} в конфиге должно быть строкой: en или ru`);
+    }
+    return parsePromptLang(value, name);
+}
+function fromFile(file) {
+    const data = readObject(file);
+    const known = new Set([
+        "$schema",
+        "model",
+        "agent",
+        "maxDiffChars",
+        "maxOutputChars",
+        "timeoutSeconds",
+        "testCommand",
+        "redactSecrets",
+        "maxFileChars",
+        "repoContext",
+        "failOn",
+        "rules",
+        "lang",
+    ]);
+    for (const key of Object.keys(data)) {
+        if (!known.has(key))
+            log.warn(`Неизвестное поле в ${CONFIG_FILENAME}: ${key} (проигнорировано)`);
+    }
+    return {
+        model: optionalString(data.model, "model"),
+        agent: optionalString(data.agent, "agent"),
+        maxDiffChars: optionalPositiveInt(data.maxDiffChars, "maxDiffChars"),
+        maxOutputChars: optionalPositiveInt(data.maxOutputChars, "maxOutputChars"),
+        timeoutSeconds: optionalPositiveInt(data.timeoutSeconds, "timeoutSeconds"),
+        testCommand: optionalString(data.testCommand, "testCommand"),
+        redactSecrets: optionalBoolean(data.redactSecrets, "redactSecrets"),
+        maxFileChars: optionalPositiveInt(data.maxFileChars, "maxFileChars"),
+        repoContext: optionalBoolean(data.repoContext, "repoContext"),
+        failOn: optionalFailOn(data.failOn, "failOn"),
+        rules: optionalString(data.rules, "rules"),
+        lang: optionalLang(data.lang, "lang"),
+    };
+}
+function envPositiveInt(name) {
+    const raw = process.env[name];
+    if (raw === undefined || raw.trim() === "")
+        return undefined;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0) {
+        throw new PilotError(`Переменная окружения ${name} должна быть положительным целым числом`);
+    }
+    return value;
+}
+function envBoolean(name) {
+    const raw = process.env[name];
+    if (raw === undefined || raw.trim() === "")
+        return undefined;
+    if (/^(1|true|yes|on)$/i.test(raw))
+        return true;
+    if (/^(0|false|no|off)$/i.test(raw))
+        return false;
+    throw new PilotError(`Переменная окружения ${name} должна быть true или false`);
+}
+function envFailOn() {
+    const raw = process.env.OC_PILOT_FAIL_ON;
+    if (raw === undefined || raw.trim() === "")
+        return undefined;
+    try {
+        return parseFailOn(raw);
+    }
+    catch (error) {
+        throw new PilotError("Некорректное значение OC_PILOT_FAIL_ON", {
+            hint: error instanceof Error ? error.message : String(error),
+        });
+    }
+}
+function envLang() {
+    const raw = process.env.OC_PILOT_LANG;
+    if (raw === undefined || raw.trim() === "")
+        return undefined;
+    return parsePromptLang(raw, "OC_PILOT_LANG");
+}
+function fromEnv() {
+    return {
+        model: process.env.OC_PILOT_MODEL?.trim() || undefined,
+        agent: process.env.OC_PILOT_AGENT?.trim() || undefined,
+        maxDiffChars: envPositiveInt("OC_PILOT_MAX_DIFF_CHARS"),
+        maxOutputChars: envPositiveInt("OC_PILOT_MAX_OUTPUT_CHARS"),
+        timeoutSeconds: envPositiveInt("OC_PILOT_TIMEOUT_SECONDS"),
+        testCommand: process.env.OC_PILOT_TEST_COMMAND?.trim() || undefined,
+        redactSecrets: envBoolean("OC_PILOT_REDACT_SECRETS"),
+        maxFileChars: envPositiveInt("OC_PILOT_MAX_FILE_CHARS"),
+        repoContext: envBoolean("OC_PILOT_REPO_CONTEXT"),
+        failOn: envFailOn(),
+        rules: process.env.OC_PILOT_RULES?.trim() || undefined,
+        lang: envLang(),
+    };
+}
+function defined(value) {
+    return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+}
+export function loadConfig(options) {
+    const explicit = options.explicitPath
+        ? isAbsolute(options.explicitPath)
+            ? options.explicitPath
+            : resolve(options.cwd, options.explicitPath)
+        : undefined;
+    if (explicit && !existsSync(explicit)) {
+        throw new PilotError(`Конфиг не найден: ${explicit}`, {
+            hint: `Создайте файл ${CONFIG_FILENAME} командой oc-pilot init.`,
+            exitCode: 2,
+        });
+    }
+    const path = explicit ?? findConfigFile(options.cwd);
+    const fileValues = path ? fromFile(path) : {};
+    const merged = {
+        ...DEFAULT_CONFIG,
+        ...defined(fileValues),
+        ...defined(fromEnv()),
+        ...defined(options.overrides ?? {}),
+    };
+    if (!merged.agent.trim())
+        throw new PilotError("agent не может быть пустым");
+    if (merged.model !== undefined && !merged.model.trim()) {
+        throw new PilotError("model не может быть пустым");
+    }
+    if (merged.testCommand !== undefined && !merged.testCommand.trim()) {
+        throw new PilotError("testCommand не может быть пустым");
+    }
+    return { config: merged, path };
+}
+export function configTemplate() {
+    return `${JSON.stringify({
+        agent: DEFAULT_CONFIG.agent,
+        maxDiffChars: DEFAULT_CONFIG.maxDiffChars,
+        maxOutputChars: DEFAULT_CONFIG.maxOutputChars,
+        timeoutSeconds: DEFAULT_CONFIG.timeoutSeconds,
+        redactSecrets: DEFAULT_CONFIG.redactSecrets,
+        maxFileChars: DEFAULT_CONFIG.maxFileChars,
+        repoContext: DEFAULT_CONFIG.repoContext,
+        failOn: DEFAULT_CONFIG.failOn,
+        lang: DEFAULT_CONFIG.lang,
+    }, null, 2)}\n`;
+}
+//# sourceMappingURL=config.js.map

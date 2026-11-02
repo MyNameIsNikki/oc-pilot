@@ -1,0 +1,234 @@
+import { relative } from "node:path";
+import { truncateDiff, truncateText } from "./diff.js";
+import { buildFileContext } from "./file-context.js";
+import { describeFindings, countFindings, parseFindings, shouldFail } from "./findings.js";
+import { buildJsonAnalysis, validateAnalysis } from "./format.js";
+import { writeOutput } from "./io.js";
+import { log } from "./log.js";
+import { runOpenCode } from "./opencode.js";
+import { buildInput, systemPromptFor } from "./prompt.js";
+import { loadRules } from "./rules.js";
+const MAX_PROMPT_CHARS = 300_000;
+function printSecretWarnings(findings, redacted) {
+    if (findings.length === 0)
+        return;
+    log.warn(redacted
+        ? `Найдено потенциальных секретов: ${findings.length}. Значения заменены маркерами.`
+        : `Найдено потенциальных секретов: ${findings.length}. ВНИМАНИЕ: redaction отключён, значения уйдут модели.`);
+    for (const finding of findings.slice(0, 10)) {
+        log.detail(`${finding.severity === "critical" ? "🔴" : "🟡"} ${finding.file}:${finding.line} — ${finding.kind} (${finding.preview})`);
+    }
+    if (findings.length > 10)
+        log.detail(`…и ещё ${findings.length - 10}`);
+}
+function escapeGithub(value) {
+    return value.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+}
+export function githubAnnotations(findings, cwd) {
+    const lines = [];
+    for (const finding of findings) {
+        const level = finding.severity === "critical" ? "error" : finding.severity === "warning" ? "warning" : "notice";
+        const location = finding.location ?? "";
+        const match = /^(.*?):(\d+)(?::\d+)?$/.exec(location);
+        const file = match ? relative(cwd, match[1]).replace(/\\/g, "/") : undefined;
+        const line = match ? match[2] : undefined;
+        const properties = [
+            file ? `file=${escapeGithub(file)}` : undefined,
+            line ? `line=${line}` : undefined,
+            `title=${escapeGithub(`oc-pilot ${finding.severity}`)}`,
+        ]
+            .filter(Boolean)
+            .join(",");
+        lines.push(`::${level} ${properties}::${escapeGithub(finding.text)}`);
+    }
+    return lines;
+}
+function dedupeFindings(findings) {
+    const unique = new Map();
+    for (const finding of findings) {
+        const key = `${finding.file}:${finding.line}:${finding.kind}`;
+        if (!unique.has(key))
+            unique.set(key, finding);
+    }
+    return [...unique.values()];
+}
+function enforcePromptLimit(payload, redacted, repoContext, lang) {
+    let diff = payload.diff;
+    let context = payload.additionalContext;
+    const build = () => buildInput({
+        recipe: payload.recipe,
+        projectType: payload.projectType,
+        additionalContext: context,
+        diff,
+        findings: payload.secretFindings,
+        redacted,
+        repoContext,
+        lang,
+    });
+    const overhead = systemPromptFor(lang).length + 80;
+    let input = build();
+    if (input.length + overhead > MAX_PROMPT_CHARS) {
+        const excess = input.length + overhead - MAX_PROMPT_CHARS;
+        const budget = Math.max(10_000, diff.length - excess - 1_000);
+        if (diff.length > budget) {
+            diff = truncateDiff(diff, budget).text;
+            input = build();
+            log.warn(`Промпт превысил ${MAX_PROMPT_CHARS} символов; diff дополнительно обрезан.`);
+        }
+    }
+    if (input.length + overhead > MAX_PROMPT_CHARS) {
+        const excess = input.length + overhead - MAX_PROMPT_CHARS;
+        const budget = Math.max(5_000, context.length - excess - 1_000);
+        context = truncateText(context, budget, { mode: "both" }).text;
+        input = build();
+        log.warn("Промпт превысил лимит; дополнительный контекст обрезан.");
+    }
+    if (input.length + overhead > MAX_PROMPT_CHARS) {
+        input = `${input.slice(0, MAX_PROMPT_CHARS - overhead)}\n[... промпт обрезан ...]`;
+    }
+    return input;
+}
+export async function executeRecipeDetailed(payload, ctx, options = {}) {
+    const scanSecrets = !payload.noSecretScan;
+    const rules = loadRules(ctx.cwd, ctx.config.rules);
+    const prefixes = [];
+    let secretFindings = payload.secretFindings;
+    let fileContextCount = 0;
+    if (rules) {
+        const rulesText = scanSecrets && ctx.config.redactSecrets ? rules.text : rules.rawText;
+        prefixes.push([`PROJECT_RULES (${rules.path}${rules.truncated ? ", обрезано" : ""}):`, rulesText.trim() || "(пусто)"].join("\n"));
+        if (scanSecrets) {
+            secretFindings = dedupeFindings([...secretFindings, ...rules.findings]);
+            if (rules.findings.length > 0) {
+                log.warn(`В файле правил найдено потенциальных секретов: ${rules.findings.length}.`);
+            }
+        }
+        if (rules.truncated)
+            log.warn(`Правила проекта обрезаны до ${20_000} символов.`);
+    }
+    if (!ctx.config.repoContext && payload.recipe !== "docgen" && payload.changedFiles.length > 0) {
+        const fileContext = buildFileContext(ctx.cwd, payload.changedFiles, {
+            redact: scanSecrets && ctx.config.redactSecrets,
+        });
+        if (fileContext.text) {
+            prefixes.push(`FULL_FILE_CONTEXT (read-only, ${scanSecrets && ctx.config.redactSecrets ? "секреты отредактированы" : "redaction отключён"}):\n${fileContext.text}`);
+            fileContextCount = fileContext.files.length;
+            if (scanSecrets)
+                secretFindings = dedupeFindings([...secretFindings, ...fileContext.findings]);
+        }
+        if (fileContext.omitted.length > 0) {
+            log.warn(`В full-file контекст не поместились: ${fileContext.omitted.join(", ")}`);
+        }
+    }
+    const additionalContext = prefixes.length > 0 ? [...prefixes, payload.additionalContext].join("\n\n") : payload.additionalContext;
+    const effective = { ...payload, additionalContext, secretFindings };
+    const systemPrompt = systemPromptFor(ctx.config.lang);
+    const input = enforcePromptLimit(effective, ctx.config.redactSecrets, ctx.config.repoContext, ctx.config.lang);
+    const fullPrompt = `${systemPrompt}\n\n=== INPUT ===\n${input}\n=== END INPUT ===`;
+    const criticalSecrets = payload.secretFindings.filter((finding) => finding.severity === "critical");
+    printSecretWarnings(secretFindings, ctx.config.redactSecrets);
+    if (ctx.flags.dryRun) {
+        if (ctx.flags.json) {
+            const data = {
+                dryRun: true,
+                recipe: payload.recipe,
+                projectType: payload.projectType,
+                filesChanged: payload.changedFiles,
+                secrets: secretFindings,
+                repoContext: ctx.config.repoContext,
+                lang: ctx.config.lang,
+                failOn: ctx.config.failOn,
+                rules: rules?.path ?? null,
+                fileContext: fileContextCount,
+                systemPrompt,
+                input,
+                prompt: fullPrompt,
+            };
+            const path = writeOutput(JSON.stringify(data, null, 2), ctx.flags.output);
+            if (path)
+                log.success(`Промпт записан: ${path}`);
+        }
+        else {
+            const path = writeOutput(fullPrompt, ctx.flags.output);
+            if (path)
+                log.success(`Промпт записан: ${path}`);
+        }
+        if (payload.failOnSecrets && criticalSecrets.length > 0) {
+            log.warn(`--fail-on-secrets: обнаружено critical-секретов: ${criticalSecrets.length}`);
+            return { exitCode: 3 };
+        }
+        return { exitCode: 0 };
+    }
+    const modelLabel = ctx.config.model ?? "модель по умолчанию";
+    log.step(`OpenCode: ${modelLabel} · агент ${ctx.config.agent} · ${ctx.config.repoContext ? "read-only repo context" : "diff-only"}`);
+    const analysis = await runOpenCode({
+        systemPrompt,
+        input,
+        cwd: ctx.cwd,
+        model: ctx.config.model,
+        agent: ctx.config.agent,
+        timeoutMs: ctx.config.timeoutSeconds * 1000,
+        verbose: ctx.flags.verbose,
+        repoContext: ctx.config.repoContext,
+    });
+    const warnings = validateAnalysis(analysis.text, payload.recipe);
+    for (const warning of warnings) {
+        log.warn(`Ответ не соответствует OUTPUT SCHEMA: ${warning.message}`);
+    }
+    const analysisFindings = parseFindings(analysis.text);
+    if (analysisFindings.length > 0)
+        log.info(`Замечания: ${describeFindings(analysisFindings)}`);
+    if (ctx.flags.github) {
+        for (const annotation of githubAnnotations(analysisFindings, ctx.cwd)) {
+            process.stderr.write(`${annotation}\n`);
+        }
+    }
+    const meta = {
+        recipe: payload.recipe,
+        projectType: payload.projectType,
+        agent: ctx.config.agent,
+        model: ctx.config.model ?? null,
+        durationMs: analysis.durationMs,
+        filesChanged: payload.changedFiles.length,
+        sessionID: analysis.sessionID,
+        cost: analysis.cost,
+        formatValid: warnings.length === 0,
+        formatWarnings: warnings.map((warning) => warning.message),
+        repoContext: ctx.config.repoContext,
+        rules: rules?.path ?? null,
+        fileContext: fileContextCount,
+        findings: countFindings(analysisFindings),
+        ...payload.meta,
+    };
+    if (!options.capture) {
+        if (ctx.flags.json) {
+            const json = buildJsonAnalysis(analysis.text, secretFindings, meta, analysisFindings);
+            const path = writeOutput(JSON.stringify(json, null, 2), ctx.flags.output);
+            if (path)
+                log.success(`Результат записан: ${path}`);
+        }
+        else {
+            const path = writeOutput(analysis.text, ctx.flags.output);
+            if (path)
+                log.success(`Результат записан: ${path}`);
+        }
+    }
+    let exitCode = 0;
+    if (payload.failOnSecrets && criticalSecrets.length > 0) {
+        log.warn(`--fail-on-secrets: обнаружено critical-секретов: ${criticalSecrets.length}`);
+        exitCode = 3;
+    }
+    if (shouldFail(analysisFindings, ctx.config.failOn)) {
+        log.warn(`--fail-on ${ctx.config.failOn}: найдены замечания (${describeFindings(analysisFindings)})`);
+        exitCode = 3;
+    }
+    if (ctx.flags.strict && warnings.length > 0) {
+        log.warn("--strict: ответ не соответствует OUTPUT SCHEMA");
+        exitCode = 3;
+    }
+    return { exitCode, analysis: analysis.text, meta };
+}
+export async function executeRecipe(payload, ctx) {
+    return (await executeRecipeDetailed(payload, ctx)).exitCode;
+}
+//# sourceMappingURL=run.js.map
