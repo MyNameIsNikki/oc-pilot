@@ -1,11 +1,11 @@
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 COPY src ./src
 RUN npm ci
 RUN npm run build
 
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
