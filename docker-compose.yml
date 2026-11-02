@@ -1,0 +1,18 @@
+services:
+  oc-pilot-mcp:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      OC_PILOT_MCP_HOST: 0.0.0.0
+      OC_PILOT_MCP_PORT: "8787"
+      OC_PILOT_MCP_PATH: /mcp
+      OC_PILOT_MCP_TOKEN: ${OC_PILOT_MCP_TOKEN:?set OC_PILOT_MCP_TOKEN to a random value of at least 16 characters}
+      # Provider credentials used by OpenCode, for example:
+      # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - ./:/workspace
+      - ${HOME}/.config/opencode:/root/.config/opencode:ro
+    working_dir: /workspace
+    restart: unless-stopped

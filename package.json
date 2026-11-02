@@ -1,0 +1,77 @@
+{
+  "name": "oc-pilot",
+  "version": "0.4.0",
+  "description": "Local AI code review, tested fixes, test-failure analysis and secret scanning for agent CLIs",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MyNameIsNikki/oc-pilot.git"
+  },
+  "homepage": "https://github.com/MyNameIsNikki/oc-pilot#readme",
+  "bugs": {
+    "url": "https://github.com/MyNameIsNikki/oc-pilot/issues"
+  },
+  "author": "MyNameIsNikki",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "oc-pilot": "dist/cli.js",
+    "oc-pilot-mcp": "dist/mcp.js"
+  },
+  "files": [
+    "dist",
+    "prompts",
+    "docs",
+    "skills",
+    "server.json",
+    "Dockerfile",
+    "docker-compose.yml",
+    "CHANGELOG.md",
+    "README.md",
+    "README.ru.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build && node dist/cli.js",
+    "mcp": "node dist/mcp.js",
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "prompt:export": "npm run build && node scripts/export-prompt.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "opencode",
+    "code-review",
+    "ai",
+    "cli",
+    "docgen",
+    "test-fix",
+    "secret-scanning",
+    "git-diff",
+    "ci",
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "cursor",
+    "gemini-cli",
+    "vibe-coding",
+    "ai-code-review",
+    "fix",
+    "docker",
+    "github-actions",
+    "agent-skills"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

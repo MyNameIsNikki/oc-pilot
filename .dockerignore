@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.github
+*.tgz
+*.log
+coverage
+.oc-pilot
+.DS_Store
