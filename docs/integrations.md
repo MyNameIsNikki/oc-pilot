@@ -21,8 +21,8 @@ provider configured in OpenCode.
 - The project to analyze is the server's working directory.
 
 ```sh
-# Works now, before the first npm release:
-npm install -g github:MyNameIsNikki/oc-pilot
+# Works now, before the first npm release (pin the tag):
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.0.tar.gz
 oc-pilot --version
 oc-pilot mcp --version
 ```

@@ -28,10 +28,10 @@ Agents are good at producing code and bad at reviewing their own work. A normal 
 
 ## Install
 
-From GitHub (works before the first npm release):
+From GitHub, pinned to a release tag (works before the first npm release):
 
 ```bash
-npm install -g github:MyNameIsNikki/oc-pilot
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.0.tar.gz
 ```
 
 From npm, once published:
@@ -368,7 +368,7 @@ Start the server manually with an explicit project directory:
 
 ```bash
 oc-pilot-mcp --cwd /absolute/path/to/project
-# equivalent without a global install, pinned for reproducibility:
+# after the npm release, pinned for reproducibility:
 npx -y oc-pilot@0.4.0 mcp --cwd /absolute/path/to/project
 ```
 
@@ -534,7 +534,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g github:MyNameIsNikki/oc-pilot
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

@@ -10,7 +10,7 @@
 - Добавлены `Dockerfile`, `docker-compose.yml`, `.dockerignore`; образ включает OpenCode и запускает HTTP MCP на порту 8787.
 - Добавлен Agent Skill `skills/oc-pilot/SKILL.md` и `server.json` для MCP Registry.
 - Добавлены `oc-pilot mcp`, read-only HTTP по умолчанию, `--allow-write`, проверка токена и ограничение путей; CI/CodeQL/release workflows, `SECURITY.md`, поддержка DeepSeek Harness.
-- Добавлен `prepare` для установки прямо из GitHub (`npm install -g github:MyNameIsNikki/oc-pilot`); Docker runtime использует `--ignore-scripts`.
+- `dist` коммитится в репозиторий, поэтому установка из GitHub-тега не требует devDependencies: `npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.0.tar.gz`. Docker runtime использует `--ignore-scripts`.
 - Обновлены README, `README.ru.md`, `docs/integrations.md`; 99 тестов.
 
 ## 0.3.0
