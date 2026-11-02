@@ -28,11 +28,19 @@ Agents are good at producing code and bad at reviewing their own work. A normal 
 
 ## Install
 
+From GitHub (works before the first npm release):
+
+```bash
+npm install -g github:MyNameIsNikki/oc-pilot
+```
+
+From npm, once published:
+
 ```bash
 npm install -g oc-pilot
 ```
 
-From source:
+For development:
 
 ```bash
 git clone https://github.com/MyNameIsNikki/oc-pilot.git
@@ -526,7 +534,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g oc-pilot
+      - run: npm install -g github:MyNameIsNikki/oc-pilot
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

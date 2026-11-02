@@ -20,11 +20,19 @@ oc-pilot scan            # секреты в diff без вызова модел
 
 ## Установка
 
+Из GitHub (работает до первого релиза в npm):
+
+```bash
+npm install -g github:MyNameIsNikki/oc-pilot
+```
+
+Из npm, после публикации:
+
 ```bash
 npm install -g oc-pilot
 ```
 
-Из исходников:
+Для разработки:
 
 ```bash
 git clone https://github.com/MyNameIsNikki/oc-pilot.git

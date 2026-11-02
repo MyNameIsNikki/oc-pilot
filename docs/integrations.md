@@ -21,9 +21,10 @@ provider configured in OpenCode.
 - The project to analyze is the server's working directory.
 
 ```sh
-npm install -g oc-pilot
+# Works now, before the first npm release:
+npm install -g github:MyNameIsNikki/oc-pilot
 oc-pilot --version
-oc-pilot-mcp --version
+oc-pilot mcp --version
 ```
 
 For local development:
