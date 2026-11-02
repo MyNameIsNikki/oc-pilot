@@ -131,6 +131,49 @@ test("setup --http builds remote config with bearer auth", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("setup uses httpUrl for Gemini remote MCP servers", () => {
+    const dir = tempDir();
+    try {
+        const result = run([
+            "setup",
+            "--print",
+            "--client",
+            "gemini",
+            "--client",
+            "windsurf",
+            "--http",
+            "https://example.com/mcp",
+            "--json",
+        ], dir);
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.clients[0]?.config.mcpServers["oc-pilot"]?.httpUrl, "https://example.com/mcp");
+        assert.equal(payload.clients[1]?.config.mcpServers["oc-pilot"]?.serverUrl, "https://example.com/mcp");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("setup rejects a remote token for Gemini instead of writing a broken header", () => {
+    const dir = tempDir();
+    try {
+        const result = run([
+            "setup",
+            "--print",
+            "--client",
+            "gemini",
+            "--http",
+            "https://example.com/mcp",
+            "--token",
+            "secret",
+        ], dir);
+        assert.equal(result.status, 2);
+        assert.match(result.stderr, /does not expand environment variables/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("setup prints a Codex TOML block", () => {
     const dir = tempDir();
     try {

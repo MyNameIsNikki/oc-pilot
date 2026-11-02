@@ -22,7 +22,7 @@ provider configured in OpenCode.
 
 ```sh
 # Works now, before the first npm release (pin the tag):
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.2.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.3.tar.gz
 oc-pilot --version
 oc-pilot mcp --version
 ```
@@ -303,7 +303,7 @@ server. Add it to `~/.dsh/profiles/web/cordis.patch.yml`:
         serverName: oc_pilot
         transport: stdio
         command: npx
-        args: ['-y', 'oc-pilot@0.4.2', 'mcp', '--cwd', '/absolute/path/to/project']
+        args: ['-y', 'oc-pilot@0.4.3', 'mcp', '--cwd', '/absolute/path/to/project']
         toolCallTimeoutMs: 300000
 ```
 

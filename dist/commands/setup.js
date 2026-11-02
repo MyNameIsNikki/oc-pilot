@@ -182,6 +182,12 @@ function remoteConfig(id, entry) {
     if (id === "claude" || id === "vscode") {
         return { type: "http", url: entry.url, ...(headers ? { headers } : {}) };
     }
+    if (id === "gemini") {
+        return { httpUrl: entry.url, ...(headers ? { headers } : {}) };
+    }
+    if (id === "windsurf") {
+        return { serverUrl: entry.url, ...(headers ? { headers } : {}) };
+    }
     return { url: entry.url, ...(headers ? { headers } : {}) };
 }
 function applyJson(id, root, entry) {
@@ -280,6 +286,12 @@ export async function runSetup(argv) {
     }
     const http = asString(values, "http");
     const token = asString(values, "token") ?? process.env.OC_PILOT_MCP_TOKEN;
+    if (http && token && ids.includes("gemini")) {
+        throw new PilotError("Gemini CLI does not expand environment variables in MCP headers", {
+            hint: "Use local stdio for Gemini, or configure the Authorization header manually.",
+            exitCode: 2,
+        });
+    }
     const options = {
         global: asBoolean(values, "global"),
         local: asBoolean(values, "local"),

@@ -1,12 +1,18 @@
 # Changelog
 
+## 0.4.3
+
+- Fixed remote MCP config shapes: Gemini uses `httpUrl`, Windsurf uses `serverUrl`.
+- `setup --http --token` for Gemini now stops with an explanation instead of writing a header that Gemini does not expand.
+- 103 теста; версия 0.4.3.
+
 ## 0.4.2
 
 - `fix` scans only added lines in the proposed patch. A patch that removes a leaked secret is no longer rejected as if it added one.
 - `setup` no longer writes the unsupported `enabled` field into OpenCode MCP config; servers are enabled by default in OpenCode V2.
-- `setup --http --token` now writes an `OC_PILOT_MCP_TOKEN` reference instead of the secret itself, for every supported client.
+- `setup --http --token` now writes an `OC_PILOT_MCP_TOKEN` reference instead of the secret itself.
 - User-journey verification: GitHub install, `scan`, real `review`, `test-fix`, `fix --apply` with tests, MCP stdio, Claude/Codex/OpenCode setup.
-- 101 теста; версия 0.4.2.
+- 101 тест; версия 0.4.2.
 
 ## 0.4.1
 
