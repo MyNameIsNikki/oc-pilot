@@ -86,6 +86,7 @@ function mcpClients(cwd) {
         ["Cursor", join(cwd, ".cursor", "mcp.json"), ["mcpServers"]],
         ["Gemini CLI", join(cwd, ".gemini", "settings.json"), ["mcpServers"]],
         ["VS Code", join(cwd, ".vscode", "mcp.json"), ["servers"]],
+        ["Generic .agents", join(cwd, ".agents", "mcp.json"), ["mcpServers"]],
     ];
     for (const [name, path, keys] of projectChecks) {
         const root = existsSync(path) ? readJson(path) : undefined;
@@ -100,10 +101,21 @@ function mcpClients(cwd) {
             break;
         }
     }
+    const zcodeProject = join(cwd, ".zcode", "config.json");
+    const zcodeRoot = existsSync(zcodeProject) ? readJson(zcodeProject) : undefined;
+    if (objectAt(objectAt(zcodeRoot, "mcp"), "servers")?.["oc-pilot"])
+        clients.push("ZCode");
+    if (!clients.includes("ZCode")) {
+        const zcodeGlobal = join(home, ".zcode", "cli", "config.json");
+        const zcodeGlobalRoot = existsSync(zcodeGlobal) ? readJson(zcodeGlobal) : undefined;
+        if (objectAt(objectAt(zcodeGlobalRoot, "mcp"), "servers")?.["oc-pilot"])
+            clients.push("ZCode");
+    }
     const globalChecks = [
         ["Claude Code", join(home, ".claude.json"), ["mcpServers"]],
         ["Gemini CLI", join(home, ".gemini", "settings.json"), ["mcpServers"]],
         ["Windsurf", join(home, ".codeium", "windsurf", "mcp_config.json"), ["mcpServers"]],
+        ["Generic .agents", join(home, ".agents", "mcp.json"), ["mcpServers"]],
     ];
     for (const [name, path, keys] of globalChecks) {
         if (clients.includes(name))

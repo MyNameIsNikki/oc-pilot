@@ -15,9 +15,21 @@ const CLIENT_NAMES = {
     gemini: "Gemini CLI",
     vscode: "VS Code / Copilot",
     windsurf: "Windsurf",
+    zcode: "ZCode",
+    agents: "Generic .agents client",
 };
 const FALLBACK_CLIENTS = ["claude"];
-const ALL_CLIENTS = ["claude", "cursor", "opencode", "codex", "gemini", "vscode", "windsurf"];
+const ALL_CLIENTS = [
+    "claude",
+    "cursor",
+    "opencode",
+    "codex",
+    "gemini",
+    "vscode",
+    "windsurf",
+    "zcode",
+    "agents",
+];
 function findExecutable(name) {
     const path = process.env.PATH;
     if (!path)
@@ -63,6 +75,12 @@ function detectClients(cwd) {
     if (findExecutable("windsurf") || existsSync(join(home, ".codeium", "windsurf"))) {
         found.push("windsurf");
     }
+    if (findExecutable("zcode") || existsSync(join(home, ".zcode")) || existsSync(join(cwd, ".zcode"))) {
+        found.push("zcode");
+    }
+    if (existsSync(join(home, ".agents")) || existsSync(join(cwd, ".agents"))) {
+        found.push("agents");
+    }
     return found;
 }
 const OPTIONS = {
@@ -89,7 +107,7 @@ configuration files. Existing settings and other MCP servers are preserved.
 
 Options:
   -C, --cwd <dir>            Project directory (default: current)
-      --client <name>        claude, cursor, opencode, codex, gemini, vscode, windsurf
+      --client <name>        claude, cursor, opencode, codex, gemini, vscode, windsurf, zcode, agents
                              Repeatable. Default: auto-detect installed clients
       --all                  Configure every supported client
       --global               Write user-level config instead of project config
@@ -189,6 +207,10 @@ function clientPath(id, cwd, global) {
             return global ? vscodeGlobalPath() : join(cwd, ".vscode", "mcp.json");
         case "windsurf":
             return join(homedir(), ".codeium", "windsurf", "mcp_config.json");
+        case "zcode":
+            return global ? join(homedir(), ".zcode", "cli", "config.json") : join(cwd, ".zcode", "config.json");
+        case "agents":
+            return global ? join(homedir(), ".agents", "mcp.json") : join(cwd, ".agents", "mcp.json");
     }
 }
 function npxEntry(cwd, allowWrite) {
@@ -235,6 +257,12 @@ function remoteConfig(id, entry) {
     if (id === "windsurf") {
         return { serverUrl: entry.url, ...(headers ? { headers } : {}) };
     }
+    if (id === "zcode") {
+        return { url: entry.url, ...(headers ? { headers } : {}) };
+    }
+    if (id === "agents") {
+        return { type: "http", url: entry.url, ...(headers ? { headers } : {}) };
+    }
     return { url: entry.url, ...(headers ? { headers } : {}) };
 }
 function applyJson(id, root, entry) {
@@ -243,12 +271,14 @@ function applyJson(id, root, entry) {
         case "cursor":
         case "gemini":
         case "windsurf":
+        case "agents":
             setMcpServers(root, "mcpServers", entry);
             return;
         case "vscode":
             setMcpServers(root, "servers", entry);
             return;
-        case "opencode": {
+        case "opencode":
+        case "zcode": {
             const current = root.mcp;
             const mcp = current && typeof current === "object" && !Array.isArray(current) ? current : {};
             setMcpServers(mcp, "servers", entry);

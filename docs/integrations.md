@@ -22,7 +22,7 @@ provider configured for the selected engine.
 
 ```sh
 # Works now, before the first npm release (pin the tag):
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.0.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.1.tar.gz
 oc-pilot --version
 oc-pilot mcp --version
 ```
@@ -318,6 +318,42 @@ local server to `opencode.json`:
 Keep the permission policy read-only in the calling agent. `oc-pilot` does not
 edit files, but the calling agent may have its own write tools.
 
+## ZCode (Z.ai)
+
+ZCode reads MCP servers from project `.zcode/config.json` or user
+`~/.zcode/cli/config.json`, under `mcp.servers`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "oc-pilot": {
+        "command": "oc-pilot-mcp",
+        "args": ["--cwd", "/absolute/path/to/project"]
+      }
+    }
+  }
+}
+```
+
+```sh
+oc-pilot setup --client zcode --local
+```
+
+ZCode can also import existing Claude Code, Codex, OpenCode, or `.agents` MCP
+servers from its Settings → MCP Servers → Import dialog, so one
+`oc-pilot setup` for those clients is enough.
+
+## Generic `.agents` clients
+
+The `.agents` convention uses `mcpServers` in `~/.agents/mcp.json` or
+`<project>/.agents/mcp.json`. ZCode reads it as a fallback, and other MCP-aware
+tools can share the same file:
+
+```sh
+oc-pilot setup --client agents --local
+```
+
 ## DeepSeek Harness
 
 DeepSeek Harness (`dsh`, developer preview) loads MCP servers through the
@@ -332,7 +368,7 @@ server. Add it to `~/.dsh/profiles/web/cordis.patch.yml`:
         serverName: oc_pilot
         transport: stdio
         command: npx
-        args: ['-y', 'oc-pilot@0.5.0', 'mcp', '--cwd', '/absolute/path/to/project']
+        args: ['-y', 'oc-pilot@0.5.1', 'mcp', '--cwd', '/absolute/path/to/project']
         toolCallTimeoutMs: 300000
 ```
 
@@ -402,7 +438,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.5.0
+- uses: MyNameIsNikki/oc-pilot@v0.5.1
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets

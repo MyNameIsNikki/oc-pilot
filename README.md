@@ -31,7 +31,7 @@ Agents are good at producing code and bad at reviewing their own work. A normal 
 From GitHub, pinned to a release tag (works before the first npm release):
 
 ```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.0.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.1.tar.gz
 ```
 
 From npm, once published:
@@ -225,7 +225,7 @@ Exit 1 means critical secrets were found. `--strict` also fails on warnings.
 
 ### `setup`
 
-Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, and Windsurf. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead. Generated servers start read-only; add `--allow-write` if the agent should apply patches and run tests.
+Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, Windsurf, ZCode, and any client that reads `.agents/mcp.json`. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead. Generated servers start read-only; add `--allow-write` if the agent should apply patches and run tests.
 
 ```bash
 # Project-local Claude Code config (.mcp.json)
@@ -245,7 +245,7 @@ oc-pilot setup --client claude --local \
 
 | Option | Purpose |
 | --- | --- |
-| `--client <name>` | `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`; repeatable |
+| `--client <name>` | `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`, `zcode`, `agents`; repeatable |
 | `--all` | Configure every supported client |
 | `--global` | Write user-level config (project is the default) |
 | `--local` | Force the current installation path |
@@ -260,7 +260,7 @@ oc-pilot setup --client claude --local \
 
 `setup` never writes the bearer token into a client config. It writes an `OC_PILOT_MCP_TOKEN` reference; export the secret in the environment that launches the client.
 
-`setup` writes only MCP client config. It does not install packages or change your source. With no `--client`, it detects Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, and Windsurf from installed commands and config directories.
+`setup` writes only MCP client config. It does not install packages or change your source. With no `--client`, it detects Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, Windsurf, ZCode, and `.agents` clients from installed commands and config directories.
 
 ### `doctor`
 
@@ -421,12 +421,14 @@ oc-pilot setup --client cursor --global
 
 The MCP server uses the configured engine. With `engine: "openai"` and `OC_PILOT_API_KEY` exported in the client's environment, no OpenCode installation is needed.
 
+ZCode can import existing Claude Code, Codex, OpenCode, or `.agents` MCP servers directly, or write its native config with `oc-pilot setup --client zcode`.
+
 Start the server manually with an explicit project directory:
 
 ```bash
 oc-pilot-mcp --cwd /absolute/path/to/project
 # after the npm release, pinned for reproducibility:
-npx -y oc-pilot@0.5.0 mcp --cwd /absolute/path/to/project
+npx -y oc-pilot@0.5.1 mcp --cwd /absolute/path/to/project
 ```
 
 The `diff` and `log` tool arguments are text, not file paths. `paths` and `files` are project-relative and cannot escape the project directory. `context` is literal text, not an `@file` reference. `base` must be a git ref. `lang`, `fail_on`, `repo_context`, and `no_secret_scan` are available where the corresponding CLI command supports them.
@@ -590,7 +592,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.5.0
+      - uses: MyNameIsNikki/oc-pilot@v0.5.1
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -613,7 +615,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.1.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

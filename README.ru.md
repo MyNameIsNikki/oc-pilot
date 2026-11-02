@@ -23,7 +23,7 @@ oc-pilot scan            # секреты в diff без вызова модел
 Из GitHub, с фиксацией на теге релиза (работает до первого релиза в npm):
 
 ```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.0.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.1.tar.gz
 ```
 
 Из npm, после публикации:
@@ -229,7 +229,7 @@ oc-pilot setup --client claude --local \
   --http https://oc-pilot.example.com/mcp --token "$OC_PILOT_MCP_TOKEN"
 ```
 
-Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`. Без `--client` `setup` сам находит установленные клиенты по командам и каталогам конфигов. Опции: `--all`, `--client` (повторяемый), `--global` (иначе проект), `--local` (абсолютный путь текущей установки), `--npx` (команда `npx` с закреплённой версией), `--allow-write`, `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты. Bearer-токен не записывается в конфиг: клиент читает его из `OC_PILOT_MCP_TOKEN`.
+Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`, `zcode`, `agents`. Без `--client` `setup` сам находит установленные клиенты по командам и каталогам конфигов. Опции: `--all`, `--client` (повторяемый), `--global` (иначе проект), `--local` (абсолютный путь текущей установки), `--npx` (команда `npx` с закреплённой версией), `--allow-write`, `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты. Bearer-токен не записывается в конфиг: клиент читает его из `OC_PILOT_MCP_TOKEN`.
 
 ### `doctor`
 
@@ -347,7 +347,7 @@ oc-pilot init --force
 
 ## MCP-сервер
 
-`oc-pilot-mcp` — MCP-сервер для Claude Code, Codex, Cursor, Gemini CLI и OpenCode. Он даёт агенту инструменты `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, а модель и доступ к репозиторию остаются в вашем CLI.
+`oc-pilot-mcp` — MCP-сервер для Claude Code, Codex, Cursor, Gemini CLI, OpenCode, ZCode и любых клиентов с `.agents/mcp.json`. Он даёт агенту инструменты `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, а модель и доступ к репозиторию остаются в вашем CLI.
 
 Автонастройка клиента:
 
@@ -356,12 +356,14 @@ oc-pilot setup --client claude --local
 oc-pilot setup --client cursor --global
 ```
 
+ZCode импортирует серверы из Claude Code, Codex, OpenCode и `.agents`, либо пишет нативный конфиг через `oc-pilot setup --client zcode`.
+
 Запуск вручную:
 
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # после релиза в npm, версия зафиксирована:
-npx -y oc-pilot@0.5.0 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.5.1 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -422,7 +424,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.5.0
+      - uses: MyNameIsNikki/oc-pilot@v0.5.1
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

@@ -133,6 +133,29 @@ test("setup writes OpenCode and Cursor project configs", () => {
   }
 });
 
+test("setup writes ZCode and generic .agents project configs", () => {
+  const dir = tempDir();
+  try {
+    const result = run(
+      ["setup", "--client", "zcode", "--client", "agents", "--local", "--cwd", dir],
+      dir,
+    );
+    assert.equal(result.status, 0, result.stderr);
+
+    const zcode = JSON.parse(readFileSync(join(dir, ".zcode", "config.json"), "utf8")) as {
+      mcp: { servers: Record<string, { command: string; args: string[] }> };
+    };
+    assert.equal(zcode.mcp.servers["oc-pilot"]?.command, process.execPath);
+
+    const agents = JSON.parse(readFileSync(join(dir, ".agents", "mcp.json"), "utf8")) as {
+      mcpServers: Record<string, { command: string; args: string[] }>;
+    };
+    assert.equal(agents.mcpServers["oc-pilot"]?.command, process.execPath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("setup --http builds remote config with bearer auth", () => {
   const dir = tempDir();
   try {

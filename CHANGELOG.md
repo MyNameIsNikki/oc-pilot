@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1
+
+- `setup` теперь поддерживает **ZCode** (Z.ai): project `.zcode/config.json` и global `~/.zcode/cli/config.json`, ключ `mcp.servers`.
+- Добавлен универсальный клиент `agents`: project `.agents/mcp.json` и global `~/.agents/mcp.json`, ключ `mcpServers`. Этот формат читает ZCode как fallback и другие MCP-клиенты.
+- `doctor` распознаёт ZCode и `.agents` конфиги.
+- README EN/RU и `docs/integrations.md` обновлены: Claude Code, DeepSeek Harness, ZCode, `.agents`, generic MCP.
+- 112 тестов; версия 0.5.1.
+
 ## 0.5.0
 
 - Добавлен движок `openai`: любой OpenAI-совместимый `/chat/completions` (OpenAI, DeepSeek, Groq, OpenRouter, Ollama). OpenCode больше не обязателен.
