@@ -185,7 +185,7 @@ Exit 1 means critical secrets were found. `--strict` also fails on warnings.
 
 ### `setup`
 
-Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. The same command works for Claude Code, Codex, Cursor, Gemini CLI, and OpenCode.
+Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, and Windsurf. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead.
 
 ```bash
 # Project-local Claude Code config (.mcp.json)
@@ -205,8 +205,11 @@ oc-pilot setup --client claude --local \
 
 | Option | Purpose |
 | --- | --- |
-| `--client <name>` | `claude`, `codex`, `cursor`, `gemini`, `opencode`; repeatable |
-| `--local` / `--global` | Project or user-level config |
+| `--client <name>` | `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`; repeatable |
+| `--all` | Configure every supported client |
+| `--global` | Write user-level config (project is the default) |
+| `--local` | Force the current installation path |
+| `--npx` | Force a version-pinned `npx` command |
 | `--print` | Print the config instead of writing it |
 | `--json` | JSON plan for automation |
 | `--http <url>` | Configure a remote Streamable HTTP endpoint |

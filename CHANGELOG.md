@@ -10,7 +10,7 @@
 - Добавлены `Dockerfile`, `docker-compose.yml`, `.dockerignore`; образ включает OpenCode и запускает HTTP MCP на порту 8787.
 - Добавлен Agent Skill `skills/oc-pilot/SKILL.md` и `server.json` для MCP Registry.
 - Добавлены `oc-pilot mcp`, read-only HTTP по умолчанию, `--allow-write`, проверка токена и ограничение путей; CI/CodeQL/release workflows, `SECURITY.md`, поддержка DeepSeek Harness.
-- Обновлены README, `README.ru.md`, `docs/integrations.md`; 97 тестов.
+- Обновлены README, `README.ru.md`, `docs/integrations.md`; 99 тестов.
 
 ## 0.3.0
 

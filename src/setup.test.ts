@@ -45,10 +45,10 @@ test("setup --print merges Claude config and keeps other servers", () => {
   }
 });
 
-test("setup default npx command runs the MCP subcommand", () => {
+test("setup --npx runs the MCP subcommand with a pinned version", () => {
   const dir = tempDir();
   try {
-    const result = run(["setup", "--print", "--client", "claude", "--json", "--cwd", dir], dir);
+    const result = run(["setup", "--npx", "--print", "--client", "claude", "--json", "--cwd", dir], dir);
     assert.equal(result.status, 0, result.stderr);
     const payload = JSON.parse(result.stdout) as {
       clients: Array<{ config: { mcpServers: Record<string, { command: string; args: string[] }> } }>;
@@ -58,6 +58,33 @@ test("setup default npx command runs the MCP subcommand", () => {
     assert.equal(entry?.args[0], "-y");
     assert.match(entry?.args[1] ?? "", /^oc-pilot@\d+\.\d+\.\d+$/);
     assert.equal(entry?.args[2], "mcp");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("setup defaults to this installation", () => {
+  const dir = tempDir();
+  try {
+    const result = run(["setup", "--print", "--client", "claude", "--json", "--cwd", dir], dir);
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      clients: Array<{ config: { mcpServers: Record<string, { command: string; args: string[] }> } }>;
+    };
+    const entry = payload.clients[0]?.config.mcpServers["oc-pilot"];
+    assert.equal(entry?.command, process.execPath);
+    assert.match(entry?.args[0] ?? "", /mcp\.js$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("setup rejects --local with --npx", () => {
+  const dir = tempDir();
+  try {
+    const result = run(["setup", "--local", "--npx", "--print", "--cwd", dir], dir);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /mutually exclusive/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

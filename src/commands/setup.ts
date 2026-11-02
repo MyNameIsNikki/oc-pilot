@@ -33,6 +33,7 @@ const OPTIONS: OptionSpec = {
   print: { type: "boolean" },
   force: { type: "boolean" },
   local: { type: "boolean" },
+  npx: { type: "boolean" },
   "server-command": { type: "string" },
   http: { type: "string" },
   token: { type: "string" },
@@ -53,7 +54,8 @@ Options:
       --all                  Configure every supported client
       --global               Write user-level config instead of project config
       --print                Print configs without writing files
-      --local                Use this installation (node + dist/mcp.js) instead of npx
+      --local                Use this installation (node + dist/mcp.js)
+      --npx                  Use npx -y oc-pilot@<version> mcp instead of a local path
       --server-command <cmd> Override the MCP command, e.g. oc-pilot-mcp
       --http <url>           Use a remote Streamable HTTP MCP endpoint
       --token <token>        Bearer token for --http (or OC_PILOT_MCP_TOKEN)
@@ -167,15 +169,21 @@ function clientPath(id: ClientId, cwd: string, global: boolean): string {
   }
 }
 
-function localEntry(cwd: string, options: { local: boolean; serverCommand?: string }): LocalEntry {
+function npxEntry(cwd: string): LocalEntry {
+  return { command: "npx", args: ["-y", `oc-pilot@${VERSION}`, "mcp", "--cwd", cwd] };
+}
+
+function localEntry(cwd: string, options: { local: boolean; npx?: boolean; serverCommand?: string }): LocalEntry {
   if (options.serverCommand) {
     return { command: options.serverCommand, args: ["--cwd", cwd] };
   }
-  if (options.local) {
-    const mcpPath = join(dirname(fileURLToPath(import.meta.url)), "..", "mcp.js");
-    return { command: process.execPath, args: [mcpPath, "--cwd", cwd] };
+  const self = fileURLToPath(import.meta.url);
+  const fromNpxCache = /[\\/]_npx[\\/]/.test(self);
+  if (!options.local && (options.npx || fromNpxCache)) {
+    return npxEntry(cwd);
   }
-  return { command: "npx", args: ["-y", `oc-pilot@${VERSION}`, "mcp", "--cwd", cwd] };
+  const mcpPath = join(dirname(self), "..", "mcp.js");
+  return { command: process.execPath, args: [mcpPath, "--cwd", cwd] };
 }
 
 function remoteEntry(options: { http: string; token?: string }): RemoteEntry {
@@ -256,7 +264,15 @@ function mergeToml(path: string, block: string, force: boolean): string {
 function planClient(
   id: ClientId,
   cwd: string,
-  options: { global: boolean; local: boolean; serverCommand?: string; http?: string; token?: string; force: boolean },
+  options: {
+    global: boolean;
+    local: boolean;
+    npx?: boolean;
+    serverCommand?: string;
+    http?: string;
+    token?: string;
+    force: boolean;
+  },
 ): ClientPlan {
   const path = clientPath(id, cwd, options.global);
   if (id === "codex") {
@@ -310,11 +326,16 @@ export async function runSetup(argv: string[]): Promise<number> {
   const options = {
     global: asBoolean(values, "global"),
     local: asBoolean(values, "local"),
+    npx: asBoolean(values, "npx"),
     serverCommand: asString(values, "server-command"),
     http,
     token,
     force: asBoolean(values, "force"),
   };
+
+  if (options.local && options.npx) {
+    throw new PilotError("--local and --npx are mutually exclusive", { exitCode: 2 });
+  }
 
   const plans: ClientPlan[] = [];
   for (const id of ids) plans.push(planClient(id, cwd, options));

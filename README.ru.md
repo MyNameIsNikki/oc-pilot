@@ -182,7 +182,7 @@ git diff main...HEAD | oc-pilot scan --stdin --json
 
 ### `setup`
 
-Настраивает MCP-клиент на запуск `oc-pilot-mcp`, сохраняя чужие серверы и настройки. Без `--local` используется `npx -y oc-pilot@<version> mcp`; с `--local` — текущая установка `node dist/mcp.js`.
+Настраивает MCP-клиент на запуск `oc-pilot-mcp`, сохраняя чужие серверы и настройки. По умолчанию используется текущая установка (`node dist/mcp.js`); `--npx` записывает `npx -y oc-pilot@<version> mcp`, `--local` принудительно выбирает локальный путь.
 
 ```bash
 oc-pilot setup --client claude --local
@@ -193,7 +193,7 @@ oc-pilot setup --client claude --local \
   --http https://oc-pilot.example.com/mcp --token "$OC_PILOT_TOKEN"
 ```
 
-Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`. Опции: `--all`, `--client` (повторяемый), `--local/--global`, `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты.
+Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`. Опции: `--all`, `--client` (повторяемый), `--global` (иначе проект), `--local` (абсолютный путь текущей установки), `--npx` (команда `npx` с закреплённой версией), `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты.
 
 ### `init`
 
