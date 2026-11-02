@@ -372,7 +372,11 @@ oc-pilot init
 oc-pilot init --preset node
 ```
 
-Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--force` is passed. With `--preset <id>` it also writes a curated `.oc-pilot/rules.md` for the stack: `base` (language-agnostic), `node`, `react`, `python`, or `go`. The rules file is a normal project rules file — edit it freely.
+Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--force` is passed. With `--preset <a,b>` it also writes a curated `.oc-pilot/rules.md` for the stack. One or more presets can be combined, e.g. `--preset react,security`:
+
+`base` (language-agnostic), `node`, `react`, `next`, `vue`, `svelte`, `angular`, `typescript`, `python`, `go`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby`, `security` (cross-stack hardening), `devops` (Docker, CI, infrastructure).
+
+The rules file is a normal project rules file — edit it freely.
 
 ## Common options
 
@@ -702,7 +706,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.9.0
+      - uses: MyNameIsNikki/oc-pilot@v0.10.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -725,7 +729,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.9.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.10.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

@@ -5,7 +5,7 @@ import { PilotError } from "../core/errors.js";
 import { log } from "../core/log.js";
 import { parseCommandArgs, type OptionSpec } from "../core/options.js";
 import { asBoolean, asString } from "../core/parse.js";
-import { getPreset, presetIds } from "../core/presets.js";
+import { combinePresets, getPreset, presetIds, type RulePreset } from "../core/presets.js";
 
 const OPTIONS: OptionSpec = {
   cwd: { type: "string", short: "C" },
@@ -24,7 +24,8 @@ const HELP = `Использование:
 Опции:
   -C, --cwd <dir>       Директория проекта
       --force           Перезаписать существующие файлы
-      --preset <name>   Пресет правил: ${presetIds().join(", ")}
+      --preset <a,b>    Пресет правил, можно несколько через запятую:
+                          ${presetIds().join(", ")}
       --json            Вывести пути в JSON
   -h, --help            Показать помощь
 `;
@@ -42,18 +43,23 @@ export function runInit(argv: string[]): number {
     throw new PilotError(`Директория не найдена: ${cwd}`, { exitCode: 2 });
   }
 
-  const presetId = asString(values, "preset");
-  const preset = presetId !== undefined ? getPreset(presetId) : undefined;
-  if (presetId !== undefined && !preset) {
-    throw new PilotError(`Неизвестный пресет: ${presetId}`, {
-      hint: `Доступны: ${presetIds().join(", ")}`,
-      exitCode: 2,
-    });
+  const rawPreset = asString(values, "preset");
+  let presets: RulePreset[] | undefined;
+  if (rawPreset !== undefined) {
+    const ids = rawPreset.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
+    const unknown = ids.filter((id) => getPreset(id) === undefined);
+    if (ids.length === 0 || unknown.length > 0) {
+      throw new PilotError(`Неизвестный пресет: ${unknown[0] ?? rawPreset}`, {
+        hint: `Доступны: ${presetIds().join(", ")}`,
+        exitCode: 2,
+      });
+    }
+    presets = ids.map((id) => getPreset(id)!);
   }
 
   const path = join(cwd, ".oc-pilot.json");
   const force = asBoolean(values, "force");
-  if (existsSync(path) && !force && !preset) {
+  if (existsSync(path) && !force && !presets) {
     throw new PilotError(`Конфиг уже существует: ${path}`, {
       hint: "Используйте --force для перезаписи.",
       exitCode: 2,
@@ -68,7 +74,7 @@ export function runInit(argv: string[]): number {
   }
 
   let rulesPath: string | undefined;
-  if (preset) {
+  if (presets) {
     rulesPath = join(cwd, ".oc-pilot", "rules.md");
     if (existsSync(rulesPath) && !force) {
       throw new PilotError(`Файл правил уже существует: ${rulesPath}`, {
@@ -77,8 +83,12 @@ export function runInit(argv: string[]): number {
       });
     }
     mkdirSync(join(cwd, ".oc-pilot"), { recursive: true });
-    writeFileSync(rulesPath, preset.rules, "utf8");
-    log.success(`Создан ${rulesPath} (пресет ${preset.id})`);
+    const rulesText = presets.length === 1 ? presets[0]!.rules : combinePresets(presets);
+    writeFileSync(rulesPath, rulesText, "utf8");
+    const label = presets.length === 1
+      ? `пресет ${presets[0]!.id}`
+      : `пресеты ${presets.map((preset) => preset.id).join(", ")}`;
+    log.success(`Создан ${rulesPath} (${label})`);
   }
 
   if (asBoolean(values, "json")) {
@@ -92,7 +102,7 @@ export function runInit(argv: string[]): number {
   log.detail("oc-pilot test-fix");
   log.detail('oc-pilot docgen "src/**/*.ts"');
   log.blank();
-  if (preset) {
+  if (presets) {
     log.info("Правила можно дополнять — они попадут в каждый запрос.");
   } else {
     log.info("Правила проекта: создайте .oc-pilot/rules.md (или init --preset <name>) — они попадут в каждый запрос.");

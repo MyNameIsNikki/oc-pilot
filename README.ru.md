@@ -338,7 +338,11 @@ oc-pilot init --force
 oc-pilot init --preset node
 ```
 
-Создаёт `.oc-pilot.json` с настройками по умолчанию. С `--preset <id>` дополнительно пишет готовый `.oc-pilot/rules.md` под стек: `base` (универсальный), `node`, `react`, `python` или `go`. Это обычный файл правил — дополняйте его свободно.
+Создаёт `.oc-pilot.json` с настройками по умолчанию. С `--preset <a,b>` дополнительно пишет готовый `.oc-pilot/rules.md` под стек. Пресеты можно комбинировать, например `--preset react,security`:
+
+`base` (универсальный), `node`, `react`, `next`, `vue`, `svelte`, `angular`, `typescript`, `python`, `go`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby`, `security` (сквозная безопасность), `devops` (Docker, CI, инфраструктура).
+
+Это обычный файл правил — дополняйте его свободно.
 
 ## Конфигурация
 
@@ -527,7 +531,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.9.0
+      - uses: MyNameIsNikki/oc-pilot@v0.10.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

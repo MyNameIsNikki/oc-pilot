@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0
+
+- Пресеты правил для новых стеков: к `base`, `node`, `react`, `python`, `go` добавлены `next`, `vue`, `svelte`, `angular`, `typescript`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby` плюс сквозные `security` (инъекции, авторизация, крипто, утечки) и `devops` (Dockerfile, CI-workflow, Terraform/K8s). Всего 19 пресетов.
+- Комбинации пресетов: `oc-pilot init --preset react,security` склеивает несколько пресетов в один `.oc-pilot/rules.md` (общая шапка, секции разделены линиями); неизвестный пресет в списке ломает всю команду с подсказкой доступных.
+- 195 тестов; версия 0.10.0.
+
 ## 0.9.0
 
 - Кеш ответов для `--engine openai`: повторный запрос с тем же промптом и моделью берётся из локального кеша в `.git/oc-pilot/cache/` — ноль токенов. Ключ — `sha256(model + base URL + system prompt + input)`, TTL по умолчанию 24 часа (`cacheTtlSeconds` / `OC_PILOT_CACHE_TTL`, `0` отключает), `--no-cache` обходит кеш на один запуск. Кешируются триаж роутера, основной вызов и слайсы; opencode-движок не кешируется. Новая команда `oc-pilot cache` (`--stats` / `--prune` / `--clear`); попадание видно в `meta.cache` (`hit` / `miss`). Ошибка кеша никогда не ломает ревью.

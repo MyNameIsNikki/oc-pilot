@@ -35,7 +35,8 @@ test("an unknown preset is a usage error listing the options", () => {
         assert.throws(() => runInit(["--cwd", dir, "--preset", "cobol"]), (error) => {
             assert.ok(error instanceof PilotError);
             assert.match(error.message, /Неизвестный пресет: cobol/);
-            assert.match(error.hint ?? "", /base, node, react, python, go/);
+            assert.match(error.hint ?? "", /base, node, react, next/);
+            assert.match(error.hint ?? "", /security, devops/);
             assert.equal(error.exitCode, 2);
             return true;
         });
@@ -69,6 +70,50 @@ test("a preset never overwrites an existing config without --force", () => {
         assert.equal(code, 0);
         assert.equal(readFileSync(join(dir, ".oc-pilot.json"), "utf8"), '{ "engine": "openai" }\n');
         assert.ok(existsSync(join(dir, ".oc-pilot", "rules.md")));
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("comma-separated presets combine into one rules file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-init-multi-"));
+    try {
+        const code = runInit(["--cwd", dir, "--preset", "react, security"]);
+        assert.equal(code, 0);
+        const rules = readFileSync(join(dir, ".oc-pilot", "rules.md"), "utf8");
+        assert.equal(rules.split("# Project review rules").length - 1, 1);
+        assert.ok(rules.includes("## Hooks"));
+        assert.ok(rules.includes("constant-time"));
+        assert.ok(rules.includes("\n---\n"));
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("one unknown preset in a comma list fails the whole list", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-init-multi-unknown-"));
+    try {
+        assert.throws(() => runInit(["--cwd", dir, "--preset", "react,cobol"]), (error) => {
+            assert.ok(error instanceof PilotError);
+            assert.match(error.message, /Неизвестный пресет: cobol/);
+            assert.equal(error.exitCode, 2);
+            return true;
+        });
+        assert.ok(!existsSync(join(dir, ".oc-pilot", "rules.md")));
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("stack presets beyond the original five are accepted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-init-newstack-"));
+    try {
+        for (const id of ["rust", "vue", "csharp", "devops"]) {
+            assert.equal(runInit(["--cwd", dir, "--preset", id, "--force"]), 0, id);
+            assert.ok(existsSync(join(dir, ".oc-pilot", "rules.md")), id);
+        }
+        const devops = readFileSync(join(dir, ".oc-pilot", "rules.md"), "utf8");
+        assert.ok(devops.includes(":latest"));
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
