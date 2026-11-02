@@ -79,6 +79,24 @@ test("setup defaults to this installation", () => {
   }
 });
 
+test("setup --allow-write enables write tools in the generated config", () => {
+  const dir = tempDir();
+  try {
+    const result = run(
+      ["setup", "--print", "--client", "claude", "--local", "--allow-write", "--json", "--cwd", dir],
+      dir,
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      clients: Array<{ config: { mcpServers: Record<string, { args: string[] }> } }>;
+    };
+    const args = payload.clients[0]?.config.mcpServers["oc-pilot"]?.args ?? [];
+    assert.ok(args.includes("--allow-write"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("setup rejects --local with --npx", () => {
   const dir = tempDir();
   try {

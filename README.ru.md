@@ -23,7 +23,7 @@ oc-pilot scan            # секреты в diff без вызова модел
 Из GitHub, с фиксацией на теге релиза (работает до первого релиза в npm):
 
 ```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.0.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.1.tar.gz
 ```
 
 Из npm, после публикации:
@@ -190,7 +190,7 @@ git diff main...HEAD | oc-pilot scan --stdin --json
 
 ### `setup`
 
-Настраивает MCP-клиент на запуск `oc-pilot-mcp`, сохраняя чужие серверы и настройки. По умолчанию используется текущая установка (`node dist/mcp.js`); `--npx` записывает `npx -y oc-pilot@<version> mcp`, `--local` принудительно выбирает локальный путь.
+Настраивает MCP-клиент на запуск `oc-pilot-mcp`, сохраняя чужие серверы и настройки. По умолчанию используется текущая установка (`node dist/mcp.js`); `--npx` записывает `npx -y oc-pilot@<version> mcp`, `--local` принудительно выбирает локальный путь. Сгенерированный сервер read-only; `--allow-write` разрешает агенту применять патчи и запускать тесты.
 
 ```bash
 oc-pilot setup --client claude --local
@@ -201,7 +201,7 @@ oc-pilot setup --client claude --local \
   --http https://oc-pilot.example.com/mcp --token "$OC_PILOT_TOKEN"
 ```
 
-Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`. Опции: `--all`, `--client` (повторяемый), `--global` (иначе проект), `--local` (абсолютный путь текущей установки), `--npx` (команда `npx` с закреплённой версией), `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты.
+Клиенты: `claude`, `codex`, `cursor`, `gemini`, `opencode`, `vscode`, `windsurf`. Опции: `--all`, `--client` (повторяемый), `--global` (иначе проект), `--local` (абсолютный путь текущей установки), `--npx` (команда `npx` с закреплённой версией), `--allow-write`, `--print`, `--json`, `--http`, `--token`, `--cwd`, `--force`. `setup` меняет только конфиг MCP-клиента и не устанавливает пакеты.
 
 ### `init`
 
@@ -318,7 +318,7 @@ oc-pilot setup --client cursor --global
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # после релиза в npm, версия зафиксирована:
-npx -y oc-pilot@0.4.0 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.4.1 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -334,7 +334,7 @@ npx -y oc-pilot@0.4.0 mcp --cwd "C:\path\to\project"
 }
 ```
 
-DeepSeek Harness (`dsh`) подключает сервер через `@deepseek-ai/dsh-mcp-client` в `~/.dsh/profiles/web/cordis.patch.yml`; готовый YAML для stdio и Streamable HTTP есть в [docs/integrations.md](docs/integrations.md#deepseek-harness).
+DeepSeek Harness (`dsh`) подключает сервер через `@deepseek-ai/dsh-mcp-client` в `~/.dsh/profiles/web/cordis.patch.yml`; готовый YAML для stdio и Streamable HTTP есть в [docs/integrations.md](docs/integrations.md#deepseek-harness). Для применения патчей добавьте `'--allow-write'` в `args`.
 
 ### Streamable HTTP и Docker
 
@@ -348,7 +348,7 @@ curl http://127.0.0.1:8787/health
 
 Сервер возвращает `Mcp-Session-Id` при initialize; его нужно передавать в следующих запросах. При `--token` все запросы кроме `GET /health` требуют `Authorization: Bearer <token>`. Без токена длиной от 16 символов сервер не запустится на не-loopback хосте. Для публичного доступа ставьте TLS-прокси.
 
-HTTP по умолчанию **read-only**: `fix` с `apply:true` и `test_fix`, запускающий новую команду, отклоняются. Для доверенного окружения добавьте `--allow-write` или `OC_PILOT_MCP_READ_ONLY=false`.
+MCP по умолчанию **read-only** и для stdio, и для HTTP: `fix` с `apply:true` и `test_fix`, запускающий новую команду, отклоняются. Для доверенного локального клиента или аутентифицированного окружения добавьте `--allow-write` (в `setup` — `oc-pilot setup --allow-write`) или `OC_PILOT_MCP_READ_ONLY=false`.
 
 ```bash
 export OC_PILOT_MCP_TOKEN="$(openssl rand -hex 24)"

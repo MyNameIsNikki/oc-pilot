@@ -70,7 +70,7 @@ test("MCP initialize, tools/list and tools/call work over stdio", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
-test("MCP rejects paths outside the project and writes in read-only mode", () => {
+test("MCP is read-only by default and rejects paths outside the project", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-policy-"));
     try {
         const { status, responses, stderr } = runServer(dir, [
@@ -92,7 +92,7 @@ test("MCP rejects paths outside the project and writes in read-only mode", () =>
                 method: "tools/call",
                 params: { name: "test_fix", arguments: { diff: "diff --git a/a b/a\n" } },
             },
-        ], ["--read-only"]);
+        ], []);
         assert.equal(status, 0, stderr);
         const byId = new Map(responses.map((response) => [response.id, response]));
         const pathResult = byId.get(1)?.result;

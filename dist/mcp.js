@@ -761,8 +761,8 @@ Options:
       --path <path>   HTTP endpoint path (default: /mcp)
       --token <token> Require Authorization: Bearer <token>
       --cors <origin> Add CORS headers for an origin, or *
-      --read-only     Disable fix --apply and running new tests
-      --allow-write   Allow writes over HTTP (HTTP is read-only by default)
+      --read-only     Disable fix --apply and running new tests (default)
+      --allow-write   Enable fix --apply and running new tests
   -h, --help          Show this help
       --version       Show version
 
@@ -851,7 +851,7 @@ function parseServerArgs(argv) {
     if (readOnly === true && allowWrite) {
         throw new Error("--read-only and --allow-write are mutually exclusive");
     }
-    const effectiveReadOnly = readOnly ?? (http ? !allowWrite : false);
+    const effectiveReadOnly = readOnly ?? !allowWrite;
     return {
         cwd,
         readOnly: effectiveReadOnly,

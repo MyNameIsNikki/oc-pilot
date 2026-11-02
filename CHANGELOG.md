@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- MCP-сервер теперь **read-only по умолчанию** и для stdio, и для HTTP: `fix` с `apply:true` и `test_fix`, запускающий новую команду, требуют явного `--allow-write`.
+- `oc-pilot setup --allow-write` добавляет этот флаг в конфиг клиента; без него агент получает только анализ и предложение патча.
+- Уточнены SECURITY.md, README и `docs/integrations.md`: безопасные значения по умолчанию, доверенный локальный клиент, TLS и токен для HTTP.
+- 100 тестов; версия 0.4.1.
+
 ## 0.4.0
 
 - Добавлена команда `oc-pilot setup` для Claude Code, Codex, Cursor, Gemini CLI и OpenCode: `--local/--global`, `--print`, `--json`, `--http/--token`, сохранение чужих серверов и настроек.

@@ -22,7 +22,7 @@ provider configured in OpenCode.
 
 ```sh
 # Works now, before the first npm release (pin the tag):
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.0.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.1.tar.gz
 oc-pilot --version
 oc-pilot mcp --version
 ```
@@ -120,9 +120,10 @@ oc-pilot-mcp --http --host 127.0.0.1 --port 8787 --path /mcp \
   `Authorization: Bearer <token>`.
 - Binding a non-loopback host without a token of at least 16 characters is
   refused.
-- HTTP is read-only by default: `fix` with `apply: true` and `test_fix` that
-  runs a new command are rejected. Add `--allow-write` only for a trusted
-  deployment.
+- MCP is read-only by default over both stdio and HTTP: `fix` with
+  `apply: true` and `test_fix` that runs a new command are rejected. Add
+  `--allow-write` only for a trusted client or deployment; `oc-pilot setup
+  --allow-write` writes that flag into generated client config.
 
 A minimal container:
 
@@ -301,7 +302,7 @@ server. Add it to `~/.dsh/profiles/web/cordis.patch.yml`:
         serverName: oc_pilot
         transport: stdio
         command: npx
-        args: ['-y', 'oc-pilot@0.4.0', 'mcp', '--cwd', '/absolute/path/to/project']
+        args: ['-y', 'oc-pilot@0.4.1', 'mcp', '--cwd', '/absolute/path/to/project']
         toolCallTimeoutMs: 300000
 ```
 
@@ -319,7 +320,7 @@ For a remote read-only server:
           Authorization: !!js 'Bearer ' + process.env.OC_PILOT_MCP_TOKEN
 ```
 
-Tools appear as `mcp__oc_pilot__review`, `mcp__oc_pilot__scan`,
+Add `'--allow-write'` to `args` only for a trusted local harness that should apply patches and run tests. Tools appear as `mcp__oc_pilot__review`, `mcp__oc_pilot__scan`,
 `mcp__oc_pilot__fix`, and so on. `serverName` must match
 `[A-Za-z0-9_-]{1,32}`. The config format is a preview and may change; check the
 DeepSeek Harness release notes when upgrading.

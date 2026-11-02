@@ -31,7 +31,7 @@ Agents are good at producing code and bad at reviewing their own work. A normal 
 From GitHub, pinned to a release tag (works before the first npm release):
 
 ```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.0.tar.gz
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.1.tar.gz
 ```
 
 From npm, once published:
@@ -193,7 +193,7 @@ Exit 1 means critical secrets were found. `--strict` also fails on warnings.
 
 ### `setup`
 
-Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, and Windsurf. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead.
+Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, and Windsurf. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead. Generated servers start read-only; add `--allow-write` if the agent should apply patches and run tests.
 
 ```bash
 # Project-local Claude Code config (.mcp.json)
@@ -218,6 +218,7 @@ oc-pilot setup --client claude --local \
 | `--global` | Write user-level config (project is the default) |
 | `--local` | Force the current installation path |
 | `--npx` | Force a version-pinned `npx` command |
+| `--allow-write` | Let the client apply patches and run tests |
 | `--print` | Print the config instead of writing it |
 | `--json` | JSON plan for automation |
 | `--http <url>` | Configure a remote Streamable HTTP endpoint |
@@ -355,7 +356,7 @@ Environment variables: `OC_PILOT_MODEL`, `OC_PILOT_AGENT`, `OC_PILOT_LANG`, `OC_
 
 `oc-pilot-mcp` exposes the same recipes as MCP tools over stdio. This is the recommended way to embed oc-pilot in an agent: the agent calls a tool, and no prompt needs to be copied.
 
-Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`.
+Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`. The server is read-only by default; start it with `--allow-write` to permit `fix` with `apply: true` and `test_fix` with a command.
 
 Configure a client automatically:
 
@@ -369,7 +370,7 @@ Start the server manually with an explicit project directory:
 ```bash
 oc-pilot-mcp --cwd /absolute/path/to/project
 # after the npm release, pinned for reproducibility:
-npx -y oc-pilot@0.4.0 mcp --cwd /absolute/path/to/project
+npx -y oc-pilot@0.4.1 mcp --cwd /absolute/path/to/project
 ```
 
 The `diff` and `log` tool arguments are text, not file paths. `paths` and `files` are project-relative and cannot escape the project directory. `context` is literal text, not an `@file` reference. `base` must be a git ref. `lang`, `fail_on`, `repo_context`, and `no_secret_scan` are available where the corresponding CLI command supports them.
@@ -482,7 +483,7 @@ For a remote read-only server:
           Authorization: !!js 'Bearer ' + process.env.OC_PILOT_MCP_TOKEN
 ```
 
-DeepSeek Harness labels the tools as `mcp__oc_pilot__review`, `mcp__oc_pilot__scan`, and so on.
+Add `'--allow-write'` to `args` only if the harness may apply patches and run tests. DeepSeek Harness labels the tools as `mcp__oc_pilot__review`, `mcp__oc_pilot__scan`, and so on.
 
 ### Streamable HTTP
 
@@ -495,7 +496,7 @@ oc-pilot-mcp --http --host 127.0.0.1 --port 8787 --path /mcp \
 curl http://127.0.0.1:8787/health
 ```
 
-HTTP is **read-only by default**: `scan`, `review`, `docgen`, `custom`, and patch-proposal `fix` work; `fix` with `apply: true` and `test_fix` that runs a new command are rejected. Add `--allow-write` only for a trusted, authenticated deployment. `--read-only` forces the same policy for stdio.
+MCP is **read-only by default**, over both stdio and HTTP: `scan`, `review`, `docgen`, `custom`, and patch-proposal `fix` work; `fix` with `apply: true` and `test_fix` that runs a new command are rejected. Add `--allow-write` only for a trusted local client or an authenticated deployment. `oc-pilot setup --allow-write` adds the flag to generated client config.
 
 The MCP endpoint sets `Mcp-Session-Id` on initialize. When `--token` is set, every request needs `Authorization: Bearer <token>` except `GET /health`. A non-loopback bind **refuses to start** without a token of at least 16 characters. Put a TLS-terminating reverse proxy in front of any public deployment.
 
@@ -534,7 +535,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.4.1.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

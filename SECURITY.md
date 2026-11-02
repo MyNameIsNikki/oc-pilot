@@ -23,7 +23,7 @@ Supported versions: the latest release on npm. Security fixes are released as pa
 ## MCP server
 
 - stdio is for a local client and inherits the local user's privileges.
-- HTTP is read-only by default: `fix apply` and running new test commands are rejected. Use `--allow-write` only for a trusted, authenticated deployment.
+- MCP is read-only by default for both stdio and HTTP: `fix apply` and running new test commands are rejected. Use `--allow-write` only for a trusted local client or a trusted, authenticated deployment. Generated `setup` configs stay read-only unless `--allow-write` is passed.
 - A non-loopback HTTP bind refuses to start without a token of at least 16 characters. Tokens are compared in constant time. `GET /health` is unauthenticated and returns only status, name, and version.
 - MCP path and file arguments are confined to the project directory. `context` is literal text, not an `@file` reference. `base` must be a git ref.
 - The server is single-tenant. Do not share one instance between mutually untrusted users or repositories. Run one container per trust boundary.

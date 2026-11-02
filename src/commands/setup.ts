@@ -34,6 +34,7 @@ const OPTIONS: OptionSpec = {
   force: { type: "boolean" },
   local: { type: "boolean" },
   npx: { type: "boolean" },
+  "allow-write": { type: "boolean" },
   "server-command": { type: "string" },
   http: { type: "string" },
   token: { type: "string" },
@@ -56,6 +57,7 @@ Options:
       --print                Print configs without writing files
       --local                Use this installation (node + dist/mcp.js)
       --npx                  Use npx -y oc-pilot@<version> mcp instead of a local path
+      --allow-write          Allow the agent to apply patches and run tests
       --server-command <cmd> Override the MCP command, e.g. oc-pilot-mcp
       --http <url>           Use a remote Streamable HTTP MCP endpoint
       --token <token>        Bearer token for --http (or OC_PILOT_MCP_TOKEN)
@@ -67,6 +69,7 @@ Examples:
   npx -y oc-pilot setup
   npx -y oc-pilot setup --all --local
   npx -y oc-pilot setup --client claude --client cursor
+  npx -y oc-pilot setup --client claude --local --allow-write
   npx -y oc-pilot setup --http https://oc-pilot.example.com/mcp --token "$OC_PILOT_MCP_TOKEN"
 `;
 
@@ -169,21 +172,26 @@ function clientPath(id: ClientId, cwd: string, global: boolean): string {
   }
 }
 
-function npxEntry(cwd: string): LocalEntry {
-  return { command: "npx", args: ["-y", `oc-pilot@${VERSION}`, "mcp", "--cwd", cwd] };
+function npxEntry(cwd: string, allowWrite: boolean): LocalEntry {
+  const write = allowWrite ? ["--allow-write"] : [];
+  return { command: "npx", args: ["-y", `oc-pilot@${VERSION}`, "mcp", "--cwd", cwd, ...write] };
 }
 
-function localEntry(cwd: string, options: { local: boolean; npx?: boolean; serverCommand?: string }): LocalEntry {
+function localEntry(
+  cwd: string,
+  options: { local: boolean; npx?: boolean; serverCommand?: string; allowWrite?: boolean },
+): LocalEntry {
+  const write = options.allowWrite ? ["--allow-write"] : [];
   if (options.serverCommand) {
-    return { command: options.serverCommand, args: ["--cwd", cwd] };
+    return { command: options.serverCommand, args: ["--cwd", cwd, ...write] };
   }
   const self = fileURLToPath(import.meta.url);
   const fromNpxCache = /[\\/]_npx[\\/]/.test(self);
   if (!options.local && (options.npx || fromNpxCache)) {
-    return npxEntry(cwd);
+    return npxEntry(cwd, Boolean(options.allowWrite));
   }
   const mcpPath = join(dirname(self), "..", "mcp.js");
-  return { command: process.execPath, args: [mcpPath, "--cwd", cwd] };
+  return { command: process.execPath, args: [mcpPath, "--cwd", cwd, ...write] };
 }
 
 function remoteEntry(options: { http: string; token?: string }): RemoteEntry {
@@ -268,6 +276,7 @@ function planClient(
     global: boolean;
     local: boolean;
     npx?: boolean;
+    allowWrite?: boolean;
     serverCommand?: string;
     http?: string;
     token?: string;
@@ -327,6 +336,7 @@ export async function runSetup(argv: string[]): Promise<number> {
     global: asBoolean(values, "global"),
     local: asBoolean(values, "local"),
     npx: asBoolean(values, "npx"),
+    allowWrite: asBoolean(values, "allow-write"),
     serverCommand: asString(values, "server-command"),
     http,
     token,
@@ -335,6 +345,11 @@ export async function runSetup(argv: string[]): Promise<number> {
 
   if (options.local && options.npx) {
     throw new PilotError("--local and --npx are mutually exclusive", { exitCode: 2 });
+  }
+  if (options.http && options.allowWrite) {
+    throw new PilotError("--allow-write must be set on the remote MCP server, not in client config", {
+      exitCode: 2,
+    });
   }
 
   const plans: ClientPlan[] = [];
