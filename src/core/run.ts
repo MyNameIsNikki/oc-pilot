@@ -1,15 +1,23 @@
 import { relative } from "node:path";
-import type { AnalysisFinding, CommandContext, PromptLang, Recipe, SecretFinding } from "../types.js";
+import type {
+  AnalysisFinding,
+  AnalysisResult,
+  CommandContext,
+  PromptLang,
+  Recipe,
+  SecretFinding,
+} from "../types.js";
 import { truncateDiff, truncateText } from "./diff.js";
 import { buildFileContext } from "./file-context.js";
 import { describeFindings, countFindings, parseFindings, shouldFail } from "./findings.js";
-import { buildJsonAnalysis, validateAnalysis } from "./format.js";
+import { buildJsonAnalysis, validateAnalysis, type FormatWarning } from "./format.js";
 import { DEFAULT_API_BASE_URL, normalizeBaseUrl, runOpenAiCompatible } from "./engine.js";
 import { writeOutput } from "./io.js";
 import { log } from "./log.js";
 import { runOpenCode } from "./opencode.js";
 import { buildInput, systemPromptFor } from "./prompt.js";
 import { loadRules } from "./rules.js";
+import { mergeSliceAnalyses, planDiffSlices, type SlicePlan } from "./slicing.js";
 
 const MAX_PROMPT_CHARS = 300_000;
 
@@ -37,6 +45,8 @@ function printSecretWarnings(findings: SecretFinding[], redacted: boolean): void
   }
   if (findings.length > 10) log.detail(`…и ещё ${findings.length - 10}`);
 }
+
+export { printSecretWarnings };
 
 function escapeGithub(value: string): string {
   return value.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
@@ -71,6 +81,26 @@ function dedupeFindings(findings: SecretFinding[]): SecretFinding[] {
   return [...unique.values()];
 }
 
+function buildInputFor(
+  payload: RecipePayload,
+  redacted: boolean,
+  repoContext: boolean,
+  lang: PromptLang,
+  diff: string = payload.diff,
+  context: string = payload.additionalContext,
+): string {
+  return buildInput({
+    recipe: payload.recipe,
+    projectType: payload.projectType,
+    additionalContext: context,
+    diff,
+    findings: payload.secretFindings,
+    redacted,
+    repoContext,
+    lang,
+  });
+}
+
 function enforcePromptLimit(
   payload: RecipePayload,
   redacted: boolean,
@@ -79,17 +109,7 @@ function enforcePromptLimit(
 ): string {
   let diff = payload.diff;
   let context = payload.additionalContext;
-  const build = (): string =>
-    buildInput({
-      recipe: payload.recipe,
-      projectType: payload.projectType,
-      additionalContext: context,
-      diff,
-      findings: payload.secretFindings,
-      redacted,
-      repoContext,
-      lang,
-    });
+  const build = (): string => buildInputFor(payload, redacted, repoContext, lang, diff, context);
 
   const overhead = systemPromptFor(lang).length + 80;
   let input = build();
@@ -128,7 +148,7 @@ export interface RecipeExecution {
 export async function executeRecipeDetailed(
   payload: RecipePayload,
   ctx: CommandContext,
-  options: { capture?: boolean } = {},
+  options: { capture?: boolean; slicing?: boolean } = {},
 ): Promise<RecipeExecution> {
   const scanSecrets = !payload.noSecretScan;
   const effectiveRepoContext = ctx.config.repoContext && ctx.config.engine === "opencode";
@@ -174,8 +194,49 @@ export async function executeRecipeDetailed(
   const additionalContext =
     prefixes.length > 0 ? [...prefixes, payload.additionalContext].join("\n\n") : payload.additionalContext;
   const effective: RecipePayload = { ...payload, additionalContext, secretFindings };
-  const systemPrompt = systemPromptFor(ctx.config.lang);
-  const input = enforcePromptLimit(effective, ctx.config.redactSecrets, effectiveRepoContext, ctx.config.lang);
+  const lang = ctx.config.lang;
+  const systemPrompt = systemPromptFor(lang);
+
+  // Smart slicing (engine=openai): when the diff would not fit one prompt,
+  // split it into per-file slices instead of truncating files away.
+  const overhead = systemPrompt.length + 80;
+  const rawInput = buildInputFor(effective, ctx.config.redactSecrets, effectiveRepoContext, lang);
+  let slicePlan: SlicePlan | undefined;
+  let sliceContext = "";
+
+  if (
+    rawInput.length + overhead > MAX_PROMPT_CHARS &&
+    ctx.config.engine === "openai" &&
+    options.slicing !== false &&
+    payload.recipe !== "docgen" &&
+    effective.diff.trim()
+  ) {
+    const contextBudget = Math.max(5_000, Math.floor(MAX_PROMPT_CHARS * 0.4));
+    let context = effective.additionalContext;
+    if (context.length > contextBudget) {
+      context = truncateText(context, contextBudget, { mode: "both" }).text;
+      log.warn("Дополнительный контекст обрезан, чтобы оставить место слайсам diff.");
+    }
+    const reserve = 2_000;
+    const diffBudget = Math.max(10_000, MAX_PROMPT_CHARS - overhead - context.length - reserve);
+    const plan = planDiffSlices(effective.diff, diffBudget);
+    if (plan.slices.length > 1) {
+      slicePlan = plan;
+      sliceContext = context;
+      log.info(
+        `Diff не помещается в один промпт: разбит на ${plan.slices.length} частей (умный slicing, engine=openai).`,
+      );
+    }
+  }
+
+  const input = slicePlan
+    ? enforcePromptLimit(
+        { ...effective, diff: slicePlan.slices[0]!, additionalContext: sliceContext },
+        ctx.config.redactSecrets,
+        effectiveRepoContext,
+        lang,
+      )
+    : enforcePromptLimit(effective, ctx.config.redactSecrets, effectiveRepoContext, lang);
   const fullPrompt = `${systemPrompt}\n\n=== INPUT ===\n${input}\n=== END INPUT ===`;
   const criticalSecrets = payload.secretFindings.filter((finding) => finding.severity === "critical");
   printSecretWarnings(secretFindings, ctx.config.redactSecrets);
@@ -217,7 +278,9 @@ export async function executeRecipeDetailed(
   const modelLabel = ctx.config.model ?? "модель по умолчанию";
   if (ctx.config.engine === "openai") {
     log.step(
-      `API: ${modelLabel} · ${normalizeBaseUrl(ctx.config.baseUrl) || DEFAULT_API_BASE_URL} · diff-only context`,
+      `API: ${modelLabel} · ${normalizeBaseUrl(ctx.config.baseUrl) || DEFAULT_API_BASE_URL} · diff-only context${
+        slicePlan ? ` · слайсов: ${slicePlan.slices.length}` : ""
+      }`,
     );
   } else {
     log.step(
@@ -227,28 +290,69 @@ export async function executeRecipeDetailed(
     );
   }
 
-  const analysis =
-    ctx.config.engine === "openai"
-      ? await runOpenAiCompatible({
-          systemPrompt,
-          input,
-          baseUrl: ctx.config.baseUrl,
-          apiKeyEnv: ctx.config.apiKeyEnv,
-          model: ctx.config.model,
-          timeoutMs: ctx.config.timeoutSeconds * 1000,
-        })
-      : await runOpenCode({
-          systemPrompt,
-          input,
-          cwd: ctx.cwd,
-          model: ctx.config.model,
-          agent: ctx.config.agent,
-          timeoutMs: ctx.config.timeoutSeconds * 1000,
-          verbose: ctx.flags.verbose,
-          repoContext: effectiveRepoContext,
-        });
+  let analysis: AnalysisResult;
+  let warnings: FormatWarning[];
 
-  const warnings = validateAnalysis(analysis.text, payload.recipe);
+  if (slicePlan) {
+    const responses: string[] = [];
+    const sliceWarnings: FormatWarning[] = [];
+    const seenWarnings = new Set<string>();
+    let totalDurationMs = 0;
+
+    for (let index = 0; index < slicePlan.slices.length; index += 1) {
+      const slice = slicePlan.slices[index]!;
+      const slicePayload: RecipePayload = {
+        ...effective,
+        diff: slice,
+        additionalContext: sliceContext,
+      };
+      const sliceInput = enforcePromptLimit(slicePayload, ctx.config.redactSecrets, effectiveRepoContext, lang);
+      const filesInSlice = slicePlan.filesPerSlice[index]?.length ?? 0;
+      log.info(`Слайс ${index + 1}/${slicePlan.slices.length} (файлов: ${filesInSlice})`);
+      const sliceResult = await runOpenAiCompatible({
+        systemPrompt,
+        input: sliceInput,
+        baseUrl: ctx.config.baseUrl,
+        apiKeyEnv: ctx.config.apiKeyEnv,
+        model: ctx.config.model,
+        timeoutMs: ctx.config.timeoutSeconds * 1000,
+      });
+      totalDurationMs += sliceResult.durationMs;
+      responses.push(sliceResult.text);
+      for (const warning of validateAnalysis(sliceResult.text, payload.recipe)) {
+        if (seenWarnings.has(warning.message)) continue;
+        seenWarnings.add(warning.message);
+        sliceWarnings.push(warning);
+      }
+    }
+
+    const merged = mergeSliceAnalyses(responses, lang);
+    analysis = { text: merged.text, durationMs: totalDurationMs, stderr: "" };
+    warnings = sliceWarnings;
+  } else if (ctx.config.engine === "openai") {
+    analysis = await runOpenAiCompatible({
+      systemPrompt,
+      input,
+      baseUrl: ctx.config.baseUrl,
+      apiKeyEnv: ctx.config.apiKeyEnv,
+      model: ctx.config.model,
+      timeoutMs: ctx.config.timeoutSeconds * 1000,
+    });
+    warnings = validateAnalysis(analysis.text, payload.recipe);
+  } else {
+    analysis = await runOpenCode({
+      systemPrompt,
+      input,
+      cwd: ctx.cwd,
+      model: ctx.config.model,
+      agent: ctx.config.agent,
+      timeoutMs: ctx.config.timeoutSeconds * 1000,
+      verbose: ctx.flags.verbose,
+      repoContext: effectiveRepoContext,
+    });
+    warnings = validateAnalysis(analysis.text, payload.recipe);
+  }
+
   for (const warning of warnings) {
     log.warn(`Ответ не соответствует OUTPUT SCHEMA: ${warning.message}`);
   }
@@ -278,6 +382,7 @@ export async function executeRecipeDetailed(
     rules: rules?.path ?? null,
     fileContext: fileContextCount,
     findings: countFindings(analysisFindings),
+    ...(slicePlan ? { slices: slicePlan.slices.length } : {}),
     ...payload.meta,
   };
 

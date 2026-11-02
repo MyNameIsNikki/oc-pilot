@@ -156,7 +156,7 @@ export async function runFix(argv: string[]): Promise<number> {
         meta: { source: data.source, fixRound: round },
       },
       captureCtx,
-      { capture: true },
+      { capture: true, slicing: false },
     );
 
     if (ctx.flags.dryRun) return execution.exitCode;

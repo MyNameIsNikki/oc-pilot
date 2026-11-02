@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runCommit } from "./commands/commit.js";
 import { runCustom } from "./commands/custom.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runInstallHook } from "./commands/install-hook.js";
@@ -25,6 +26,7 @@ const HANDLERS: Record<string, Handler> = {
   docgen: runDocgen,
   custom: runCustom,
   scan: runScan,
+  commit: runCommit,
   "install-hook": runInstallHook,
   restore: runRestore,
   setup: runSetup,
@@ -45,6 +47,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   docgen      Генерация GoDoc/RustDoc/JSDoc/docstrings
   custom      Свободный запрос к oc-pilot
   scan        Офлайн-поиск секретов в diff (без LLM)
+  commit      Сгенерировать commit-сообщение по staged (--apply — закоммитить)
 
   install-hook  Установить git-хуки pre-commit/pre-push (scan/review)
 
@@ -67,6 +70,7 @@ ${COMMON_HELP}
   oc-pilot test-fix --command "go test ./..."
   oc-pilot docgen "src/**/*.ts" --symbol buildPrompt
   git diff | oc-pilot scan --stdin
+  oc-pilot commit --apply
   oc-pilot custom "Найди гонки данных" --git-diff
   oc-pilot setup --all
   oc-pilot setup --client claude --http https://example.com/mcp --token "$OC_PILOT_MCP_TOKEN"
@@ -106,7 +110,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, fix, docgen, custom, scan, install-hook, restore, setup, init.",
+      hint: "Доступные команды: review, test-fix, fix, docgen, custom, scan, commit, install-hook, restore, setup, init.",
       exitCode: 2,
     });
   }

@@ -1,4 +1,4 @@
-export type Recipe = "review" | "test-fix" | "docgen" | "custom";
+export type Recipe = "review" | "test-fix" | "docgen" | "custom" | "commit";
 
 export type PromptLang = "en" | "ru";
 

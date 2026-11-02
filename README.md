@@ -131,6 +131,10 @@ oc-pilot review --engine openai --model qwen2.5-coder \
 
 The key is read from `OC_PILOT_API_KEY`, or `OPENAI_API_KEY` when the default variable name is used. Set `apiKeyEnv` to use another variable. Logs and errors never print the key. With the `openai` engine, `repoContext` is forced off and `FULL_FILE_CONTEXT` is added automatically.
 
+### Smart slicing (`openai`)
+
+When a diff is too large for a single prompt (300 000 characters), the `openai` engine does not truncate files away. Instead it groups the per-file diff blocks into slices that each fit the budget, runs one API call per slice with the same additional context, and merges the responses back into a single schema-compliant analysis (`meta.slices` shows how many calls were made). A single file whose diff exceeds the budget is sent as its own slice and only then truncated. Slicing applies to `review`, `test-fix`, `custom` and `commit --engine openai`; `fix` keeps a single prompt because it must return one patch.
+
 ## Commands
 
 ### `review`
@@ -232,6 +236,18 @@ oc-pilot scan --staged --format sarif -o oc-pilot.sarif
 ```
 
 Exit 1 means critical secrets were found. `--strict` also fails on warnings. `--format sarif` writes a SARIF 2.1.0 report (rules `oc-pilot/secret`, `oc-pilot/critical`, `oc-pilot/warning`) that GitHub Code Scanning can upload; secret previews stay redacted.
+
+### `commit`
+
+Generates a Conventional Commits message from staged changes and optionally commits it. The model also sees the last 10 commit subjects, so the message matches the project's existing style.
+
+```bash
+oc-pilot commit               # print the message
+oc-pilot commit --apply       # commit staged with the generated message
+oc-pilot commit --json        # machine-readable output
+```
+
+`--apply` works only with staged changes and is blocked (exit 3) when the diff contains critical secrets; pass `--allow-secrets` to override. With `--engine openai` an oversized diff is split into per-file slices (see Engines) and the message covers all of them.
 
 ### `install-hook`
 
@@ -641,7 +657,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.6.0
+      - uses: MyNameIsNikki/oc-pilot@v0.7.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -664,7 +680,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.6.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.7.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

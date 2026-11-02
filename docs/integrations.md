@@ -75,6 +75,12 @@ or set `engine`, `baseUrl`, and `apiKeyEnv` in `.oc-pilot.json`. Run
 The key is read from `OC_PILOT_API_KEY` or `OPENAI_API_KEY`; configure another
 variable with `--api-key-env`. Values are never printed in logs or errors.
 
+With `--engine openai`, a diff larger than one prompt (300 000 characters) is
+split into per-file slices; each slice gets its own API call and the responses
+are merged into a single analysis (`meta.slices` shows the call count). No
+files are dropped by truncation. `fix` always uses a single prompt because it
+must return one patch.
+
 `setup` preserves existing servers and unrelated settings. Use `--http` and
 `--token` to point a client at a remote server instead of a local stdio process.
 The token itself is never written to the config: the generated entry references
@@ -452,7 +458,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.6.0
+- uses: MyNameIsNikki/oc-pilot@v0.7.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets

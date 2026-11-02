@@ -108,6 +108,10 @@ oc-pilot review --engine openai --model qwen2.5-coder \
 
 Ключ читается из `OC_PILOT_API_KEY` или `OPENAI_API_KEY`; переменную можно переименовать через `--api-key-env` / `apiKeyEnv`. Ключ не попадает в логи и ошибки.
 
+### Умный slicing (`openai`)
+
+Когда diff не помещается в один промпт (300 000 символов), движок `openai` не отбрасывает файлы усечением. Вместо этого блоки diff по файлам группируются в слайсы, каждый укладывается в бюджет; на каждый слайс делается отдельный вызов API с тем же дополнительным контекстом, ответы склеиваются в один анализ по OUTPUT SCHEMA (количество вызовов видно в `meta.slices`). Файл, чей diff больше бюджета, уходит отдельным слайсом и усекается только тогда. Slicing работает для `review`, `test-fix`, `custom` и `commit --engine openai`; `fix` всегда шлёт один промпт, потому что должен вернуть единый патч.
+
 ## Команды
 
 ### `review`
@@ -220,6 +224,18 @@ oc-pilot scan --staged --format sarif -o oc-pilot.sarif
 ```
 
 Код возврата `1` при critical-находках (или при любых с `--strict`), `0` — чисто, `--no-fail` — всегда `0`. `--format sarif` пишет отчёт SARIF 2.1.0 (правила `oc-pilot/secret`, `oc-pilot/critical`, `oc-pilot/warning`), который загружается в GitHub Code Scanning; превью секретов остаются замаскированными.
+
+### `commit`
+
+Генерирует commit-сообщение в формате Conventional Commits по staged-изменениям и опционально коммитит. Модель видит последние 10 commit-сообщений проекта и подстраивается под их стиль.
+
+```bash
+oc-pilot commit               # вывести сообщение
+oc-pilot commit --apply       # закоммитить staged с готовым сообщением
+oc-pilot commit --json        # машиночитаемый вывод
+```
+
+`--apply` работает только со staged и блокируется (код `3`) при critical-секретах в diff; `--allow-secrets` снимает блокировку. С `--engine openai` большой diff разбивается на слайсы (см. «Движки»), сообщение покрывает все файлы.
 
 ### `install-hook`
 
@@ -467,7 +483,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.6.0
+      - uses: MyNameIsNikki/oc-pilot@v0.7.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

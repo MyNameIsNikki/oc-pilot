@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+
+- Умный slicing для `--engine openai`: diff больше одного промпта (300 000 символов) не усекается, а разбивается на слайсы по файлам (`planDiffSlices`), на каждый слайс — отдельный вызов API, ответы склеиваются в один анализ по OUTPUT SCHEMA (`mergeSliceAnalyses`); количество вызовов — в `meta.slices`. Файл больше бюджета уходит отдельным слайсом и усекается последним. Работает для `review`, `test-fix`, `custom`; `fix` и `docgen` всегда шлют один промпт.
+- Новая команда `oc-pilot commit`: генерирует commit-сообщение в формате Conventional Commits по staged-изменениям (по умолчанию staged), видит последние 10 commit-сообщений проекта. `--apply` коммитит (`git commit -F -`), блокируется при critical-секретах (код `3`), `--allow-secrets` снимает блокировку; `--json` отдаёт структуру. Сообщение очищается от markdown-обёрток и control-символов (`sanitizeCommitMessage`).
+- Рецепт `commit` в системном промпте (RU/EN): только сырое commit-сообщение, типы feat/fix/docs/…, subject <= 72 символов в повелительном наклонении; `validateAnalysis` для `commit` не проверяет OUTPUT SCHEMA.
+- 153 теста; версия 0.7.0.
+
 ## 0.6.0
 
 - `oc-pilot install-hook`: нативные git-хуки pre-commit (`scan --staged`) и опциональный pre-push (`review --fail-on critical --fail-on-secrets`) на чистом POSIX sh, без husky. `--uninstall`, `--force` (чужой хук сохраняется как `.oc-pilot.bak`), `--pre-push`, разовый пропуск через `OC_PILOT_SKIP=1`; учитывает `core.hooksPath` и worktrees.

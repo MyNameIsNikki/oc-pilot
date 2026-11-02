@@ -6,6 +6,7 @@ export interface FormatWarning {
 }
 
 export function validateAnalysis(text: string, recipe: Recipe): FormatWarning[] {
+  if (recipe === "commit") return [];
   if (
     recipe === "review" &&
     /^LGTM:\s*(?:критических проблем не обнаружено|no critical issues found)\.?\s*$/im.test(text)

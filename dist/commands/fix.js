@@ -133,7 +133,7 @@ export async function runFix(argv) {
             changedFiles: data.changedFiles,
             noSecretScan: asBoolean(values, "no-secret-scan"),
             meta: { source: data.source, fixRound: round },
-        }, captureCtx, { capture: true });
+        }, captureCtx, { capture: true, slicing: false });
         if (ctx.flags.dryRun)
             return execution.exitCode;
         if (!execution.analysis) {
