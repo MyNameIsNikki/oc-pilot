@@ -1,0 +1,19 @@
+# oc-pilot hooks for the pre-commit framework (https://pre-commit.com)
+# Repo: https://github.com/MyNameIsNikki/oc-pilot
+# Requires oc-pilot to be installed and on PATH (language: system).
+
+- id: oc-pilot-secrets
+  name: oc-pilot secrets scan
+  description: Block commits with critical secrets in staged changes.
+  entry: oc-pilot scan --staged
+  language: system
+  pass_filenames: false
+  stages: [pre-commit]
+
+- id: oc-pilot-review
+  name: oc-pilot review
+  description: Review staged changes with a model; fail on critical findings.
+  entry: oc-pilot review --staged --fail-on critical --fail-on-secrets
+  language: system
+  pass_filenames: false
+  stages: [pre-commit]

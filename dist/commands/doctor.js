@@ -6,13 +6,18 @@ import { asBoolean } from "../core/parse.js";
 import { DEFAULT_API_KEY_ENV, isLoopbackUrl, normalizeBaseUrl, } from "../core/engine.js";
 import { detectTestCommand } from "../core/project.js";
 import { parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
+import { cacheStats, pruneCache } from "../core/cache.js";
+import { HOOK_MARKER, installHook, resolveHooksDir } from "./install-hook.js";
 import { VERSION } from "../version.js";
-const OPTIONS = withCommon({});
+const OPTIONS = withCommon({
+    fix: { type: "boolean" },
+});
 const HELP = `Usage:
   oc-pilot doctor [options]
 
 Checks the local setup without calling a model: Node.js, git, the selected
-engine, credentials, test discovery, and MCP client configuration.
+engine, credentials, test discovery, MCP client configuration, git hooks,
+and the response cache.
 
 Options:
   -C, --cwd <dir>       Project directory (default: current)
@@ -22,12 +27,14 @@ Options:
       --api-key-env <n> Environment variable that stores the API key
   -m, --model <id>      Model to verify in the selected engine
       --strict          Exit 1 on warnings as well as errors
+      --fix             Refresh outdated oc-pilot hooks and prune expired cache
       --json            Machine-readable report
   -h, --help            Show this help
 
 Examples:
   oc-pilot doctor
   oc-pilot doctor --engine openai --model deepseek-chat
+  oc-pilot doctor --fix
   oc-pilot doctor --json
 `;
 function major(version) {
@@ -250,6 +257,140 @@ function checkGit(cwd) {
         },
     ];
 }
+function checkHooks(cwd, fix) {
+    const checks = [];
+    let hooksDir;
+    try {
+        hooksDir = resolveHooksDir(cwd);
+    }
+    catch {
+        hooksDir = undefined;
+    }
+    if (!hooksDir) {
+        checks.push({
+            id: "hooks",
+            status: "info",
+            title: "Git hooks directory not found",
+            detail: "Not a git repository or git is unavailable.",
+        });
+        return checks;
+    }
+    let sawAnyHook = false;
+    for (const kind of ["pre-commit", "pre-push"]) {
+        const hookPath = join(hooksDir, kind);
+        if (!existsSync(hookPath))
+            continue;
+        sawAnyHook = true;
+        let content = "";
+        try {
+            content = readFileSync(hookPath, "utf8");
+        }
+        catch {
+            // Unreadable hook: treat as foreign.
+        }
+        if (content.includes(HOOK_MARKER)) {
+            checks.push({
+                id: "hooks",
+                status: "ok",
+                title: `${kind} hook: oc-pilot (managed)`,
+                detail: hookPath,
+            });
+            continue;
+        }
+        if (content.includes("oc-pilot hook")) {
+            if (fix) {
+                // force=true backs the outdated file up as <name>.oc-pilot.bak and rewrites it.
+                installHook(cwd, kind, true);
+                checks.push({
+                    id: "hooks",
+                    status: "ok",
+                    title: `${kind} hook refreshed to the current format`,
+                    detail: hookPath,
+                });
+            }
+            else {
+                checks.push({
+                    id: "hooks",
+                    status: "warn",
+                    title: `${kind} hook uses an outdated oc-pilot format`,
+                    detail: hookPath,
+                    fix: "oc-pilot doctor --fix",
+                });
+            }
+            continue;
+        }
+        checks.push({
+            id: "hooks",
+            status: "warn",
+            title: `${kind} hook belongs to another tool`,
+            detail: hookPath,
+            fix: "oc-pilot install-hook --force (backs up the existing hook)",
+        });
+    }
+    if (!sawAnyHook) {
+        checks.push({
+            id: "hooks",
+            status: "info",
+            title: "oc-pilot hooks are not installed",
+            detail: "Optional: a pre-commit secret gate and a pre-push review.",
+            fix: "oc-pilot install-hook",
+        });
+    }
+    return checks;
+}
+function checkCache(cwd, fix) {
+    const stats = cacheStats(cwd);
+    if (!stats) {
+        return [
+            {
+                id: "cache",
+                status: "info",
+                title: "Response cache disabled",
+                detail: "The cache lives in .git/oc-pilot/cache and requires a git repository.",
+            },
+        ];
+    }
+    if (fix && stats.expired > 0) {
+        const removed = pruneCache(cwd);
+        return [
+            {
+                id: "cache",
+                status: "ok",
+                title: `Response cache: pruned ${removed} expired ${removed === 1 ? "entry" : "entries"}`,
+                detail: `${Math.max(stats.entries - removed, 0)} entries left in .git/oc-pilot/cache`,
+            },
+        ];
+    }
+    if (stats.expired > 0) {
+        return [
+            {
+                id: "cache",
+                status: "warn",
+                title: `Response cache: ${stats.expired} expired ${stats.expired === 1 ? "entry" : "entries"}`,
+                detail: `${stats.entries} entries, ${Math.round(stats.bytes / 1024)} KB in .git/oc-pilot/cache`,
+                fix: "oc-pilot doctor --fix",
+            },
+        ];
+    }
+    if (stats.entries === 0) {
+        return [
+            {
+                id: "cache",
+                status: "info",
+                title: "Response cache is empty",
+                detail: "engine=openai responses are cached in .git/oc-pilot/cache.",
+            },
+        ];
+    }
+    return [
+        {
+            id: "cache",
+            status: "ok",
+            title: `Response cache: ${stats.entries} entries`,
+            detail: `${Math.round(stats.bytes / 1024)} KB in .git/oc-pilot/cache`,
+        },
+    ];
+}
 export async function runDoctor(argv) {
     const { values } = parseCommandArgs(argv, OPTIONS);
     if (asBoolean(values, "help")) {
@@ -296,6 +437,9 @@ export async function runDoctor(argv) {
         title: existsSync(rules) ? "Project rules found" : "No project rules (optional)",
         detail: existsSync(rules) ? rules : "Add .oc-pilot/rules.md to teach the reviewer your conventions.",
     });
+    const fix = asBoolean(values, "fix");
+    checks.push(...checkHooks(ctx.cwd, fix));
+    checks.push(...checkCache(ctx.cwd, fix));
     const summary = {
         ok: checks.filter((check) => check.status === "ok").length,
         warn: checks.filter((check) => check.status === "warn").length,

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { ConfigOverrides, Engine, FailOn, LoadedConfig, PromptLang, ResolvedConfig } from "../types.js";
+import { DEFAULT_CACHE_TTL_SECONDS } from "./cache.js";
 import { parseBaseUrl, parseEngine } from "./engine.js";
 import { PilotError } from "./errors.js";
 import { parseFailOn } from "./findings.js";
@@ -20,6 +21,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   repoContext: true,
   failOn: "none",
   lang: "en",
+  cacheTtlSeconds: DEFAULT_CACHE_TTL_SECONDS,
 };
 
 interface LoadOptions {
@@ -84,6 +86,14 @@ function optionalPositiveInt(value: unknown, name: string): number | undefined {
   return value;
 }
 
+function optionalNonNegativeInt(value: unknown, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new PilotError(`Поле ${name} в конфиге должно быть целым числом >= 0`);
+  }
+  return value;
+}
+
 function optionalFailOn(value: unknown, name: string): FailOn | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string" || value.trim() === "") {
@@ -143,6 +153,7 @@ function fromFile(file: string): Partial<ResolvedConfig> {
     "lang",
     "routerEnabled",
     "routerModel",
+    "cacheTtlSeconds",
   ]);
 
   for (const key of Object.keys(data)) {
@@ -167,6 +178,7 @@ function fromFile(file: string): Partial<ResolvedConfig> {
     lang: optionalLang(data.lang, "lang"),
     routerEnabled: optionalBoolean(data.routerEnabled, "routerEnabled"),
     routerModel: optionalString(data.routerModel, "routerModel"),
+    cacheTtlSeconds: optionalNonNegativeInt(data.cacheTtlSeconds, "cacheTtlSeconds"),
   };
 }
 
@@ -176,6 +188,16 @@ function envPositiveInt(name: string): number | undefined {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new PilotError(`Переменная окружения ${name} должна быть положительным целым числом`);
+  }
+  return value;
+}
+
+function envNonNegativeInt(name: string): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new PilotError(`Переменная окружения ${name} должна быть целым числом >= 0`);
   }
   return value;
 }
@@ -237,6 +259,7 @@ function fromEnv(): Partial<ResolvedConfig> {
     lang: envLang(),
     routerEnabled: envBoolean("OC_PILOT_ROUTER"),
     routerModel: process.env.OC_PILOT_ROUTER_MODEL?.trim() || undefined,
+    cacheTtlSeconds: envNonNegativeInt("OC_PILOT_CACHE_TTL"),
   };
 }
 
@@ -293,6 +316,7 @@ export function configTemplate(): string {
       lang: DEFAULT_CONFIG.lang,
       routerEnabled: false,
       routerModel: "gpt-4.1-mini",
+      cacheTtlSeconds: DEFAULT_CACHE_TTL_SECONDS,
     },
     null,
     2,

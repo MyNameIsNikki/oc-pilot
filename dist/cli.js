@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runCache } from "./commands/cache.js";
 import { runCommit } from "./commands/commit.js";
 import { runCustom } from "./commands/custom.js";
 import { runDoctor } from "./commands/doctor.js";
@@ -26,6 +27,7 @@ const HANDLERS = {
     commit: runCommit,
     "install-hook": runInstallHook,
     restore: runRestore,
+    cache: runCache,
     setup: runSetup,
     doctor: runDoctor,
     mcp: runMcp,
@@ -48,6 +50,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   install-hook  Установить git-хуки pre-commit/pre-push (scan/review)
 
   restore     Восстановить рабочее дерево из снимка fix --apply
+  cache       Кеш ответов движка: --stats, --prune, --clear
   setup       Установить MCP-сервер в Claude Code, Cursor, OpenCode, Codex, Gemini, DeepSeek Harness, VS Code
   doctor      Проверить установку, движок, ключи, git и MCP-конфиги
   mcp         Запустить MCP-сервер (stdio или --http)
@@ -102,7 +105,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, fix, docgen, custom, scan, commit, install-hook, restore, setup, init.",
+            hint: "Доступные команды: review, test-fix, fix, docgen, custom, scan, commit, install-hook, restore, cache, setup, init.",
             exitCode: 2,
         });
     }

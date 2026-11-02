@@ -1,10 +1,13 @@
 import { asBoolean, asString } from "../core/parse.js";
 import { describeDiffSource, loadDiff } from "../core/diff-source.js";
+import { filterFindings, loadBaseline, writeBaseline } from "../core/baseline.js";
+import { runGit } from "../core/git.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
 import { detectProjectType } from "../core/project.js";
 import { parseFindings } from "../core/findings.js";
 import { executeRecipe, executeRecipeDetailed } from "../core/run.js";
+import { buildPrCommentBody, postPrComment } from "../core/pr-comment.js";
 import { analysisFindingsToSarifResults, buildSarif } from "../core/sarif.js";
 import { writeOutput } from "../core/io.js";
 const OPTIONS = withCommon({
@@ -20,6 +23,9 @@ const OPTIONS = withCommon({
     router: { type: "boolean" },
     "no-router": { type: "boolean" },
     "router-model": { type: "string" },
+    baseline: { type: "boolean" },
+    "update-baseline": { type: "boolean" },
+    pr: { type: "boolean" },
 });
 const HELP = `Использование:
   oc-pilot review [пути...] [опции]
@@ -40,6 +46,9 @@ const HELP = `Использование:
       --router              двухфазный роутинг: дешёвый триаж перед ревью (openai)
       --no-router           отключить роутинг, включённый в конфиге
       --router-model <m>    модель триажа (по умолчанию routerModel из конфига)
+      --baseline            фильтровать известные находки из .oc-pilot/baseline.json
+      --update-baseline     записать текущие находки в baseline и выйти (код 0)
+      --pr                  отправить сводку комментарием в PR (нужен gh)
 ${COMMON_HELP}
 
 Примеры:
@@ -49,6 +58,9 @@ ${COMMON_HELP}
   git diff | oc-pilot review --stdin
   oc-pilot review src/wallet.go --context "User.Balance не может быть отрицательным"
   oc-pilot review --base main --format sarif -o oc-pilot.sarif
+  oc-pilot review --staged --baseline --fail-on critical
+  oc-pilot review --staged --update-baseline
+  oc-pilot review --base main --pr
 `;
 export async function runReview(argv) {
     const { values, positionals } = parseCommandArgs(argv, OPTIONS);
@@ -73,6 +85,13 @@ export async function runReview(argv) {
     if (userContext && userContext.trim()) {
         parts.push(`USER_CONTEXT:\n${userContext.trim()}`);
     }
+    const updateBaseline = asBoolean(values, "update-baseline");
+    const prWanted = asBoolean(values, "pr");
+    const baselineWanted = asBoolean(values, "baseline") || updateBaseline;
+    const baseline = baselineWanted ? loadBaseline(ctx.cwd) : undefined;
+    if (asBoolean(values, "baseline") && baseline && baseline.count === 0) {
+        log.warn("Baseline пуст или не найден (.oc-pilot/baseline.json).");
+    }
     const payload = {
         recipe: "review",
         projectType: detectProjectType(ctx.cwd, data.changedFiles),
@@ -82,6 +101,7 @@ export async function runReview(argv) {
         changedFiles: data.changedFiles,
         failOnSecrets: asBoolean(values, "fail-on-secrets"),
         noSecretScan: asBoolean(values, "no-secret-scan"),
+        baseline: baseline ? [...baseline.fingerprints] : undefined,
         meta: { source: data.source },
     };
     // Two-phase routing resolution: flag > no-flag > config > disabled.
@@ -92,18 +112,39 @@ export async function runReview(argv) {
             ? false
             : ctx.config.routerEnabled ?? false;
     const routerOptions = { enabled: routerEnabled, model: routerModel };
-    if (ctx.flags.format !== "sarif") {
+    if (ctx.flags.format !== "sarif" && !updateBaseline && !prWanted) {
         return executeRecipe(payload, ctx, { router: routerOptions });
     }
-    const captureCtx = { ...ctx, flags: { ...ctx.flags, json: false, output: undefined } };
-    const execution = await executeRecipeDetailed(payload, captureCtx, { capture: true, router: routerOptions });
+    const capture = ctx.flags.format === "sarif";
+    const runCtx = capture ? { ...ctx, flags: { ...ctx.flags, json: false, output: undefined } } : ctx;
+    const execution = await executeRecipeDetailed(payload, runCtx, { capture, router: routerOptions });
     if (ctx.flags.dryRun)
         return execution.exitCode;
-    const analysisFindings = execution.analysis ? parseFindings(execution.analysis) : [];
-    const sarif = buildSarif(analysisFindingsToSarifResults(analysisFindings, ctx.cwd));
-    const path = writeOutput(JSON.stringify(sarif, null, 2), ctx.flags.output);
-    if (path)
-        log.success(`SARIF записан: ${path}`);
+    const rawFindings = execution.analysis ? parseFindings(execution.analysis) : [];
+    if (updateBaseline) {
+        const written = writeBaseline(ctx.cwd, rawFindings);
+        log.success(`Baseline обновлён: находок ${written.count} → ${written.path}`);
+        return 0;
+    }
+    let findings = rawFindings;
+    let knownHidden = 0;
+    if (baseline && baseline.count > 0) {
+        const filtered = filterFindings(rawFindings, baseline.fingerprints);
+        findings = filtered.kept;
+        knownHidden = filtered.knownCount;
+    }
+    if (capture) {
+        const sarif = buildSarif(analysisFindingsToSarifResults(findings, ctx.cwd));
+        const path = writeOutput(JSON.stringify(sarif, null, 2), ctx.flags.output);
+        if (path)
+            log.success(`SARIF записан: ${path}`);
+    }
+    if (prWanted) {
+        const shaResult = runGit(["rev-parse", "HEAD"], ctx.cwd);
+        const sha = shaResult.status === 0 ? shaResult.stdout.trim() : "";
+        postPrComment(buildPrCommentBody(findings, { sha, knownHidden }), ctx.cwd);
+        log.success("Комментарий отправлен в PR.");
+    }
     return execution.exitCode;
 }
 //# sourceMappingURL=review.js.map

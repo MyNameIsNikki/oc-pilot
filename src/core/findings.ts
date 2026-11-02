@@ -49,6 +49,36 @@ function stripMarkdown(value: string): string {
  * Actions`) section of an analysis response. The output schema is intentionally
  * simple, but models vary in spacing and emphasis, so the parser is permissive.
  */
+/** Parses a single findings bullet; returns undefined for non-finding lines. */
+export function parseFindingBullet(line: string): AnalysisFinding | undefined {
+  const bullet = /^\s*[-*]\s+(.+)$/.exec(line);
+  if (!bullet) return undefined;
+
+  const body = bullet[1]!.trim();
+  const severity = detectSeverity(body);
+  if (!severity) return undefined;
+
+  const locationMatch = /`([^`]+)`/.exec(body);
+  const location = locationMatch ? locationMatch[1]!.trim() : undefined;
+
+  let rawText = body;
+  if (locationMatch) rawText = rawText.replace(locationMatch[0], "");
+  let text = stripMarkdown(rawText);
+  text = text
+    .replace(/^🔴\s*/, "")
+    .replace(/^🟡\s*/, "")
+    .replace(/^🔵\s*/, "")
+    .replace(
+      /^(?:critical|warning|style|note|критич\w*|предупрежд\w*|стиль)(?:\s*\/\s*(?:critical|warning|style|note|критич\w*|предупрежд\w*|стиль))?\s*[:—-]?\s*/i,
+      "",
+    )
+    .replace(/^\/\s*/, "")
+    .replace(/^[:\s—-]+/, "")
+    .trim();
+
+  return { severity, location, text: text || "замечание без описания" };
+}
+
 export function parseFindings(markdown: string): AnalysisFinding[] {
   const normalized = markdown.replace(/\r\n?/g, "\n");
   if (/LGTM:\s*(?:критических проблем не обнаружено|no critical issues found)/i.test(normalized)) return [];
@@ -64,32 +94,8 @@ export function parseFindings(markdown: string): AnalysisFinding[] {
 
   const findings: AnalysisFinding[] = [];
   for (const line of section.split("\n")) {
-    const bullet = /^\s*[-*]\s+(.+)$/.exec(line);
-    if (!bullet) continue;
-
-    const body = bullet[1]!.trim();
-    const severity = detectSeverity(body);
-    if (!severity) continue;
-
-    const locationMatch = /`([^`]+)`/.exec(body);
-    const location = locationMatch ? locationMatch[1]!.trim() : undefined;
-
-    let rawText = body;
-    if (locationMatch) rawText = rawText.replace(locationMatch[0], "");
-    let text = stripMarkdown(rawText);
-    text = text
-      .replace(/^🔴\s*/, "")
-      .replace(/^🟡\s*/, "")
-      .replace(/^🔵\s*/, "")
-      .replace(
-        /^(?:critical|warning|style|note|критич\w*|предупрежд\w*|стиль)(?:\s*\/\s*(?:critical|warning|style|note|критич\w*|предупрежд\w*|стиль))?\s*[:—-]?\s*/i,
-        "",
-      )
-      .replace(/^\/\s*/, "")
-      .replace(/^[:\s—-]+/, "")
-      .trim();
-
-    findings.push({ severity, location, text: text || "замечание без описания" });
+    const finding = parseFindingBullet(line);
+    if (finding) findings.push(finding);
   }
 
   return findings;

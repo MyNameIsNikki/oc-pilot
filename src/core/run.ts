@@ -7,11 +7,13 @@ import type {
   Recipe,
   SecretFinding,
 } from "../types.js";
+import { filterAnalysisText, filterFindings } from "./baseline.js";
+import { cachedRunOpenAi, DEFAULT_CACHE_TTL_SECONDS } from "./cache.js";
 import { truncateDiff, truncateText } from "./diff.js";
 import { buildFileContext } from "./file-context.js";
 import { describeFindings, countFindings, parseFindings, shouldFail } from "./findings.js";
 import { buildJsonAnalysis, validateAnalysis, type FormatWarning } from "./format.js";
-import { DEFAULT_API_BASE_URL, normalizeBaseUrl, runOpenAiCompatible } from "./engine.js";
+import { DEFAULT_API_BASE_URL, normalizeBaseUrl } from "./engine.js";
 import { writeOutput } from "./io.js";
 import { log } from "./log.js";
 import { runOpenCode } from "./opencode.js";
@@ -37,6 +39,8 @@ export interface RecipePayload {
   changedFiles: string[];
   failOnSecrets?: boolean;
   noSecretScan?: boolean;
+  /** Baseline fingerprints: findings matching them are filtered out. */
+  baseline?: string[];
   meta?: Record<string, unknown>;
 }
 
@@ -288,6 +292,8 @@ export async function executeRecipeDetailed(
     return { exitCode: 0 };
   }
 
+  const cacheTtl = ctx.flags.noCache ? 0 : (ctx.config.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS);
+
   // Two-phase routing (engine=openai, recipe=review): a fast triage model
   // decides whether the main review call is needed at all. Any triage
   // failure or unparsable answer falls back to the full review.
@@ -302,13 +308,15 @@ export async function executeRecipeDetailed(
   if (routerWanted) {
     const routerModel = options.router?.model ?? ctx.config.routerModel ?? ctx.config.model;
     try {
-      const triage = await runOpenAiCompatible({
+      const triage = await cachedRunOpenAi({
         systemPrompt: TRIAGE_SYSTEM_PROMPT,
         input,
         baseUrl: ctx.config.baseUrl,
         apiKeyEnv: ctx.config.apiKeyEnv,
         model: routerModel,
         timeoutMs: ctx.config.timeoutSeconds * 1000,
+        cwd: ctx.cwd,
+        ttlSeconds: cacheTtl,
       });
       const decision = parseTriageDecision(triage.text);
       routerMeta = { model: routerModel ?? null, decision, durationMs: triage.durationMs };
@@ -348,6 +356,7 @@ export async function executeRecipeDetailed(
 
   let analysis: AnalysisResult;
   let warnings: FormatWarning[];
+  let cacheStatus: "hit" | "miss" | undefined;
 
   if (routerMeta?.decision === "lgtm") {
     analysis = { text: lgtmText(lang), durationMs: Number(routerMeta.durationMs ?? 0), stderr: "" };
@@ -368,14 +377,18 @@ export async function executeRecipeDetailed(
       const sliceInput = enforcePromptLimit(slicePayload, ctx.config.redactSecrets, effectiveRepoContext, lang);
       const filesInSlice = slicePlan.filesPerSlice[index]?.length ?? 0;
       log.info(`Слайс ${index + 1}/${slicePlan.slices.length} (файлов: ${filesInSlice})`);
-      const sliceResult = await runOpenAiCompatible({
+      const sliceResult = await cachedRunOpenAi({
         systemPrompt,
         input: sliceInput,
         baseUrl: ctx.config.baseUrl,
         apiKeyEnv: ctx.config.apiKeyEnv,
         model: ctx.config.model,
         timeoutMs: ctx.config.timeoutSeconds * 1000,
+        cwd: ctx.cwd,
+        ttlSeconds: cacheTtl,
       });
+      if (sliceResult.cached) cacheStatus = "hit";
+      else if (!cacheStatus) cacheStatus = "miss";
       totalDurationMs += sliceResult.durationMs;
       responses.push(sliceResult.text);
       for (const warning of validateAnalysis(sliceResult.text, payload.recipe)) {
@@ -389,14 +402,18 @@ export async function executeRecipeDetailed(
     analysis = { text: merged.text, durationMs: totalDurationMs, stderr: "" };
     warnings = sliceWarnings;
   } else if (ctx.config.engine === "openai") {
-    analysis = await runOpenAiCompatible({
+    const result = await cachedRunOpenAi({
       systemPrompt,
       input,
       baseUrl: ctx.config.baseUrl,
       apiKeyEnv: ctx.config.apiKeyEnv,
       model: ctx.config.model,
       timeoutMs: ctx.config.timeoutSeconds * 1000,
+      cwd: ctx.cwd,
+      ttlSeconds: cacheTtl,
     });
+    analysis = result;
+    cacheStatus = result.cached ? "hit" : "miss";
     warnings = validateAnalysis(analysis.text, payload.recipe);
   } else {
     analysis = await runOpenCode({
@@ -416,7 +433,19 @@ export async function executeRecipeDetailed(
     log.warn(`Ответ не соответствует OUTPUT SCHEMA: ${warning.message}`);
   }
 
-  const analysisFindings: AnalysisFinding[] = parseFindings(analysis.text);
+  let analysisFindings: AnalysisFinding[] = parseFindings(analysis.text);
+  let outputText = analysis.text;
+  let baselineMeta: { baseline: { known: number; total: number } } | undefined;
+  if (payload.baseline && payload.baseline.length > 0) {
+    const known = new Set(payload.baseline);
+    const { kept, knownCount } = filterFindings(analysisFindings, known);
+    if (knownCount > 0) {
+      analysisFindings = kept;
+      outputText = filterAnalysisText(analysis.text, known);
+      baselineMeta = { baseline: { known: knownCount, total: knownCount + kept.length } };
+      log.info(`Baseline: скрыто известных находок: ${knownCount}.`);
+    }
+  }
   if (analysisFindings.length > 0) log.info(`Замечания: ${describeFindings(analysisFindings)}`);
   if (ctx.flags.github) {
     for (const annotation of githubAnnotations(analysisFindings, ctx.cwd)) {
@@ -443,16 +472,18 @@ export async function executeRecipeDetailed(
     findings: countFindings(analysisFindings),
     ...(slicePlan ? { slices: slicePlan.slices.length } : {}),
     ...(routerMeta ? { router: routerMeta } : {}),
+    ...(cacheStatus ? { cache: cacheStatus } : {}),
+    ...(baselineMeta ? baselineMeta : {}),
     ...payload.meta,
   };
 
   if (!options.capture) {
     if (ctx.flags.json) {
-      const json = buildJsonAnalysis(analysis.text, secretFindings, meta, analysisFindings);
+      const json = buildJsonAnalysis(outputText, secretFindings, meta, analysisFindings);
       const path = writeOutput(JSON.stringify(json, null, 2), ctx.flags.output);
       if (path) log.success(`Результат записан: ${path}`);
     } else {
-      const path = writeOutput(analysis.text, ctx.flags.output);
+      const path = writeOutput(outputText, ctx.flags.output);
       if (path) log.success(`Результат записан: ${path}`);
     }
   }

@@ -478,7 +478,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.8.0
+- uses: MyNameIsNikki/oc-pilot@v0.9.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -509,7 +509,27 @@ oc-pilot install-hook --uninstall  # remove managed hooks, restore backups
 A foreign hook file is never overwritten silently: without `--force` the
 install fails, with `--force` the old file is kept as `<hook>.oc-pilot.bak`.
 `OC_PILOT_SKIP=1` bypasses the hooks for a single command. `core.hooksPath`
-and worktrees are respected.
+and worktrees are respected. `oc-pilot doctor --fix` refreshes outdated
+managed hooks (keeping a backup) and prunes expired cache entries; foreign
+hooks are never touched.
+
+## pre-commit framework
+
+The repository ships `.pre-commit-hooks.yaml`, so the standard
+[pre-commit](https://pre-commit.com) framework works without local setup:
+
+```yaml
+repos:
+  - repo: https://github.com/MyNameIsNikki/oc-pilot
+    rev: v0.9.0
+    hooks:
+      - id: oc-pilot-secrets  # oc-pilot scan --staged
+      - id: oc-pilot-review   # oc-pilot review --staged --fail-on critical --fail-on-secrets
+```
+
+Both hooks use `language: system` and expect `oc-pilot` on the `PATH`
+(`npm i -g oc-pilot`). After changing the pinned `rev`, run
+`pre-commit install-hooks` once.
 
 ## Secret ignore rules
 
@@ -528,6 +548,45 @@ const TOKEN = "sk-proj-..."; // oc-pilot:ignore-secret
 The rules apply to every scanning point: diffs, project rules, docgen, and
 full-file context. High-entropy assignments (20+ chars, Shannon entropy over
 4 bits) are reported as critical `High-entropy secret`.
+
+## Baseline and PR comments
+
+Known findings can be grandfathered so `review` fails only on what is new:
+
+```sh
+oc-pilot review --staged --update-baseline   # write .oc-pilot/baseline.json, exit 0
+oc-pilot review --staged --baseline --fail-on critical
+```
+
+A fingerprint is `severity | file | normalized text` — the line number is
+deliberately excluded, so a finding survives code shifts above it. Baseline
+filtering applies to the exit code, text output, `--json`, SARIF, and PR
+comments; hidden findings are counted in `meta.baseline` (`known`, `total`).
+
+`review --pr` posts a single summary comment on the current pull request via
+the GitHub CLI (`gh pr comment --body-file -`). Up to 30 findings are listed,
+grouped by severity, with a footer showing the oc-pilot version and reviewed
+commit. `gh` must be installed and authenticated; on failure the command
+exits 1 with a hint.
+
+## Response cache
+
+With `engine: openai`, identical requests are served from a local cache under
+`.git/oc-pilot/cache/` — re-running review on the same diff costs zero tokens.
+The key is `sha256(model + base URL + system prompt + input)`; entries live
+for 24 hours by default (`cacheTtlSeconds`, env `OC_PILOT_CACHE_TTL`, `0`
+disables caching). Triage, main, and slice calls all use the cache; the
+opencode engine is never cached. Cache hits are reported in `meta.cache`
+(`hit` | `miss`), and `--no-cache` bypasses the cache for a single run.
+
+```sh
+oc-pilot cache              # stats: entries, size, expired
+oc-pilot cache --prune      # drop expired entries
+oc-pilot cache --clear      # drop everything
+```
+
+`oc-pilot doctor` reports cache health and `oc-pilot doctor --fix` prunes
+expired entries.
 
 ## Troubleshooting
 

@@ -149,6 +149,12 @@ Enable it per run with `--router`, or permanently with `routerEnabled: true` and
 
 oc-pilot orders every prompt so the stable parts come first and the volatile `GIT_DIFF` comes last: instruction, project type, recipe, repository flags, additional context and the secret report are identical across slices, fix rounds and repeated reviews of the same change. Providers with prefix caching (OpenAI, DeepSeek, Anthropic, OpenRouter) reuse that stable prefix automatically, so the second and later calls on the same context are cheaper and faster. No configuration is needed.
 
+### Response cache (`openai`)
+
+The `openai` engine caches full model responses on disk. The cache key is the sha256 of the model, base URL, system prompt and input, so re-running the same command on the same diff (typical when wiring hooks, CI or scripts) costs zero tokens and returns instantly. Entries live in `.git/oc-pilot/cache/` — inside the repository metadata, never in the worktree or in commits.
+
+The TTL defaults to 24 hours (`cacheTtlSeconds`, or `OC_PILOT_CACHE_TTL`; `0` disables caching). `--no-cache` bypasses the cache for one run, and `oc-pilot cache --stats | --prune | --clear` inspects and maintains it. `doctor --fix` prunes expired entries. The JSON report shows `meta.cache: "hit" | "miss"`. The cache only applies to the `openai` engine (triage, main and slice calls); OpenCode runs are never cached, and a cache error can never fail a review.
+
 ## Commands
 
 ### `review`
@@ -177,6 +183,11 @@ git diff | oc-pilot review --stdin
 | `--router` | Route through a cheap triage model first (`openai`) |
 | `--no-router` | Disable routing enabled in the config |
 | `--router-model <m>` | Triage model (default: `routerModel` from the config) |
+| `--baseline` | Hide findings already recorded in `.oc-pilot/baseline.json` |
+| `--update-baseline` | Record current findings as the baseline and exit |
+| `--pr` | Post a summary comment to the PR via `gh` |
+
+With `--baseline`, findings already recorded in `.oc-pilot/baseline.json` are hidden from the output and no longer affect the exit code, JSON, SARIF or PR comment — only new findings block. A finding fingerprint is `severity | file | normalized text`, without the line number, so known findings survive code shifts. `--update-baseline` rewrites the file from the current review and exits 0. `--pr` posts one summary comment (up to 30 findings) to the current PR through the GitHub CLI (`gh pr comment`); it requires `gh` to be installed and authenticated, and works from text and SARIF runs alike.
 
 ### `test-fix`
 
@@ -290,6 +301,18 @@ oc-pilot restore <id>     # a specific snapshot
 
 Snapshots live under `.git/oc-pilot/snapshots/` and never enter commits. Restore refuses to run when the branch head has moved since the snapshot, so committed work is never lost. The staged/unstaged split is not restored, and untracked files created after the snapshot are not deleted.
 
+### `cache`
+
+Inspects and maintains the `openai` response cache stored in `.git/oc-pilot/cache/`.
+
+```bash
+oc-pilot cache            # entries, size, expired count
+oc-pilot cache --prune    # delete expired entries
+oc-pilot cache --clear    # delete everything
+```
+
+The cache only works inside a git repository and only applies to the `openai` engine.
+
 ### `setup`
 
 Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, Windsurf, ZCode, and any client that reads `.agents/mcp.json`. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead. Generated servers start read-only; add `--allow-write` if the agent should apply patches and run tests.
@@ -337,17 +360,19 @@ One command that explains why a setup is not working:
 oc-pilot doctor
 oc-pilot doctor --json
 oc-pilot doctor --engine openai --model deepseek-chat
+oc-pilot doctor --fix
 ```
 
-It checks Node, the active engine, API credentials, git and repository state, the detected test command, project rules, and every MCP client config. Errors return exit code 1; `--strict` also fails on warnings. No secret values are printed.
+It checks Node, the active engine, API credentials, git and repository state, the detected test command, project rules, oc-pilot git hooks and the response cache, and every MCP client config. `--fix` refreshes outdated oc-pilot hooks (a backup of the previous file is kept) and prunes expired cache entries; foreign hooks are never touched and are reported instead. Errors return exit code 1; `--strict` also fails on warnings. No secret values are printed.
 
 ### `init`
 
 ```bash
 oc-pilot init
+oc-pilot init --preset node
 ```
 
-Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--force` is passed.
+Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--force` is passed. With `--preset <id>` it also writes a curated `.oc-pilot/rules.md` for the stack: `base` (language-agnostic), `node`, `react`, `python`, or `go`. The rules file is a normal project rules file — edit it freely.
 
 ## Common options
 
@@ -372,6 +397,7 @@ Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--for
 | `--dry-run` | off | Print the prompt without calling a model |
 | `--strict` | off | Exit 3 when the output schema is invalid |
 | `--verbose` | off | Stream OpenCode diagnostics |
+| `--no-cache` | off | Bypass the response cache (`openai`) |
 
 ## Project rules
 
@@ -676,7 +702,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.8.0
+      - uses: MyNameIsNikki/oc-pilot@v0.9.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -699,7 +725,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.8.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.9.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0
+
+- Кеш ответов для `--engine openai`: повторный запрос с тем же промптом и моделью берётся из локального кеша в `.git/oc-pilot/cache/` — ноль токенов. Ключ — `sha256(model + base URL + system prompt + input)`, TTL по умолчанию 24 часа (`cacheTtlSeconds` / `OC_PILOT_CACHE_TTL`, `0` отключает), `--no-cache` обходит кеш на один запуск. Кешируются триаж роутера, основной вызов и слайсы; opencode-движок не кешируется. Новая команда `oc-pilot cache` (`--stats` / `--prune` / `--clear`); попадание видно в `meta.cache` (`hit` / `miss`). Ошибка кеша никогда не ломает ревью.
+- Baseline известных находок: `review --baseline` прячет находки из `.oc-pilot/baseline.json` — из exit-кода, текстового вывода, `--json`, SARIF и PR-комментария. Отпечаток — `severity | файл | нормализованный текст` без номера строки, поэтому переживает сдвиги кода; `--update-baseline` перезаписывает файл и выходит с кодом 0; счётчики — в `meta.baseline` (`known`, `total`).
+- Пресеты правил: `oc-pilot init --preset base|node|react|python|go` пишет готовый `.oc-pilot/rules.md` под стек проекта; файл можно свободно дополнять.
+- `oc-pilot doctor --fix`: обновляет устаревшие oc-pilot-хуки (с бэкапом), чистит просроченный кеш; чужие хуки не трогает. В отчёт добавлены проверки git-хуков и кеша.
+- `.pre-commit-hooks.yaml` в корне репозитория — интеграция с pre-commit framework: хуки `oc-pilot-secrets` (`scan --staged`) и `oc-pilot-review` (`review --staged --fail-on critical --fail-on-secrets`), `language: system`.
+- `review --pr` отправляет сводный комментарий в текущий PR через GitHub CLI (`gh pr comment`): до 30 находок, группировка по severity, футер с версией и коммитом.
+- 191 тест; версия 0.9.0.
+
 ## 0.8.0
 
 - Двухфазный роутинг для `review` с `--engine openai`: перед основным вызовом дешёвая модель-триаж получает те же данные с компактным системным промптом и отвечает строкой `TRIAGE: REVIEW` / `TRIAGE: LGTM`. `LGTM` пропускает основной вызов; ошибка или нечитаемый ответ откатывается к полному ревью (`meta.router` — модель, решение, длительность, флаг fallback). Включается флагом `--router` / `--no-router` / `--router-model <m>`, конфигом `routerEnabled` + `routerModel` или переменными `OC_PILOT_ROUTER` / `OC_PILOT_ROUTER_MODEL`. Блокировка `--fail-on-secrets` работает независимо от роутера.

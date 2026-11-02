@@ -29,6 +29,7 @@ export const COMMON_OPTIONS = {
     verbose: { type: "boolean" },
     strict: { type: "boolean" },
     github: { type: "boolean" },
+    "no-cache": { type: "boolean" },
     help: { type: "boolean", short: "h" },
 };
 export function withCommon(extra) {
@@ -126,6 +127,7 @@ export function resolveContext(values) {
             verbose: asBoolean(values, "verbose"),
             strict: asBoolean(values, "strict"),
             github: asBoolean(values, "github"),
+            noCache: asBoolean(values, "no-cache"),
             output: outputRaw ? resolve(cwd, outputRaw) : undefined,
             format,
         },
@@ -151,6 +153,7 @@ export const COMMON_HELP = `  -C, --cwd <dir>       Рабочая директ�
       --dry-run         Показать промпт, не вызывать модель
       --strict          Код 3, если ответ не соответствует OUTPUT SCHEMA
       --github          Печатать GitHub Actions annotations для findings
+      --no-cache        Не использовать кеш ответов движка (openai)
       --verbose         Подробный вывод OpenCode
   -h, --help            Показать помощь`;
 //# sourceMappingURL=options.js.map

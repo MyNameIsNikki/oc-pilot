@@ -64,6 +64,8 @@ export interface ResolvedConfig {
   routerEnabled?: boolean;
   /** Fast triage model used by the two-phase router. */
   routerModel?: string;
+  /** Local response cache lifetime in seconds for engine=openai; 0 disables caching. */
+  cacheTtlSeconds?: number;
 }
 
 export interface ConfigOverrides {
@@ -82,6 +84,7 @@ export interface ConfigOverrides {
   lang?: PromptLang;
   routerEnabled?: boolean;
   routerModel?: string;
+  cacheTtlSeconds?: number;
 }
 
 export interface LoadedConfig {
@@ -96,6 +99,8 @@ export interface GlobalFlags {
   verbose: boolean;
   strict: boolean;
   github: boolean;
+  /** Bypass the local response cache for engine calls. */
+  noCache?: boolean;
   output?: string;
   /** Output format. "sarif" is honored by scan and review. */
   format?: OutputFormat;
