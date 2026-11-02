@@ -1,12 +1,16 @@
 # oc-pilot
 
+[![npm](https://img.shields.io/npm/v/oc-pilot?style=flat-square&color=black)](https://www.npmjs.com/package/oc-pilot)
+[![Node.js](https://img.shields.io/node/v/oc-pilot?style=flat-square&color=black)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-MIT-black?style=flat-square)](LICENSE)
+
 Local AI code review, failing-test analysis, documentation generation, and secret scanning for agent CLIs.
 
 `oc-pilot` is a small CLI and MCP server for developers who write code with AI agents. It reviews an uncommitted diff, follows the project beyond the changed lines, catches leaked credentials before they reach a model, explains a failing test, and returns findings as human-readable Markdown or machine-readable JSON.
 
 It works with OpenCode out of the box, with any OpenAI-compatible API (OpenAI, DeepSeek, Groq, OpenRouter, Ollama), and with any MCP-capable agent: Claude Code, OpenAI Codex CLI, Cursor CLI, Gemini CLI, and others.
 
-[Русская документация](README.ru.md)
+[English](README.md) | [Русская документация](README.ru.md) | [MCP integrations](docs/integrations.md) | [Security](SECURITY.md) | [Contributing](CONTRIBUTING.md) | [Changelog](CHANGELOG.md)
 
 ## Why
 
@@ -28,19 +32,19 @@ Agents are good at producing code and bad at reviewing their own work. A normal 
 
 ## Install
 
-From GitHub, pinned to a release tag (works before the first npm release):
-
-```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.2.tar.gz
-```
-
-From npm, once published:
+From npm. The latest published release is **0.5.1**:
 
 ```bash
 npm install -g oc-pilot
 ```
 
-For development:
+From the repository, pinned to a release tag. Tag **v0.5.2** is a version-only release with identical runtime behavior:
+
+```bash
+npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.2.tar.gz
+```
+
+From source:
 
 ```bash
 git clone https://github.com/MyNameIsNikki/oc-pilot.git
@@ -58,7 +62,7 @@ oc-pilot-mcp --version
 oc-pilot mcp --version
 ```
 
-For development, run `node dist/cli.js` and `node dist/mcp.js` directly.
+During development, run `node dist/cli.js` and `node dist/mcp.js` directly.
 
 ## Quick start (OpenCode)
 
@@ -339,7 +343,7 @@ Markdown response:
 ### Analysis: Short conclusion.
 
 #### Findings / Actions
-- **🔴 Critical `wallet.go:10`**: nil pointer dereference.
+- **Critical `wallet.go:10`**: nil pointer dereference.
 
 #### Solution
 ```go
