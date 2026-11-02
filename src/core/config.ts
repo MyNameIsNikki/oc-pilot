@@ -141,6 +141,8 @@ function fromFile(file: string): Partial<ResolvedConfig> {
     "failOn",
     "rules",
     "lang",
+    "routerEnabled",
+    "routerModel",
   ]);
 
   for (const key of Object.keys(data)) {
@@ -163,6 +165,8 @@ function fromFile(file: string): Partial<ResolvedConfig> {
     failOn: optionalFailOn(data.failOn, "failOn"),
     rules: optionalString(data.rules, "rules"),
     lang: optionalLang(data.lang, "lang"),
+    routerEnabled: optionalBoolean(data.routerEnabled, "routerEnabled"),
+    routerModel: optionalString(data.routerModel, "routerModel"),
   };
 }
 
@@ -231,6 +235,8 @@ function fromEnv(): Partial<ResolvedConfig> {
     failOn: envFailOn(),
     rules: process.env.OC_PILOT_RULES?.trim() || undefined,
     lang: envLang(),
+    routerEnabled: envBoolean("OC_PILOT_ROUTER"),
+    routerModel: process.env.OC_PILOT_ROUTER_MODEL?.trim() || undefined,
   };
 }
 
@@ -285,6 +291,8 @@ export function configTemplate(): string {
       repoContext: DEFAULT_CONFIG.repoContext,
       failOn: DEFAULT_CONFIG.failOn,
       lang: DEFAULT_CONFIG.lang,
+      routerEnabled: false,
+      routerModel: "gpt-4.1-mini",
     },
     null,
     2,

@@ -108,6 +108,26 @@ All tools return:
 A policy failure is **not** an MCP tool error. The agent should read
 `structuredContent.findings` and decide what to do.
 
+## MCP resources
+
+The server also exposes read-only context through MCP resources and resource
+templates, so hosts can pull project context without invoking a model:
+
+| Resource | Contents |
+| --- | --- |
+| `oc-pilot://config` | Resolved configuration and config path, JSON |
+| `oc-pilot://rules` | `.oc-pilot/rules.md` with secrets redacted, or a notice |
+| `oc-pilot://version` | Version and MCP protocol version, JSON |
+| `oc-pilot://prompt/en`, `oc-pilot://prompt/ru` | The built-in system prompts |
+| `oc-pilot://diff/{mode}` | Git diff by `staged`, `unstaged` or `head`, secrets redacted |
+| `oc-pilot://scan/{mode}` | Offline secret scan findings (masked previews), JSON |
+| `oc-pilot://file/{+path}` | Any project file up to 2 MB with secrets redacted |
+
+Resources are listed with `resources/list` and `resources/templates/list` and
+read with `resources/read`. File paths must stay inside the project directory;
+binary files are rejected; detected secrets are always masked before the text
+reaches the host model.
+
 ### Argument conventions
 
 - `diff` is the **unified diff text**, not a path.
@@ -458,7 +478,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.7.0
+- uses: MyNameIsNikki/oc-pilot@v0.8.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets

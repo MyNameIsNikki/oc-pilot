@@ -16,6 +16,8 @@ const ENV_KEYS = [
     "OC_PILOT_REPO_CONTEXT",
     "OC_PILOT_FAIL_ON",
     "OC_PILOT_RULES",
+    "OC_PILOT_ROUTER",
+    "OC_PILOT_ROUTER_MODEL",
 ];
 function withCleanEnv() {
     const saved = new Map();
@@ -136,6 +138,28 @@ test("loadConfig rejects invalid failOn", () => {
         writeFileSync(join(dir, ".oc-pilot.json"), "{}");
         process.env.OC_PILOT_FAIL_ON = "fatal";
         assert.throws(() => loadConfig({ cwd: dir }), /Некорректное значение OC_PILOT_FAIL_ON/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+        restore();
+    }
+});
+test("router settings load from file and env", () => {
+    const restore = withCleanEnv();
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-config-"));
+    try {
+        writeFileSync(join(dir, ".oc-pilot.json"), JSON.stringify({ routerEnabled: true, routerModel: "fast-model" }));
+        let loaded = loadConfig({ cwd: dir });
+        assert.equal(loaded.config.routerEnabled, true);
+        assert.equal(loaded.config.routerModel, "fast-model");
+        process.env.OC_PILOT_ROUTER_MODEL = "env-model";
+        loaded = loadConfig({ cwd: dir });
+        assert.equal(loaded.config.routerModel, "env-model");
+        process.env.OC_PILOT_ROUTER = "false";
+        loaded = loadConfig({ cwd: dir });
+        assert.equal(loaded.config.routerEnabled, false);
+        process.env.OC_PILOT_ROUTER = "maybe";
+        assert.throws(() => loadConfig({ cwd: dir }), /OC_PILOT_ROUTER/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

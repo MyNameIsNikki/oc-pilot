@@ -18,6 +18,9 @@ const OPTIONS: OptionSpec = withCommon({
   context: { type: "string" },
   "no-secret-scan": { type: "boolean" },
   "fail-on-secrets": { type: "boolean" },
+  router: { type: "boolean" },
+  "no-router": { type: "boolean" },
+  "router-model": { type: "string" },
 });
 
 const HELP = `Использование:
@@ -36,6 +39,9 @@ const HELP = `Использование:
       --no-secret-scan      не искать секреты и не редактировать diff
       --fail-on-secrets     exit 3 при critical-секретах
       --format sarif        SARIF 2.1.0 вместо текста (GitHub Code Scanning)
+      --router              двухфазный роутинг: дешёвый триаж перед ревью (openai)
+      --no-router           отключить роутинг, включённый в конфиге
+      --router-model <m>    модель триажа (по умолчанию routerModel из конфига)
 ${COMMON_HELP}
 
 Примеры:
@@ -88,12 +94,21 @@ export async function runReview(argv: string[]): Promise<number> {
     meta: { source: data.source },
   };
 
+  // Two-phase routing resolution: flag > no-flag > config > disabled.
+  const routerModel = asString(values, "router-model") ?? ctx.config.routerModel;
+  const routerEnabled = asBoolean(values, "router")
+    ? true
+    : asBoolean(values, "no-router")
+      ? false
+      : ctx.config.routerEnabled ?? false;
+  const routerOptions = { enabled: routerEnabled, model: routerModel };
+
   if (ctx.flags.format !== "sarif") {
-    return executeRecipe(payload, ctx);
+    return executeRecipe(payload, ctx, { router: routerOptions });
   }
 
   const captureCtx = { ...ctx, flags: { ...ctx.flags, json: false, output: undefined } };
-  const execution = await executeRecipeDetailed(payload, captureCtx, { capture: true });
+  const execution = await executeRecipeDetailed(payload, captureCtx, { capture: true, router: routerOptions });
   if (ctx.flags.dryRun) return execution.exitCode;
 
   const analysisFindings = execution.analysis ? parseFindings(execution.analysis) : [];

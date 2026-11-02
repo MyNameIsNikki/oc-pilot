@@ -159,3 +159,86 @@ test("MCP rejects malformed JSON without crashing", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("MCP exposes resources and resource templates", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-res-"));
+  try {
+    const git = (args: string[]) =>
+      spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    git(["init"]);
+    git(["config", "user.email", "test@example.com"]);
+    git(["config", "user.name", "Test"]);
+    git(["config", "core.autocrlf", "false"]);
+    writeFileSync(join(dir, "a.txt"), "v1\n");
+    writeFileSync(join(dir, "sample.txt"), `const key = "${AWS_KEY}"\n`);
+    git(["add", "."]);
+    git(["commit", "-m", "init"]);
+    writeFileSync(join(dir, "a.txt"), `v2\nconst key = "${AWS_KEY}"\n`);
+    git(["add", "a.txt"]);
+
+    const { status, responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      { jsonrpc: "2.0", id: 2, method: "resources/list" },
+      { jsonrpc: "2.0", id: 3, method: "resources/templates/list" },
+      { jsonrpc: "2.0", id: 4, method: "resources/read", params: { uri: "oc-pilot://config" } },
+      { jsonrpc: "2.0", id: 5, method: "resources/read", params: { uri: "oc-pilot://prompt/en" } },
+      { jsonrpc: "2.0", id: 6, method: "resources/read", params: { uri: "oc-pilot://diff/staged" } },
+      { jsonrpc: "2.0", id: 7, method: "resources/read", params: { uri: "oc-pilot://scan/staged" } },
+      { jsonrpc: "2.0", id: 8, method: "resources/read", params: { uri: "oc-pilot://file/sample.txt" } },
+      { jsonrpc: "2.0", id: 9, method: "resources/read", params: { uri: "oc-pilot://file/..%2Fescape.txt" } },
+      { jsonrpc: "2.0", id: 10, method: "resources/read", params: { uri: "oc-pilot://unknown" } },
+    ]);
+
+    assert.equal(status, 0, stderr);
+    const byId = new Map(responses.map((response) => [response.id, response]));
+
+    const init = byId.get(1)?.result as { capabilities?: { resources?: unknown; resourceTemplates?: unknown } };
+    assert.ok(init?.capabilities?.resources, "resources capability missing");
+    assert.ok(init?.capabilities?.resourceTemplates, "resourceTemplates capability missing");
+
+    const list = byId.get(2)?.result as { resources?: Array<{ uri: string }> };
+    const uris = new Set(list?.resources?.map((resource) => resource.uri));
+    for (const uri of ["oc-pilot://config", "oc-pilot://rules", "oc-pilot://version", "oc-pilot://prompt/en", "oc-pilot://prompt/ru"]) {
+      assert.ok(uris.has(uri), uri);
+    }
+
+    const templates = byId.get(3)?.result as { resourceTemplates?: Array<{ uriTemplate: string }> };
+    const templateIds = new Set(templates?.resourceTemplates?.map((template) => template.uriTemplate));
+    for (const template of ["oc-pilot://diff/{mode}", "oc-pilot://scan/{mode}", "oc-pilot://file/{+path}"]) {
+      assert.ok(templateIds.has(template), template);
+    }
+
+    const config = byId.get(4)?.result as { contents?: Array<{ text: string }> };
+    const configJson = JSON.parse(config?.contents?.[0]?.text ?? "{}") as { config?: { engine?: string } };
+    assert.equal(configJson.config?.engine, "opencode");
+
+    const prompt = byId.get(5)?.result as { contents?: Array<{ text: string }> };
+    assert.match(prompt?.contents?.[0]?.text ?? "", /ROLE AND GOAL/);
+
+    const diff = byId.get(6)?.result as { contents?: Array<{ text: string }> };
+    const diffText = diff?.contents?.[0]?.text ?? "";
+    assert.match(diffText, /\+v2/);
+    assert.ok(!diffText.includes(AWS_KEY), "diff resource must redact secrets");
+
+    const scan = byId.get(7)?.result as { contents?: Array<{ text: string }> };
+    const scanText = scan?.contents?.[0]?.text ?? "";
+    assert.match(scanText, /AWS Access Key ID/);
+    assert.ok(!scanText.includes(AWS_KEY), "scan resource must not leak the raw secret");
+
+    const file = byId.get(8)?.result as { contents?: Array<{ text: string }> };
+    const fileText = file?.contents?.[0]?.text ?? "";
+    assert.match(fileText, /REDACTED/);
+    assert.ok(!fileText.includes(AWS_KEY), "file resource must redact secrets");
+
+    assert.equal(byId.get(9)?.error?.code, -32002);
+    assert.match(byId.get(9)?.error?.message ?? "", /inside the project/);
+    assert.equal(byId.get(10)?.error?.code, -32002);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

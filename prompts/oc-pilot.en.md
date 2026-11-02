@@ -52,6 +52,7 @@ Follow the recipe in the input:
 PROJECT_TYPE: <language/stack>
 RECIPE: <review | test-fix | docgen | custom | commit>
 ADDITIONAL_CONTEXT: <signatures, AST excerpt, test output, or empty>
+SECRET_SCAN: <secret scanner report>
 GIT_DIFF:
 <diff content>
 

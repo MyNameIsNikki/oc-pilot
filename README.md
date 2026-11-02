@@ -135,6 +135,20 @@ The key is read from `OC_PILOT_API_KEY`, or `OPENAI_API_KEY` when the default va
 
 When a diff is too large for a single prompt (300 000 characters), the `openai` engine does not truncate files away. Instead it groups the per-file diff blocks into slices that each fit the budget, runs one API call per slice with the same additional context, and merges the responses back into a single schema-compliant analysis (`meta.slices` shows how many calls were made). A single file whose diff exceeds the budget is sent as its own slice and only then truncated. Slicing applies to `review`, `test-fix`, `custom` and `commit --engine openai`; `fix` keeps a single prompt because it must return one patch.
 
+### Two-phase routing (`openai`)
+
+`review` can route through a cheap triage model before the main review call. The triage model sees the same input with a compact system prompt and answers with a single line: `TRIAGE: REVIEW` or `TRIAGE: LGTM`. Trivially safe diffs (docs, formatting, version bumps, renames) return `LGTM` and skip the main call entirely; everything else runs the full review. Any triage failure or unparsable answer falls back to the full review, so routing can only save money, never skip a real problem. Secret gating (`--fail-on-secrets`) is evaluated independently of the router.
+
+```bash
+oc-pilot review --router --router-model gpt-4.1-mini --engine openai --model gpt-4.1
+```
+
+Enable it per run with `--router`, or permanently with `routerEnabled: true` and `routerModel` in `.oc-pilot.json` (or `OC_PILOT_ROUTER` / `OC_PILOT_ROUTER_MODEL`). `--no-router` disables it for one run. The JSON report includes `meta.router` with the model, decision and duration.
+
+### Provider-cache-friendly prompts
+
+oc-pilot orders every prompt so the stable parts come first and the volatile `GIT_DIFF` comes last: instruction, project type, recipe, repository flags, additional context and the secret report are identical across slices, fix rounds and repeated reviews of the same change. Providers with prefix caching (OpenAI, DeepSeek, Anthropic, OpenRouter) reuse that stable prefix automatically, so the second and later calls on the same context are cheaper and faster. No configuration is needed.
+
 ## Commands
 
 ### `review`
@@ -160,6 +174,9 @@ git diff | oc-pilot review --stdin
 | `--context <text\|@file>` | Extra context for the model |
 | `--no-secret-scan` | Disable secret scanning and redaction |
 | `--fail-on-secrets` | Exit 3 on critical secrets |
+| `--router` | Route through a cheap triage model first (`openai`) |
+| `--no-router` | Disable routing enabled in the config |
+| `--router-model <m>` | Triage model (default: `routerModel` from the config) |
 
 ### `test-fix`
 
@@ -474,6 +491,8 @@ Environment variables: `OC_PILOT_ENGINE`, `OC_PILOT_BASE_URL`, `OC_PILOT_API_KEY
 
 `oc-pilot-mcp` exposes the same recipes as MCP tools over stdio. This is the recommended way to embed oc-pilot in an agent: the agent calls a tool, and no prompt needs to be copied.
 
+Besides tools, the server exposes read-only MCP resources: `oc-pilot://config` (resolved configuration), `oc-pilot://rules` (project rules with secrets redacted), `oc-pilot://prompt/en` and `oc-pilot://prompt/ru` (the built-in system prompts), and `oc-pilot://version`. Resource templates cover live data: `oc-pilot://diff/{mode}` (staged/unstaged/head diff, secrets redacted), `oc-pilot://scan/{mode}` (offline secret scan as JSON) and `oc-pilot://file/{+path}` (any project file up to 2 MB with detected secrets redacted). Hosts can list them with `resources/list` and `resources/templates/list`.
+
 Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`. The server is read-only by default; start it with `--allow-write` to permit `fix` with `apply: true` and `test_fix` with a command.
 
 Configure a client automatically:
@@ -657,7 +676,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.7.0
+      - uses: MyNameIsNikki/oc-pilot@v0.8.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -680,7 +699,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.7.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.8.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

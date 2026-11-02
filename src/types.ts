@@ -60,6 +60,10 @@ export interface ResolvedConfig {
   rules?: string;
   /** Language of the model-facing system prompt and instructions. */
   lang: PromptLang;
+  /** Enable the two-phase router for review (engine=openai). */
+  routerEnabled?: boolean;
+  /** Fast triage model used by the two-phase router. */
+  routerModel?: string;
 }
 
 export interface ConfigOverrides {
@@ -76,6 +80,8 @@ export interface ConfigOverrides {
   failOn?: FailOn;
   rules?: string;
   lang?: PromptLang;
+  routerEnabled?: boolean;
+  routerModel?: string;
 }
 
 export interface LoadedConfig {

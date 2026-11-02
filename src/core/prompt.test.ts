@@ -74,6 +74,24 @@ test("buildInput includes redacted secret findings", () => {
   assert.match(input, /REDACTED/);
 });
 
+test("buildInput places the volatile diff last for provider prefix caching", () => {
+  const base = {
+    recipe: "review" as const,
+    projectType: "Go",
+    additionalContext: "type User struct { ID string }",
+    findings: [],
+  };
+  const first = buildInput({ ...base, diff: "+one" });
+  const second = buildInput({ ...base, diff: "+two" });
+
+  assert.ok(first.indexOf("GIT_DIFF:") > first.indexOf("SECRET_SCAN"), "diff must come after the secret block");
+  const marker = "GIT_DIFF:\n";
+  const prefixFirst = first.slice(0, first.indexOf(marker));
+  const prefixSecond = second.slice(0, second.indexOf(marker));
+  assert.equal(prefixFirst, prefixSecond, "stable prefix must be identical across different diffs");
+  assert.ok(prefixFirst.length > 0);
+});
+
 test("buildPrompt uses English by default and Russian when requested", () => {
   const base = {
     recipe: "review" as const,

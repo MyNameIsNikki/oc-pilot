@@ -64,6 +64,11 @@ const LGTM_RU = "LGTM: критических проблем не обнаруж
 const LGTM_EN = "LGTM: no critical issues found.";
 const LGTM_RE = /^LGTM:\s*(?:критических проблем не обнаружено|no critical issues found)\.?\s*$/im;
 
+/** Single-line LGTM analysis used by slicing merges and the two-phase router. */
+export function lgtmText(lang: PromptLang): string {
+  return lang === "ru" ? LGTM_RU : LGTM_EN;
+}
+
 function analysisSummary(text: string): string | undefined {
   const match = /^###\s+(?:Анализ|Analysis)\s*:\s*(.+)$/m.exec(text);
   return match?.[1]?.trim();

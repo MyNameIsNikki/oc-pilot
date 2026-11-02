@@ -54,6 +54,7 @@
 PROJECT_TYPE: <язык/стек>
 RECIPE: <review | test-fix | docgen | custom | commit>
 ADDITIONAL_CONTEXT: <сигнатуры, AST-выжимка, вывод тестов или пусто>
+SECRET_SCAN: <отчёт сканера секретов>
 GIT_DIFF:
 <содержимое diff>
 

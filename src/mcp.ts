@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { loadConfig } from "./core/config.js";
+import { runGit } from "./core/git.js";
+import { SYSTEM_PROMPT_EN, SYSTEM_PROMPT_RU } from "./core/prompt.js";
+import { loadRules } from "./core/rules.js";
+import { loadSecretIgnore, scanDiff, scanText } from "./core/secrets.js";
 import { VERSION } from "./version.js";
 
 const SERVER_NAME = "oc-pilot";
@@ -186,6 +191,64 @@ const TOOLS = [
 
 class ToolInputError extends Error {}
 
+class ResourceError extends Error {}
+
+const DIFF_MODES = new Set(["staged", "unstaged", "head"]);
+
+const RESOURCES = [
+  {
+    uri: "oc-pilot://config",
+    name: "oc-pilot configuration",
+    description: "Resolved oc-pilot configuration for the current project, as JSON.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "oc-pilot://rules",
+    name: "Project review rules",
+    description: "Contents of .oc-pilot/rules.md with detected secrets redacted, or a notice when absent.",
+    mimeType: "text/markdown",
+  },
+  {
+    uri: "oc-pilot://version",
+    name: "oc-pilot version",
+    description: "oc-pilot version and MCP protocol version, as JSON.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "oc-pilot://prompt/en",
+    name: "Review system prompt (English)",
+    description: "The built-in English system prompt used for model calls.",
+    mimeType: "text/markdown",
+  },
+  {
+    uri: "oc-pilot://prompt/ru",
+    name: "Review system prompt (Russian)",
+    description: "The built-in Russian system prompt used for model calls.",
+    mimeType: "text/markdown",
+  },
+];
+
+const RESOURCE_TEMPLATES = [
+  {
+    uriTemplate: "oc-pilot://diff/{mode}",
+    name: "Current git diff",
+    description: "The project's git diff by mode: staged, unstaged or head.",
+    mimeType: "text/plain",
+  },
+  {
+    uriTemplate: "oc-pilot://scan/{mode}",
+    name: "Offline secret scan",
+    description: "Secret scan findings (masked previews only) for the diff by mode: staged, unstaged or head.",
+    mimeType: "application/json",
+  },
+  {
+    uriTemplate: "oc-pilot://file/{+path}",
+    name: "Project file with secrets redacted",
+    description: "Read-only contents of a project file (max 2 MB, text only) with detected secrets redacted.",
+    mimeType: "text/plain",
+  },
+];
+
 class TempFiles {
   private directory: string | undefined;
 
@@ -271,6 +334,117 @@ function contextArg(input: JsonObject): string | undefined {
     throw new ToolInputError("context must be literal text, not an @file reference");
   }
   return context;
+}
+
+function parseResourceUri(uri: string): { kind: string; rest: string } {
+  if (!uri.startsWith("oc-pilot://")) {
+    throw new ResourceError(`Unsupported resource URI: ${uri}`);
+  }
+  const tail = uri.slice("oc-pilot://".length);
+  const slash = tail.indexOf("/");
+  if (slash === -1) return { kind: tail, rest: "" };
+  let rest: string;
+  try {
+    rest = decodeURIComponent(tail.slice(slash + 1));
+  } catch {
+    throw new ResourceError(`Malformed resource URI: ${uri}`);
+  }
+  return { kind: tail.slice(0, slash), rest };
+}
+
+function diffForMode(mode: string, cwd: string): string {
+  const args =
+    mode === "staged" ? ["diff", "--cached"] : mode === "head" ? ["diff", "HEAD"] : ["diff"];
+  const result = runGit(args, cwd);
+  if (result.status !== 0) {
+    throw new ResourceError(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`.trim());
+  }
+  return result.stdout;
+}
+
+function readResourceText(uri: string, cwd: string): { mimeType: string; text: string } {
+  const { kind, rest } = parseResourceUri(uri);
+
+  if (kind === "config") {
+    try {
+      const loaded = loadConfig({ cwd });
+      return {
+        mimeType: "application/json",
+        text: JSON.stringify({ config: loaded.config, path: loaded.path ?? null }, null, 2),
+      };
+    } catch (error) {
+      throw new ResourceError(`config error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (kind === "rules") {
+    const rules = loadRules(cwd);
+    return {
+      mimeType: "text/markdown",
+      text: rules ? rules.text : "(no .oc-pilot/rules.md found)",
+    };
+  }
+
+  if (kind === "version") {
+    return {
+      mimeType: "application/json",
+      text: JSON.stringify({ version: VERSION, protocol: PROTOCOL_VERSION }, null, 2),
+    };
+  }
+
+  if (kind === "prompt") {
+    if (rest === "en") return { mimeType: "text/markdown", text: SYSTEM_PROMPT_EN };
+    if (rest === "ru") return { mimeType: "text/markdown", text: SYSTEM_PROMPT_RU };
+    throw new ResourceError("Unknown prompt language; use oc-pilot://prompt/en or oc-pilot://prompt/ru");
+  }
+
+  if (kind === "diff") {
+    if (!DIFF_MODES.has(rest)) {
+      throw new ResourceError("Unknown diff mode; use staged, unstaged or head");
+    }
+    const diff = diffForMode(rest, cwd);
+    // The diff goes to a host model: redact detected secrets first.
+    const scan = scanDiff(diff, { ignore: loadSecretIgnore(cwd) });
+    return { mimeType: "text/plain", text: scan.redacted };
+  }
+
+  if (kind === "scan") {
+    if (!DIFF_MODES.has(rest)) {
+      throw new ResourceError("Unknown scan mode; use staged, unstaged or head");
+    }
+    const diff = diffForMode(rest, cwd);
+    const scan = scanDiff(diff, { ignore: loadSecretIgnore(cwd) });
+    return {
+      mimeType: "application/json",
+      text: JSON.stringify({ mode: rest, findings: scan.findings }, null, 2),
+    };
+  }
+
+  if (kind === "file") {
+    if (!rest) throw new ResourceError("Missing file path; use oc-pilot://file/<path>");
+    if (isAbsolute(rest) || /(^|[\\/])\.\.([\\/]|$)/.test(rest)) {
+      throw new ResourceError("file path must stay inside the project directory");
+    }
+    const path = resolve(cwd, rest);
+    if (path !== cwd && !path.startsWith(cwd + sep)) {
+      throw new ResourceError("file path must stay inside the project directory");
+    }
+    let content: string;
+    try {
+      const stats = statSync(path);
+      if (!stats.isFile()) throw new ResourceError(`Not a file: ${rest}`);
+      if (stats.size > 2 * 1024 * 1024) throw new ResourceError(`File too large (max 2 MB): ${rest}`);
+      content = readFileSync(path, "utf8");
+    } catch (error) {
+      if (error instanceof ResourceError) throw error;
+      throw new ResourceError(`Cannot read ${rest}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (content.includes("\0")) throw new ResourceError("Binary files are not supported");
+    const scan = scanText(content, rest.replace(/\\/g, "/"), { ignore: loadSecretIgnore(cwd) });
+    return { mimeType: "text/plain", text: scan.redacted };
+  }
+
+  throw new ResourceError(`Unknown resource: ${uri}`);
 }
 
 function commonArgs(input: JsonObject, options: { repoContext: boolean; secrets: boolean; failOn: boolean }): string[] {
@@ -541,16 +715,41 @@ async function processMessage(message: JsonObject, cwd: string, readOnly: boolea
     const requested = params?.protocolVersion;
     return rpcResult(id, {
       protocolVersion: typeof requested === "string" ? requested : PROTOCOL_VERSION,
-      capabilities: { tools: { listChanged: false } },
+      capabilities: {
+        tools: { listChanged: false },
+        resources: { listChanged: false },
+        resourceTemplates: { listChanged: false },
+      },
       serverInfo: { name: SERVER_NAME, version: VERSION },
       instructions:
-        `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible.${readOnly ? " This server is read-only: fix apply and running new tests are disabled." : ""}`,
+        `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}).${readOnly ? " This server is read-only: fix apply and running new tests are disabled." : ""}`,
     });
   }
 
   if (method === "ping") return rpcResult(id, {});
 
   if (method === "tools/list") return rpcResult(id, { tools: TOOLS });
+
+  if (method === "resources/list") return rpcResult(id, { resources: RESOURCES });
+
+  if (method === "resources/templates/list") {
+    return rpcResult(id, { resourceTemplates: RESOURCE_TEMPLATES });
+  }
+
+  if (method === "resources/read") {
+    const uri = params?.uri;
+    if (typeof uri !== "string" || uri.trim() === "") {
+      return rpcError(id, -32602, "Invalid params: resources/read requires a uri");
+    }
+    try {
+      const resource = readResourceText(uri, cwd);
+      return rpcResult(id, {
+        contents: [{ uri, mimeType: resource.mimeType, text: resource.text }],
+      });
+    } catch (error) {
+      return rpcError(id, -32002, error instanceof Error ? error.message : String(error));
+    }
+  }
 
   if (method === "tools/call") {
     const name = params?.name;

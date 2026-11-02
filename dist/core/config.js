@@ -134,6 +134,8 @@ function fromFile(file) {
         "failOn",
         "rules",
         "lang",
+        "routerEnabled",
+        "routerModel",
     ]);
     for (const key of Object.keys(data)) {
         if (!known.has(key))
@@ -155,6 +157,8 @@ function fromFile(file) {
         failOn: optionalFailOn(data.failOn, "failOn"),
         rules: optionalString(data.rules, "rules"),
         lang: optionalLang(data.lang, "lang"),
+        routerEnabled: optionalBoolean(data.routerEnabled, "routerEnabled"),
+        routerModel: optionalString(data.routerModel, "routerModel"),
     };
 }
 function envPositiveInt(name) {
@@ -225,6 +229,8 @@ function fromEnv() {
         failOn: envFailOn(),
         rules: process.env.OC_PILOT_RULES?.trim() || undefined,
         lang: envLang(),
+        routerEnabled: envBoolean("OC_PILOT_ROUTER"),
+        routerModel: process.env.OC_PILOT_ROUTER_MODEL?.trim() || undefined,
     };
 }
 function defined(value) {
@@ -272,6 +278,8 @@ export function configTemplate() {
         repoContext: DEFAULT_CONFIG.repoContext,
         failOn: DEFAULT_CONFIG.failOn,
         lang: DEFAULT_CONFIG.lang,
+        routerEnabled: false,
+        routerModel: "gpt-4.1-mini",
     }, null, 2)}\n`;
 }
 //# sourceMappingURL=config.js.map

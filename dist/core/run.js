@@ -7,9 +7,10 @@ import { DEFAULT_API_BASE_URL, normalizeBaseUrl, runOpenAiCompatible } from "./e
 import { writeOutput } from "./io.js";
 import { log } from "./log.js";
 import { runOpenCode } from "./opencode.js";
-import { buildInput, systemPromptFor } from "./prompt.js";
+import { buildInput, systemPromptFor, TRIAGE_SYSTEM_PROMPT } from "./prompt.js";
 import { loadRules } from "./rules.js";
-import { mergeSliceAnalyses, planDiffSlices } from "./slicing.js";
+import { parseTriageDecision } from "./router.js";
+import { lgtmText, mergeSliceAnalyses, planDiffSlices } from "./slicing.js";
 const MAX_PROMPT_CHARS = 300_000;
 function printSecretWarnings(findings, redacted) {
     if (findings.length === 0)
@@ -176,6 +177,12 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
                 repoContext: effectiveRepoContext,
                 repoContextRequested: ctx.config.repoContext,
                 lang: ctx.config.lang,
+                router: options.router?.enabled
+                    ? {
+                        enabled: true,
+                        model: options.router.model ?? ctx.config.routerModel ?? ctx.config.model ?? null,
+                    }
+                    : undefined,
                 failOn: ctx.config.failOn,
                 rules: rules?.path ?? null,
                 fileContext: fileContextCount,
@@ -198,16 +205,58 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
         }
         return { exitCode: 0 };
     }
+    // Two-phase routing (engine=openai, recipe=review): a fast triage model
+    // decides whether the main review call is needed at all. Any triage
+    // failure or unparsable answer falls back to the full review.
+    let routerMeta;
+    const routerWanted = options.router?.enabled === true &&
+        ctx.config.engine === "openai" &&
+        payload.recipe === "review" &&
+        !slicePlan &&
+        effective.diff.trim().length > 0;
+    if (routerWanted) {
+        const routerModel = options.router?.model ?? ctx.config.routerModel ?? ctx.config.model;
+        try {
+            const triage = await runOpenAiCompatible({
+                systemPrompt: TRIAGE_SYSTEM_PROMPT,
+                input,
+                baseUrl: ctx.config.baseUrl,
+                apiKeyEnv: ctx.config.apiKeyEnv,
+                model: routerModel,
+                timeoutMs: ctx.config.timeoutSeconds * 1000,
+            });
+            const decision = parseTriageDecision(triage.text);
+            routerMeta = { model: routerModel ?? null, decision, durationMs: triage.durationMs };
+            if (decision === "unknown") {
+                routerMeta.decision = "review";
+                routerMeta.fallback = true;
+                log.warn("Router: ответ триажа не распознан — выполняется полный ревью.");
+            }
+            else {
+                log.info(decision === "lgtm"
+                    ? `Router (${routerModel ?? "модель по умолчанию"}): LGTM — основной вызов пропущен.`
+                    : `Router (${routerModel ?? "модель по умолчанию"}): REVIEW — выполняется полный ревью.`);
+            }
+        }
+        catch (error) {
+            routerMeta = { model: routerModel ?? null, decision: "review", fallback: true };
+            log.warn(`Router недоступен (${error instanceof Error ? error.message : String(error)}) — выполняется полный ревью.`);
+        }
+    }
     const modelLabel = ctx.config.model ?? "модель по умолчанию";
     if (ctx.config.engine === "openai") {
-        log.step(`API: ${modelLabel} · ${normalizeBaseUrl(ctx.config.baseUrl) || DEFAULT_API_BASE_URL} · diff-only context${slicePlan ? ` · слайсов: ${slicePlan.slices.length}` : ""}`);
+        log.step(`API: ${modelLabel} · ${normalizeBaseUrl(ctx.config.baseUrl) || DEFAULT_API_BASE_URL} · diff-only context${slicePlan ? ` · слайсов: ${slicePlan.slices.length}` : ""}${routerMeta ? ` · router: ${String(routerMeta.decision)}` : ""}`);
     }
     else {
         log.step(`OpenCode: ${modelLabel} · агент ${ctx.config.agent} · ${effectiveRepoContext ? "read-only repo context" : "diff-only"}`);
     }
     let analysis;
     let warnings;
-    if (slicePlan) {
+    if (routerMeta?.decision === "lgtm") {
+        analysis = { text: lgtmText(lang), durationMs: Number(routerMeta.durationMs ?? 0), stderr: "" };
+        warnings = validateAnalysis(analysis.text, payload.recipe);
+    }
+    else if (slicePlan) {
         const responses = [];
         const sliceWarnings = [];
         const seenWarnings = new Set();
@@ -296,6 +345,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
         fileContext: fileContextCount,
         findings: countFindings(analysisFindings),
         ...(slicePlan ? { slices: slicePlan.slices.length } : {}),
+        ...(routerMeta ? { router: routerMeta } : {}),
         ...payload.meta,
     };
     if (!options.capture) {
@@ -326,7 +376,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
     }
     return { exitCode, analysis: analysis.text, meta };
 }
-export async function executeRecipe(payload, ctx) {
-    return (await executeRecipeDetailed(payload, ctx)).exitCode;
+export async function executeRecipe(payload, ctx, options = {}) {
+    return (await executeRecipeDetailed(payload, ctx, options)).exitCode;
 }
 //# sourceMappingURL=run.js.map
