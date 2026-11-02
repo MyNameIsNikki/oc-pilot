@@ -62,6 +62,29 @@ export function loadBaseline(cwd: string): LoadedBaseline {
   }
 }
 
+/** Adds findings to an existing baseline file without dropping its entries. */
+export function appendToBaseline(cwd: string, findings: AnalysisFinding[]): { path: string; count: number } {
+  const path = baselinePath(cwd);
+  const existingFindings: AnalysisFinding[] = [];
+  if (existsSync(path)) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as BaselineFile;
+      if (parsed.version === BASELINE_VERSION && Array.isArray(parsed.entries)) {
+        for (const entry of parsed.entries) {
+          existingFindings.push({
+            severity: entry.severity,
+            location: entry.line !== undefined ? `${entry.file}:${entry.line}` : entry.file,
+            text: entry.text,
+          });
+        }
+      }
+    } catch {
+      // A damaged baseline is treated as empty.
+    }
+  }
+  return writeBaseline(cwd, [...existingFindings, ...findings]);
+}
+
 export function writeBaseline(cwd: string, findings: AnalysisFinding[]): { path: string; count: number } {
   const seen = new Set<string>();
   const entries: BaselineEntry[] = [];

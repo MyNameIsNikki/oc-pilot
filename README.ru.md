@@ -132,6 +132,18 @@ oc-pilot собирает каждый промпт так, чтобы стаб�
 
 TTL по умолчанию 24 часа (`cacheTtlSeconds`, или `OC_PILOT_CACHE_TTL`; `0` отключает кеш). `--no-cache` обходит кеш на один запуск, `oc-pilot cache --stats | --prune | --clear` показывает и обслуживает его, `doctor --fix` вычищает просроченные записи. В JSON-отчёте видно `meta.cache: "hit" | "miss"`. Кеш работает только для движка `openai` (триаж, основной вызов и слайсы); запуски через OpenCode не кешируются, а ошибка кеша никогда не ломает ревью.
 
+### Second opinion (`openai`)
+
+`review --second-opinion` перед финальным вердиктом прогоняет до 10 критичных находок через вторую, скептическую модель. Ответ — одна строка: `VERDICT: CONFIRM` подтверждает находку, `VERDICT: REJECT — <причина>` понижает её до style и помечает буллет `[second opinion: rejected — причина]`. Если верификатор недоступен или ошибся, находки остаются как есть — ошибка проверки никогда не ослабляет ревью. Верификатор настраивается флагами `--second-opinion-model` / `--second-opinion-base-url` / `--second-opinion-api-key-env` или ключами конфига `secondOpinionEnabled`, `secondOpinionModel`, `secondOpinionBaseUrl`, `secondOpinionApiKeyEnv`; итог — в `meta.secondOpinion`.
+
+### Лимиты и статистика
+
+Каждый запуск и вызов API записывается в `.git/oc-pilot/stats.jsonl` (находки, движок, код возврата, попадания кеша). `oc-pilot stats` выводит запуски, вызовы API, попадания кеша и находки за сегодня, неделю и всё время (`--clear` сбрасывает). Дневной бюджет вызовов задаётся `maxDailyApiCalls` или `OC_PILOT_MAX_DAILY_API_CALLS` (`0` — без лимита); при исчерпании команда выходит с кодом 1 — попадания кеша лимит не расходуют. `oc-pilot day --since "1 day ago"` — сводка того, что натворил агент: коммиты, churn по файлам, строки +/- и находки oc-pilot.
+
+### Правила агента
+
+Если в проекте есть `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules` или `.github/copilot-instructions.md`, oc-pilot включает его в каждый промпт (первый найденный, до 10 000 символов, секреты маскируются) — ревьюер знает те же договорённости, что и кодинг-агент. Отключается `agentRules: false` в конфиге или `OC_PILOT_AGENT_RULES=0`.
+
 ## Команды
 
 ### `review`
@@ -163,9 +175,15 @@ oc-pilot review [пути...] [опции]
 | `--router-model <m>` | модель триажа (по умолчанию `routerModel` из конфига) |
 | `--baseline` | скрыть находки из `.oc-pilot/baseline.json` |
 | `--update-baseline` | перезаписать baseline текущими находками и выйти |
-| `--pr` | отправить сводный комментарий в PR через `gh` |
+| `--pr` | отправить сводный комментарий в PR (Actions REST или `gh`) |
+| `--second-opinion` | проверить критичные находки второй моделью (`openai`) |
+| `--second-opinion-model <m>` | модель-верификатор (по умолчанию `secondOpinionModel` или основная) |
+| `--require-tests` | код 3, если логика изменена без тестов |
+| `--interactive` | по каждой находке спросить, не скрыть ли её в baseline (TTY) |
 
-С `--baseline` находки, уже записанные в `.oc-pilot/baseline.json`, скрываются из вывода и не влияют на код возврата, JSON, SARIF и PR-комментарий — блокируют только новые. Отпечаток находки — `severity | файл | нормализованный текст`, без номера строки, поэтому известные находки переживают сдвиги кода. `--update-baseline` перезаписывает файл по текущему ревью и выходит с кодом 0. `--pr` отправляет один сводный комментарий (до 30 находок) в текущий PR через GitHub CLI (`gh pr comment`); нужен установленный и авторизованный `gh`, работает и в текстовом, и в SARIF-режиме.
+С `--baseline` находки, уже записанные в `.oc-pilot/baseline.json`, скрываются из вывода и не влияют на код возврата, JSON, SARIF и PR-комментарий — блокируют только новые. Отпечаток находки — `severity | файл | нормализованный текст`, без номера строки, поэтому известные находки переживают сдвиги кода. `--update-baseline` перезаписывает файл по текущему ревью и выходит с кодом 0; `--interactive` прячет находки по одной и дописывает их в baseline. `--pr` отправляет один сводный комментарий (до 30 находок) в текущий PR: внутри GitHub Actions — через REST API с `GITHUB_TOKEN` (нужна permission `pull-requests: write`), локально — через GitHub CLI (`gh pr comment`, нужен установленный и авторизованный `gh`). Работает и в текстовом, и в SARIF-режиме.
+
+До вызова модели `review` сам осматривает diff: новые зависимости проверяются на тайпосквоты, незакреплённые версии и VCS/URL-спеки в манифестах npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle и NuGet (подсказка `DEPENDENCY_CHANGES`, `meta.dependencies`); крупное изменение логики (20+ добавленных строк кода) без тестов даёт `TEST_COVERAGE_HINT` (`--require-tests` превращает в код 3, `meta.testDelta`); добавленные строки с признаками prompt injection (переопределение инструкций, role-hijack, эксфильтрация промпта, base64-блобы, невидимый Unicode) дают предупреждение `PROMPT_INJECTION_RISKS` (`meta.injection`).
 
 ### `test-fix`
 
@@ -301,6 +319,25 @@ oc-pilot cache --clear    # удалить всё
 
 Кеш работает только внутри git-репозитория и только для движка `openai`.
 
+### `stats`
+
+Статистика использования из `.git/oc-pilot/stats.jsonl`: запуски, вызовы API, попадания кеша, средняя длительность вызова и находки (critical/warning/style) за сегодня, 7 дней и всё время.
+
+```bash
+oc-pilot stats
+oc-pilot stats --json
+oc-pilot stats --clear
+```
+
+### `day`
+
+Локальный дайджест активности: что закоммичено с заданного момента, какие файлы больше всего менялись, строки +/- и находки oc-pilot за период.
+
+```bash
+oc-pilot day
+oc-pilot day --since "3 days ago" --json
+```
+
 ### `setup`
 
 Настраивает MCP-клиент на запуск `oc-pilot-mcp`, сохраняя чужие серверы и настройки. По умолчанию используется текущая установка (`node dist/mcp.js`); `--npx` записывает `npx -y oc-pilot@<version> mcp`, `--local` принудительно выбирает локальный путь. Сгенерированный сервер read-only; `--allow-write` разрешает агенту применять патчи и запускать тесты.
@@ -340,7 +377,7 @@ oc-pilot init --preset node
 
 Создаёт `.oc-pilot.json` с настройками по умолчанию. С `--preset <a,b>` дополнительно пишет готовый `.oc-pilot/rules.md` под стек. Пресеты можно комбинировать, например `--preset react,security`:
 
-`base` (универсальный), `node`, `react`, `next`, `vue`, `svelte`, `angular`, `typescript`, `python`, `go`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby`, `security` (сквозная безопасность), `devops` (Docker, CI, инфраструктура).
+`base` (универсальный), `node`, `react`, `next`, `vue`, `svelte`, `angular`, `typescript`, `python`, `go`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby`, `flutter`, `elixir`, `zig`, `scala`, `security` (сквозная безопасность), `devops` (Docker, CI, инфраструктура).
 
 Это обычный файл правил — дополняйте его свободно.
 
@@ -360,7 +397,10 @@ oc-pilot init --preset node
   "testCommand": "npm test",
   "redactSecrets": true,
   "repoContext": true,
-  "failOn": "none"
+  "failOn": "none",
+  "agentRules": true,
+  "secondOpinionEnabled": false,
+  "maxDailyApiCalls": 0
 }
 ```
 
@@ -531,7 +571,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.10.0
+      - uses: MyNameIsNikki/oc-pilot@v0.11.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

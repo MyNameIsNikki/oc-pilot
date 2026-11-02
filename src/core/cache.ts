@@ -3,8 +3,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path";
 import type { AnalysisResult } from "../types.js";
 import { normalizeBaseUrl, runOpenAiCompatible, type ApiRunOptions } from "./engine.js";
+import { PilotError } from "./errors.js";
 import { getRepoRoot, isGitRepo, runGit } from "./git.js";
 import { log } from "./log.js";
+import { countApiCallsSince, readStats, recordApiCall, todayStartMs } from "./stats.js";
 
 export const DEFAULT_CACHE_TTL_SECONDS = 86_400;
 const CACHE_VERSION = 1;
@@ -19,6 +21,8 @@ interface CacheEntry {
 export interface CachedApiOptions extends ApiRunOptions {
   cwd: string;
   ttlSeconds: number;
+  /** Uncached calls per local day before the gate refuses to spend more (0 = unlimited). */
+  dailyLimit?: number;
 }
 
 function sha256(value: string): string {
@@ -155,8 +159,25 @@ export function clearCache(cwd: string): number {
  * diff (CI retries, hooks, slicing re-runs) do not call the API again.
  */
 export async function cachedRunOpenAi(options: CachedApiOptions): Promise<AnalysisResult & { cached?: boolean }> {
-  const { cwd, ttlSeconds, ...api } = options;
-  if (ttlSeconds <= 0) return runOpenAiCompatible(api);
+  const { cwd, ttlSeconds, dailyLimit, ...api } = options;
+
+  const enforceDailyLimit = (): void => {
+    if (!dailyLimit || dailyLimit <= 0) return;
+    const used = countApiCallsSince(readStats(cwd), todayStartMs());
+    if (used >= dailyLimit) {
+      throw new PilotError(
+        `Дневной лимит API-вызовов oc-pilot исчерпан (${used}/${dailyLimit}).`,
+        { hint: "Кеш всё ещё работает (--no-cache обходить не стоит); лимит задаётся maxDailyApiCalls / OC_PILOT_MAX_DAILY_API_CALLS.", exitCode: 1 },
+      );
+    }
+  };
+
+  if (ttlSeconds <= 0) {
+    enforceDailyLimit();
+    const direct = await runOpenAiCompatible(api);
+    recordApiCall(cwd, { model: api.model, cached: false, durationMs: direct.durationMs });
+    return direct;
+  }
 
   const root = cacheRoot(cwd);
   if (!root) return runOpenAiCompatible(api);
@@ -166,10 +187,13 @@ export async function cachedRunOpenAi(options: CachedApiOptions): Promise<Analys
   const hit = readEntry(root, key, now);
   if (hit !== undefined) {
     log.detail("Ответ движка взят из локального кеша (без вызова API).");
+    recordApiCall(cwd, { model: api.model, cached: true, durationMs: 0 });
     return { text: hit, durationMs: 0, stderr: "", cached: true };
   }
 
+  enforceDailyLimit();
   const result = await runOpenAiCompatible(api);
+  recordApiCall(cwd, { model: api.model, cached: false, durationMs: result.durationMs });
   writeEntry(root, key, result.text, ttlSeconds, now);
   return { ...result, cached: false };
 }

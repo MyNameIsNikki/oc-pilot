@@ -22,6 +22,8 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   failOn: "none",
   lang: "en",
   cacheTtlSeconds: DEFAULT_CACHE_TTL_SECONDS,
+  agentRules: true,
+  maxDailyApiCalls: 0,
 };
 
 interface LoadOptions {
@@ -154,6 +156,12 @@ function fromFile(file: string): Partial<ResolvedConfig> {
     "routerEnabled",
     "routerModel",
     "cacheTtlSeconds",
+    "secondOpinionEnabled",
+    "secondOpinionModel",
+    "secondOpinionBaseUrl",
+    "secondOpinionApiKeyEnv",
+    "agentRules",
+    "maxDailyApiCalls",
   ]);
 
   for (const key of Object.keys(data)) {
@@ -179,6 +187,12 @@ function fromFile(file: string): Partial<ResolvedConfig> {
     routerEnabled: optionalBoolean(data.routerEnabled, "routerEnabled"),
     routerModel: optionalString(data.routerModel, "routerModel"),
     cacheTtlSeconds: optionalNonNegativeInt(data.cacheTtlSeconds, "cacheTtlSeconds"),
+    secondOpinionEnabled: optionalBoolean(data.secondOpinionEnabled, "secondOpinionEnabled"),
+    secondOpinionModel: optionalString(data.secondOpinionModel, "secondOpinionModel"),
+    secondOpinionBaseUrl: optionalString(data.secondOpinionBaseUrl, "secondOpinionBaseUrl"),
+    secondOpinionApiKeyEnv: optionalString(data.secondOpinionApiKeyEnv, "secondOpinionApiKeyEnv"),
+    agentRules: optionalBoolean(data.agentRules, "agentRules"),
+    maxDailyApiCalls: optionalNonNegativeInt(data.maxDailyApiCalls, "maxDailyApiCalls"),
   };
 }
 
@@ -260,6 +274,12 @@ function fromEnv(): Partial<ResolvedConfig> {
     routerEnabled: envBoolean("OC_PILOT_ROUTER"),
     routerModel: process.env.OC_PILOT_ROUTER_MODEL?.trim() || undefined,
     cacheTtlSeconds: envNonNegativeInt("OC_PILOT_CACHE_TTL"),
+    secondOpinionEnabled: envBoolean("OC_PILOT_SECOND_OPINION"),
+    secondOpinionModel: process.env.OC_PILOT_SECOND_OPINION_MODEL?.trim() || undefined,
+    secondOpinionBaseUrl: process.env.OC_PILOT_SECOND_OPINION_BASE_URL?.trim() || undefined,
+    secondOpinionApiKeyEnv: process.env.OC_PILOT_SECOND_OPINION_API_KEY_ENV?.trim() || undefined,
+    agentRules: envBoolean("OC_PILOT_AGENT_RULES"),
+    maxDailyApiCalls: envNonNegativeInt("OC_PILOT_MAX_DAILY_API_CALLS"),
   };
 }
 
@@ -317,6 +337,9 @@ export function configTemplate(): string {
       routerEnabled: false,
       routerModel: "gpt-4.1-mini",
       cacheTtlSeconds: DEFAULT_CACHE_TTL_SECONDS,
+      secondOpinionEnabled: false,
+      agentRules: true,
+      maxDailyApiCalls: 0,
     },
     null,
     2,

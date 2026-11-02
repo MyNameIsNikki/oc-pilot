@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeBaseUrl, runOpenAiCompatible } from "./engine.js";
+import { PilotError } from "./errors.js";
 import { getRepoRoot, isGitRepo, runGit } from "./git.js";
 import { log } from "./log.js";
+import { countApiCallsSince, readStats, recordApiCall, todayStartMs } from "./stats.js";
 export const DEFAULT_CACHE_TTL_SECONDS = 86_400;
 const CACHE_VERSION = 1;
 function sha256(value) {
@@ -132,9 +134,21 @@ export function clearCache(cwd) {
  * diff (CI retries, hooks, slicing re-runs) do not call the API again.
  */
 export async function cachedRunOpenAi(options) {
-    const { cwd, ttlSeconds, ...api } = options;
-    if (ttlSeconds <= 0)
-        return runOpenAiCompatible(api);
+    const { cwd, ttlSeconds, dailyLimit, ...api } = options;
+    const enforceDailyLimit = () => {
+        if (!dailyLimit || dailyLimit <= 0)
+            return;
+        const used = countApiCallsSince(readStats(cwd), todayStartMs());
+        if (used >= dailyLimit) {
+            throw new PilotError(`Дневной лимит API-вызовов oc-pilot исчерпан (${used}/${dailyLimit}).`, { hint: "Кеш всё ещё работает (--no-cache обходить не стоит); лимит задаётся maxDailyApiCalls / OC_PILOT_MAX_DAILY_API_CALLS.", exitCode: 1 });
+        }
+    };
+    if (ttlSeconds <= 0) {
+        enforceDailyLimit();
+        const direct = await runOpenAiCompatible(api);
+        recordApiCall(cwd, { model: api.model, cached: false, durationMs: direct.durationMs });
+        return direct;
+    }
     const root = cacheRoot(cwd);
     if (!root)
         return runOpenAiCompatible(api);
@@ -143,9 +157,12 @@ export async function cachedRunOpenAi(options) {
     const hit = readEntry(root, key, now);
     if (hit !== undefined) {
         log.detail("Ответ движка взят из локального кеша (без вызова API).");
+        recordApiCall(cwd, { model: api.model, cached: true, durationMs: 0 });
         return { text: hit, durationMs: 0, stderr: "", cached: true };
     }
+    enforceDailyLimit();
     const result = await runOpenAiCompatible(api);
+    recordApiCall(cwd, { model: api.model, cached: false, durationMs: result.durationMs });
     writeEntry(root, key, result.text, ttlSeconds, now);
     return { ...result, cached: false };
 }

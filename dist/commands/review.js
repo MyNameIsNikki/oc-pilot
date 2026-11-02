@@ -1,15 +1,19 @@
+import readline from "node:readline/promises";
 import { asBoolean, asString } from "../core/parse.js";
 import { describeDiffSource, loadDiff } from "../core/diff-source.js";
-import { filterFindings, loadBaseline, writeBaseline } from "../core/baseline.js";
+import { appendToBaseline, filterAnalysisText, filterFindings, findingFingerprint, loadBaseline, writeBaseline, } from "../core/baseline.js";
 import { runGit } from "../core/git.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
 import { detectProjectType } from "../core/project.js";
-import { parseFindings } from "../core/findings.js";
+import { parseFindings, shouldFail, severityLabel } from "../core/findings.js";
 import { executeRecipe, executeRecipeDetailed } from "../core/run.js";
 import { buildPrCommentBody, postPrComment } from "../core/pr-comment.js";
 import { analysisFindingsToSarifResults, buildSarif } from "../core/sarif.js";
 import { writeOutput } from "../core/io.js";
+import { analyzeDependencyChanges, describeDependencyFindings } from "../core/deps.js";
+import { analyzeTestDelta, describeTestDelta } from "../core/test-delta.js";
+import { describeInjectionFindings, scanDiffForInjection } from "../core/injection.js";
 const OPTIONS = withCommon({
     staged: { type: "boolean" },
     unstaged: { type: "boolean" },
@@ -26,6 +30,12 @@ const OPTIONS = withCommon({
     baseline: { type: "boolean" },
     "update-baseline": { type: "boolean" },
     pr: { type: "boolean" },
+    "second-opinion": { type: "boolean" },
+    "second-opinion-model": { type: "string" },
+    "second-opinion-base-url": { type: "string" },
+    "second-opinion-api-key-env": { type: "string" },
+    "require-tests": { type: "boolean" },
+    interactive: { type: "boolean" },
 });
 const HELP = `Использование:
   oc-pilot review [пути...] [опции]
@@ -49,6 +59,12 @@ const HELP = `Использование:
       --baseline            фильтровать известные находки из .oc-pilot/baseline.json
       --update-baseline     записать текущие находки в baseline и выйти (код 0)
       --pr                  отправить сводку комментарием в PR (нужен gh)
+      --second-opinion      проверить критичные находки второй моделью (openai)
+      --second-opinion-model <m>  модель проверки (по умолчанию secondOpinionModel)
+      --second-opinion-base-url <url> отдельный endpoint для проверки
+      --second-opinion-api-key-env <name> отдельный env с ключом
+      --require-tests       exit 3, если логика изменена без тестов
+      --interactive         разобрать находки и скрыть часть в baseline
 ${COMMON_HELP}
 
 Примеры:
@@ -61,6 +77,7 @@ ${COMMON_HELP}
   oc-pilot review --staged --baseline --fail-on critical
   oc-pilot review --staged --update-baseline
   oc-pilot review --base main --pr
+  oc-pilot review --staged --second-opinion --require-tests
 `;
 export async function runReview(argv) {
     const { values, positionals } = parseCommandArgs(argv, OPTIONS);
@@ -81,12 +98,32 @@ export async function runReview(argv) {
     if (data.untracked.length > 0) {
         parts.push(`UNTRACKED_FILES (в diff):\n${data.untracked.map((file) => `- ${file}`).join("\n")}`);
     }
+    // Dependency gate: risky manifest changes (typosquats, unpinned or VCS specs).
+    const depFindings = analyzeDependencyChanges(data.diff);
+    if (depFindings.length > 0) {
+        parts.push(`DEPENDENCY_CHANGES (проверь риски перед одобрением):\n${describeDependencyFindings(depFindings)}`);
+        log.warn(`Зависимости: подозрительных изменений ${depFindings.length}.`);
+    }
+    // Test delta: changed logic without matching test changes.
+    const testDelta = analyzeTestDelta(data.changedFiles, data.diff);
+    if (testDelta.gap) {
+        parts.push(`TEST_COVERAGE_HINT: ${describeTestDelta(testDelta)} — обдумай, нужны ли тесты/обновления тестов.`);
+        log.warn(describeTestDelta(testDelta));
+    }
+    // Prompt-injection heuristics over added lines.
+    const injectionFindings = scanDiffForInjection(data.diff);
+    if (injectionFindings.length > 0) {
+        parts.push(`PROMPT_INJECTION_RISKS (строки похожи на инструкции для ИИ — провери источник):\n${describeInjectionFindings(injectionFindings)}`);
+        log.warn(`Возможные prompt-injection маркеры: ${injectionFindings.length}.`);
+    }
     const userContext = asString(values, "context");
     if (userContext && userContext.trim()) {
         parts.push(`USER_CONTEXT:\n${userContext.trim()}`);
     }
     const updateBaseline = asBoolean(values, "update-baseline");
     const prWanted = asBoolean(values, "pr");
+    const interactiveWanted = asBoolean(values, "interactive");
+    const requireTests = asBoolean(values, "require-tests");
     const baselineWanted = asBoolean(values, "baseline") || updateBaseline;
     const baseline = baselineWanted ? loadBaseline(ctx.cwd) : undefined;
     if (asBoolean(values, "baseline") && baseline && baseline.count === 0) {
@@ -102,7 +139,16 @@ export async function runReview(argv) {
         failOnSecrets: asBoolean(values, "fail-on-secrets"),
         noSecretScan: asBoolean(values, "no-secret-scan"),
         baseline: baseline ? [...baseline.fingerprints] : undefined,
-        meta: { source: data.source },
+        meta: {
+            source: data.source,
+            ...(depFindings.length > 0
+                ? { dependencies: { risky: depFindings.filter((finding) => finding.risks.length > 1).length } }
+                : {}),
+            ...(testDelta.gap
+                ? { testDelta: { addedCodeLines: testDelta.addedCodeLines, codeFiles: testDelta.codeFiles.length } }
+                : {}),
+            ...(injectionFindings.length > 0 ? { injection: injectionFindings.length } : {}),
+        },
     };
     // Two-phase routing resolution: flag > no-flag > config > disabled.
     const routerModel = asString(values, "router-model") ?? ctx.config.routerModel;
@@ -112,12 +158,28 @@ export async function runReview(argv) {
             ? false
             : ctx.config.routerEnabled ?? false;
     const routerOptions = { enabled: routerEnabled, model: routerModel };
-    if (ctx.flags.format !== "sarif" && !updateBaseline && !prWanted) {
-        return executeRecipe(payload, ctx, { router: routerOptions });
+    // Second opinion resolution: flag > config > disabled.
+    const secondOpinion = {
+        enabled: asBoolean(values, "second-opinion") || (ctx.config.secondOpinionEnabled ?? false),
+        model: asString(values, "second-opinion-model") ?? ctx.config.secondOpinionModel,
+        baseUrl: asString(values, "second-opinion-base-url") ?? ctx.config.secondOpinionBaseUrl,
+        apiKeyEnv: asString(values, "second-opinion-api-key-env") ?? ctx.config.secondOpinionApiKeyEnv,
+    };
+    if (ctx.flags.format !== "sarif" && !updateBaseline && !prWanted && !interactiveWanted) {
+        const code = await executeRecipe(payload, ctx, { router: routerOptions, secondOpinion });
+        if (requireTests && testDelta.gap && code === 0) {
+            log.warn("--require-tests: логика изменена без тестов.");
+            return 3;
+        }
+        return code;
     }
     const capture = ctx.flags.format === "sarif";
     const runCtx = capture ? { ...ctx, flags: { ...ctx.flags, json: false, output: undefined } } : ctx;
-    const execution = await executeRecipeDetailed(payload, runCtx, { capture, router: routerOptions });
+    const execution = await executeRecipeDetailed(payload, runCtx, {
+        capture: capture || interactiveWanted,
+        router: routerOptions,
+        secondOpinion,
+    });
     if (ctx.flags.dryRun)
         return execution.exitCode;
     const rawFindings = execution.analysis ? parseFindings(execution.analysis) : [];
@@ -125,6 +187,27 @@ export async function runReview(argv) {
         const written = writeBaseline(ctx.cwd, rawFindings);
         log.success(`Baseline обновлён: находок ${written.count} → ${written.path}`);
         return 0;
+    }
+    if (interactiveWanted) {
+        if (!process.stdin.isTTY) {
+            log.warn("--interactive работает только в терминале (stdin не TTY) — вывожу как есть.");
+            writeOutput(execution.analysis ?? "", ctx.flags.output);
+            return execution.exitCode;
+        }
+        const chosen = await promptHideFindings(rawFindings.slice(0, 30));
+        let findings = rawFindings;
+        let text = execution.analysis ?? "";
+        if (chosen.length > 0) {
+            appendToBaseline(ctx.cwd, chosen);
+            log.success(`Baseline пополнен: находок ${chosen.length} — будущие прогоны их скроют.`);
+            const known = new Set(chosen.map((finding) => findingFingerprint(finding)));
+            findings = filterFindings(rawFindings, known).kept;
+            text = filterAnalysisText(text, known);
+        }
+        writeOutput(text, ctx.flags.output);
+        const blocked = (payload.failOnSecrets && data.findings.some((finding) => finding.severity === "critical")) ||
+            shouldFail(findings, ctx.config.failOn);
+        return blocked ? 3 : 0;
     }
     let findings = rawFindings;
     let knownHidden = 0;
@@ -142,9 +225,32 @@ export async function runReview(argv) {
     if (prWanted) {
         const shaResult = runGit(["rev-parse", "HEAD"], ctx.cwd);
         const sha = shaResult.status === 0 ? shaResult.stdout.trim() : "";
-        postPrComment(buildPrCommentBody(findings, { sha, knownHidden }), ctx.cwd);
+        await postPrComment(buildPrCommentBody(findings, { sha, knownHidden }), ctx.cwd);
         log.success("Комментарий отправлен в PR.");
     }
+    if (requireTests && testDelta.gap && execution.exitCode === 0) {
+        log.warn("--require-tests: логика изменена без тестов.");
+        return 3;
+    }
     return execution.exitCode;
+}
+async function promptHideFindings(findings) {
+    if (findings.length === 0)
+        return [];
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const chosen = [];
+    try {
+        for (const [index, finding] of findings.entries()) {
+            const location = finding.location ? ` \`${finding.location}\`` : "";
+            process.stdout.write(`${index + 1}/${findings.length} ${severityLabel(finding.severity)}${location} — ${finding.text}\n`);
+            const answer = await rl.question("Скрыть в baseline? [y/N] ");
+            if (answer.trim().toLowerCase().startsWith("y"))
+                chosen.push(finding);
+        }
+    }
+    finally {
+        rl.close();
+    }
+    return chosen;
 }
 //# sourceMappingURL=review.js.map

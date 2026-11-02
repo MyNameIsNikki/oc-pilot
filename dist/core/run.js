@@ -1,6 +1,7 @@
 import { relative } from "node:path";
 import { filterAnalysisText, filterFindings } from "./baseline.js";
 import { cachedRunOpenAi, DEFAULT_CACHE_TTL_SECONDS } from "./cache.js";
+import { findAgentRules } from "./agent-rules.js";
 import { truncateDiff, truncateText } from "./diff.js";
 import { buildFileContext } from "./file-context.js";
 import { describeFindings, countFindings, parseFindings, shouldFail } from "./findings.js";
@@ -12,6 +13,9 @@ import { runOpenCode } from "./opencode.js";
 import { buildInput, systemPromptFor, TRIAGE_SYSTEM_PROMPT } from "./prompt.js";
 import { loadRules } from "./rules.js";
 import { parseTriageDecision } from "./router.js";
+import { downgradeFindingInText, verifyCriticalFindings } from "./second-opinion.js";
+import { loadSecretIgnore, scanText } from "./secrets.js";
+import { recordRun } from "./stats.js";
 import { lgtmText, mergeSliceAnalyses, planDiffSlices } from "./slicing.js";
 const MAX_PROMPT_CHARS = 300_000;
 function printSecretWarnings(findings, redacted) {
@@ -115,6 +119,23 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
         }
         if (rules.truncated)
             log.warn(`Правила проекта обрезаны до ${20_000} символов.`);
+    }
+    if (ctx.config.agentRules !== false) {
+        const agentRules = findAgentRules(ctx.cwd);
+        if (agentRules) {
+            let agentText = agentRules.text;
+            if (scanSecrets && ctx.config.redactSecrets) {
+                const scan = scanText(agentText, agentRules.path, { ignore: loadSecretIgnore(ctx.cwd) });
+                if (scan.findings.length > 0) {
+                    secretFindings = dedupeFindings([...secretFindings, ...scan.findings]);
+                    log.warn(`В агентских правилах найдено потенциальных секретов: ${scan.findings.length}.`);
+                }
+                agentText = scan.redacted;
+            }
+            prefixes.push(`AGENT_RULES (${agentRules.path}${agentRules.truncated ? ", обрезано" : ""}):\n${agentText}`);
+            if (agentRules.truncated)
+                log.warn("Агентские правила обрезаны до 10 000 символов.");
+        }
     }
     if (!effectiveRepoContext && payload.recipe !== "docgen" && payload.changedFiles.length > 0) {
         const fileContext = buildFileContext(ctx.cwd, payload.changedFiles, {
@@ -229,6 +250,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
                 timeoutMs: ctx.config.timeoutSeconds * 1000,
                 cwd: ctx.cwd,
                 ttlSeconds: cacheTtl,
+                dailyLimit: ctx.config.maxDailyApiCalls,
             });
             const decision = parseTriageDecision(triage.text);
             routerMeta = { model: routerModel ?? null, decision, durationMs: triage.durationMs };
@@ -286,6 +308,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
                 timeoutMs: ctx.config.timeoutSeconds * 1000,
                 cwd: ctx.cwd,
                 ttlSeconds: cacheTtl,
+                dailyLimit: ctx.config.maxDailyApiCalls,
             });
             if (sliceResult.cached)
                 cacheStatus = "hit";
@@ -314,6 +337,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
             timeoutMs: ctx.config.timeoutSeconds * 1000,
             cwd: ctx.cwd,
             ttlSeconds: cacheTtl,
+            dailyLimit: ctx.config.maxDailyApiCalls,
         });
         analysis = result;
         cacheStatus = result.cached ? "hit" : "miss";
@@ -348,6 +372,52 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
             log.info(`Baseline: скрыто известных находок: ${knownCount}.`);
         }
     }
+    // Second opinion (engine=openai, recipe=review): verify each critical
+    // finding with a second model call; rejected findings downgrade to style.
+    let secondOpinionMeta;
+    const soWanted = options.secondOpinion?.enabled === true &&
+        ctx.config.engine === "openai" &&
+        payload.recipe === "review";
+    if (soWanted) {
+        const criticals = analysisFindings.filter((finding) => finding.severity === "critical").slice(0, 10);
+        if (criticals.length > 0) {
+            const soModel = options.secondOpinion?.model ?? ctx.config.secondOpinionModel ?? ctx.config.model;
+            const soBaseUrl = options.secondOpinion?.baseUrl ?? ctx.config.secondOpinionBaseUrl ?? ctx.config.baseUrl;
+            const soApiKeyEnv = options.secondOpinion?.apiKeyEnv ?? ctx.config.secondOpinionApiKeyEnv ?? ctx.config.apiKeyEnv;
+            log.step(`Second opinion: проверка критичных находок (${soModel ?? "модель по умолчанию"}).`);
+            try {
+                const verified = await verifyCriticalFindings(criticals, effective.diff, {
+                    model: soModel,
+                    baseUrl: soBaseUrl,
+                    apiKeyEnv: soApiKeyEnv,
+                    timeoutMs: ctx.config.timeoutSeconds * 1000,
+                    cwd: ctx.cwd,
+                });
+                let downgraded = 0;
+                for (const rejected of verified.rejected) {
+                    const original = criticals[rejected.index];
+                    if (!original)
+                        continue;
+                    const at = analysisFindings.indexOf(original);
+                    if (at >= 0)
+                        analysisFindings[at] = { ...original, severity: "style" };
+                    outputText = downgradeFindingInText(outputText, original, rejected.reason);
+                    downgraded += 1;
+                }
+                secondOpinionMeta = {
+                    model: soModel ?? null,
+                    verified: verified.verified,
+                    rejected: downgraded,
+                    durationMs: verified.durationMs,
+                };
+                if (downgraded > 0)
+                    log.info(`Second opinion: отклонено находок: ${downgraded} (понижены до style).`);
+            }
+            catch (error) {
+                log.warn(`Second opinion недоступен (${error instanceof Error ? error.message : String(error)}) — находки оставлены как есть.`);
+            }
+        }
+    }
     if (analysisFindings.length > 0)
         log.info(`Замечания: ${describeFindings(analysisFindings)}`);
     if (ctx.flags.github) {
@@ -376,6 +446,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
         ...(routerMeta ? { router: routerMeta } : {}),
         ...(cacheStatus ? { cache: cacheStatus } : {}),
         ...(baselineMeta ? baselineMeta : {}),
+        ...(secondOpinionMeta ? { secondOpinion: secondOpinionMeta } : {}),
         ...payload.meta,
     };
     if (!options.capture) {
@@ -404,7 +475,13 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
         log.warn("--strict: ответ не соответствует OUTPUT SCHEMA");
         exitCode = 3;
     }
-    return { exitCode, analysis: analysis.text, meta };
+    recordRun(ctx.cwd, {
+        recipe: payload.recipe,
+        engine: ctx.config.engine,
+        exitCode,
+        findings: countFindings(analysisFindings),
+    });
+    return { exitCode, analysis: outputText, meta };
 }
 export async function executeRecipe(payload, ctx, options = {}) {
     return (await executeRecipeDetailed(payload, ctx, options)).exitCode;

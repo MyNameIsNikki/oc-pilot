@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { AnalysisFinding } from "../types.js";
 import {
+  appendToBaseline,
   filterAnalysisText,
   filterFindings,
   findingFingerprint,
@@ -91,4 +92,18 @@ test("filterAnalysisText removes known bullets and keeps everything else", () =>
 test("filterAnalysisText leaves text without a findings section untouched", () => {
   const lgtm = "LGTM: no critical issues found.";
   assert.equal(filterAnalysisText(lgtm, new Set([findingFingerprint(CRITICAL)])), lgtm);
+});
+
+test("appendToBaseline merges new findings into an existing baseline", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-baseline-append-"));
+  try {
+    writeBaseline(dir, [CRITICAL]);
+    appendToBaseline(dir, [CRITICAL, OTHER]);
+    const loaded = loadBaseline(dir);
+    assert.equal(loaded.count, 2);
+    assert.ok(loaded.fingerprints.has(findingFingerprint(CRITICAL)));
+    assert.ok(loaded.fingerprints.has(findingFingerprint(OTHER)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

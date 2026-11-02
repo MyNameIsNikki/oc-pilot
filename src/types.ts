@@ -66,6 +66,18 @@ export interface ResolvedConfig {
   routerModel?: string;
   /** Local response cache lifetime in seconds for engine=openai; 0 disables caching. */
   cacheTtlSeconds?: number;
+  /** Verify critical review findings with a second model call (engine=openai). */
+  secondOpinionEnabled?: boolean;
+  /** Model used by the second-opinion verifier. */
+  secondOpinionModel?: string;
+  /** OpenAI-compatible base URL for the second-opinion verifier. */
+  secondOpinionBaseUrl?: string;
+  /** Environment variable with the API key for the second-opinion verifier. */
+  secondOpinionApiKeyEnv?: string;
+  /** Include AGENTS.md / CLAUDE.md style files into prompts. */
+  agentRules?: boolean;
+  /** Hard cap on uncached API calls per day for engine=openai; 0 disables the limit. */
+  maxDailyApiCalls?: number;
 }
 
 export interface ConfigOverrides {
@@ -85,6 +97,12 @@ export interface ConfigOverrides {
   routerEnabled?: boolean;
   routerModel?: string;
   cacheTtlSeconds?: number;
+  secondOpinionEnabled?: boolean;
+  secondOpinionModel?: string;
+  secondOpinionBaseUrl?: string;
+  secondOpinionApiKeyEnv?: string;
+  agentRules?: boolean;
+  maxDailyApiCalls?: number;
 }
 
 export interface LoadedConfig {

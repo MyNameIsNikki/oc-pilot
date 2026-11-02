@@ -283,6 +283,79 @@ export const PRESETS = [
 - Prefer each/map over for loops; early returns over nested conditionals.
 - Do not mutate frozen constants; keep structured logging free of secrets.
 `),
+    preset("flutter", "Flutter / Dart", "Widget trees, state and rendering rules", `
+## Widgets and state
+- Mark constructors const where possible; keep build() pure and cheap.
+- Dispose controllers and streams; flag subscriptions without cancel.
+- Never use BuildContext across async gaps; check mounted after await.
+- setState for local repaints only; prefer ValueNotifier or state packages above the widget.
+- Theme and MediaQuery over hardcoded colors, paddings and text styles.
+
+## Lists and layout
+- ListView.builder for long lists; flag shrinkWrap inside scrollables.
+- Stable keys on dynamic children; const keys where identity suffices.
+- Hero and animations need bounded constraints; flag unbounded Row/Column flex errors.
+
+## Data and platform
+- JSON via typed fromJson/toJson; flag raw Map<String, dynamic> access.
+- Channels and plugins validated on both sides; flag untyped platform calls.
+- Async errors observed: FutureBuilder error paths and runZonedGuarded zones.
+`),
+    preset("elixir", "Elixir / Erlang", "BEAM concurrency and OTP rules", `
+## Processes and OTP
+- GenServer callbacks stay fast; no blocking work in handle_call.
+- Every process has a supervisor; flag spawn/spawn_link without a restart strategy.
+- Task.async needs Task.await with a timeout; flag fire-and-forget tasks on user paths.
+- Trap exits only with a reason; flag catch-all handle_info that swallows messages.
+
+## Correctness
+- Pattern match instead of nil checks; flag case clauses that mimic if-chains.
+- with/else for happy-path pipelines; every else branch handles a real error.
+- Recursion and Enum over manual loops; flag Enum into Map.put (O(n^2) growth).
+- Changesets validate and constrain: flag cast without validate_required or unique_constraint.
+
+## Safety
+- Repo queries parameterized; flag fragment with interpolated user input.
+- No atom creation from user input; strings over atoms at boundaries.
+- Timeouts on external calls; flag GenServer calls to remote nodes without one.
+`),
+    preset("zig", "Zig", "Explicit memory and safety rules", `
+## Memory
+- Every allocation pairs with a free or defer; flag alloc without a visible owner.
+- defer matches acquisition order; errdefer for cleanup before an error return.
+- Allocations return errors: handle OutOfMemory instead of assuming success.
+- No use-after-free: flag returning pointers into stack frames or freed slices.
+- Initialize memory explicitly; flag reads of undefined or padding values.
+
+## Correctness
+- Slices carry bounds; flag pointer arithmetic where slice indexing works.
+- @intCast and @truncate need range justification; flag unchecked narrowing.
+- Prefer tagged unions and exhaustive switch; flag reachable unreachable.
+- Comptime for constants and generics; flag runtime values that should be comptime.
+
+## Idiomatic
+- Errors via error sets with try propagation; flag catch |_| that discards cause.
+- Testing with zig test blocks beside the code; edge cases for boundary math.
+`),
+    preset("scala", "Scala", "Type-safe functional rules", `
+## Types and options
+- Option instead of null; flag .get, .head on Option and isDefined+get pairs.
+- Prefer fold/map/foreach chains over match scaffolding on simple shapes.
+- Either for fallible paths; flag exceptions used as local control flow.
+- Discriminated sealed traits with exhaustive match; flag catch-all cases that hide new variants.
+
+## Concurrency
+- Futures compose with for-comprehensions; block only at the edge.
+- Flag Await.result without timeout on request paths.
+- Side effects in ZIO/Cats Effect kept at the boundary; pure core logic.
+- Structured lifetimes for Akka actors; flag tell to stopped or unwatched actors.
+
+## Idiomatic
+- Givens/implicits with explicit types; flag inferred context params on public APIs.
+- Immutable case classes and copy over var fields.
+- Lazy structures (view, LazyList) when sizes are large; flag eager map on big collections.
+- No wildcard imports; unused imports removed; values over unit-returning expressions.
+`),
     preset("security", "Security", "Cross-stack hardening rules, combine with a stack preset", `
 ## Injection
 - Parameterized queries only; flag string-built SQL and ORM filters from user input.

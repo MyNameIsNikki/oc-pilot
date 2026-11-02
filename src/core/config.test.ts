@@ -19,6 +19,13 @@ const ENV_KEYS = [
   "OC_PILOT_RULES",
   "OC_PILOT_ROUTER",
   "OC_PILOT_ROUTER_MODEL",
+  "OC_PILOT_CACHE_TTL",
+  "OC_PILOT_SECOND_OPINION",
+  "OC_PILOT_SECOND_OPINION_MODEL",
+  "OC_PILOT_SECOND_OPINION_BASE_URL",
+  "OC_PILOT_SECOND_OPINION_API_KEY_ENV",
+  "OC_PILOT_AGENT_RULES",
+  "OC_PILOT_MAX_DAILY_API_CALLS",
 ] as const;
 
 function withCleanEnv(): () => void {
@@ -176,6 +183,47 @@ test("router settings load from file and env", () => {
 
     process.env.OC_PILOT_ROUTER = "maybe";
     assert.throws(() => loadConfig({ cwd: dir }), /OC_PILOT_ROUTER/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    restore();
+  }
+});
+
+test("second opinion, agent rules and daily limit load from file and env", () => {
+  const restore = withCleanEnv();
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-config-"));
+  try {
+    writeFileSync(
+      join(dir, ".oc-pilot.json"),
+      JSON.stringify({
+        secondOpinionEnabled: true,
+        secondOpinionModel: "checker",
+        secondOpinionBaseUrl: "https://api.example.com/v1",
+        secondOpinionApiKeyEnv: "CHECKER_KEY",
+        agentRules: false,
+        maxDailyApiCalls: 50,
+      }),
+    );
+    let loaded = loadConfig({ cwd: dir });
+    assert.equal(loaded.config.secondOpinionEnabled, true);
+    assert.equal(loaded.config.secondOpinionModel, "checker");
+    assert.equal(loaded.config.secondOpinionBaseUrl, "https://api.example.com/v1");
+    assert.equal(loaded.config.secondOpinionApiKeyEnv, "CHECKER_KEY");
+    assert.equal(loaded.config.agentRules, false);
+    assert.equal(loaded.config.maxDailyApiCalls, 50);
+
+    process.env.OC_PILOT_SECOND_OPINION_MODEL = "env-checker";
+    process.env.OC_PILOT_MAX_DAILY_API_CALLS = "10";
+    loaded = loadConfig({ cwd: dir });
+    assert.equal(loaded.config.secondOpinionModel, "env-checker");
+    assert.equal(loaded.config.maxDailyApiCalls, 10);
+
+    process.env.OC_PILOT_SECOND_OPINION = "false";
+    loaded = loadConfig({ cwd: dir });
+    assert.equal(loaded.config.secondOpinionEnabled, false);
+
+    assert.equal(DEFAULT_CONFIG.agentRules, true);
+    assert.equal(DEFAULT_CONFIG.maxDailyApiCalls, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     restore();

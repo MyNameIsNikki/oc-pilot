@@ -20,6 +20,10 @@ test("all presets are registered with stable ids", () => {
         "swift",
         "php",
         "ruby",
+        "flutter",
+        "elixir",
+        "zig",
+        "scala",
         "security",
         "devops",
     ]);
@@ -50,6 +54,10 @@ test("presets carry stack-specific guidance", () => {
         swift: "retain cycles",
         php: "strict_types",
         ruby: "Strong params",
+        flutter: "BuildContext",
+        elixir: "GenServer",
+        zig: "defer",
+        scala: "Option",
         security: "constant-time",
         devops: ":latest",
     };

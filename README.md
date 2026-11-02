@@ -155,6 +155,18 @@ The `openai` engine caches full model responses on disk. The cache key is the sh
 
 The TTL defaults to 24 hours (`cacheTtlSeconds`, or `OC_PILOT_CACHE_TTL`; `0` disables caching). `--no-cache` bypasses the cache for one run, and `oc-pilot cache --stats | --prune | --clear` inspects and maintains it. `doctor --fix` prunes expired entries. The JSON report shows `meta.cache: "hit" | "miss"`. The cache only applies to the `openai` engine (triage, main and slice calls); OpenCode runs are never cached, and a cache error can never fail a review.
 
+### Second opinion (`openai`)
+
+`review --second-opinion` re-checks up to 10 critical findings with a second, skeptical model before failing the build. Each verdict is a single line: `VERDICT: CONFIRM` keeps the finding, `VERDICT: REJECT — <reason>` downgrades it to style and annotates the bullet with `[second opinion: rejected — reason]`. If the verifier errors or is unreachable, findings are kept as-is — verification never weakens a review on failure. Configure the verifier with `--second-opinion-model` / `--second-opinion-base-url` / `--second-opinion-api-key-env` or the config keys `secondOpinionEnabled`, `secondOpinionModel`, `secondOpinionBaseUrl`, `secondOpinionApiKeyEnv`; the result is reported in `meta.secondOpinion`.
+
+### Usage limits and statistics
+
+Every run and API call is recorded to `.git/oc-pilot/stats.jsonl` (findings, engine, exit code, cache hits). `oc-pilot stats` prints runs, API calls, cache hits and findings for today, the week and all time (`--clear` resets). A daily API-call budget can be enforced with `maxDailyApiCalls` or `OC_PILOT_MAX_DAILY_API_CALLS` (`0` disables it); once the limit of uncached calls is reached, the command exits 1 — cache hits never consume the budget. `oc-pilot day --since "1 day ago"` summarizes what the agent did: commits, churn per file, added/deleted lines and oc-pilot findings.
+
+### Agent rules awareness
+
+If the project has an `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules` or `.github/copilot-instructions.md`, oc-pilot includes it in every prompt (first match, up to 10 000 characters, secrets masked). This keeps the reviewer aware of the same conventions the coding agent follows. Disable with `agentRules: false` in the config or `OC_PILOT_AGENT_RULES=0`.
+
 ## Commands
 
 ### `review`
@@ -185,9 +197,17 @@ git diff | oc-pilot review --stdin
 | `--router-model <m>` | Triage model (default: `routerModel` from the config) |
 | `--baseline` | Hide findings already recorded in `.oc-pilot/baseline.json` |
 | `--update-baseline` | Record current findings as the baseline and exit |
-| `--pr` | Post a summary comment to the PR via `gh` |
+| `--pr` | Post a summary comment to the PR (Actions REST or `gh`) |
+| `--second-opinion` | Verify critical findings with a second model (`openai`) |
+| `--second-opinion-model <m>` | Verifier model (default: `secondOpinionModel` or the main model) |
+| `--require-tests` | Exit 3 when logic changed without tests |
+| `--interactive` | Ask per finding whether to hide it in the baseline (TTY) |
 
-With `--baseline`, findings already recorded in `.oc-pilot/baseline.json` are hidden from the output and no longer affect the exit code, JSON, SARIF or PR comment — only new findings block. A finding fingerprint is `severity | file | normalized text`, without the line number, so known findings survive code shifts. `--update-baseline` rewrites the file from the current review and exits 0. `--pr` posts one summary comment (up to 30 findings) to the current PR through the GitHub CLI (`gh pr comment`); it requires `gh` to be installed and authenticated, and works from text and SARIF runs alike.
+With `--baseline`, findings already recorded in `.oc-pilot/baseline.json` are hidden from the output and no longer affect the exit code, JSON, SARIF or PR comment — only new findings block. A finding fingerprint is `severity | file | normalized text`, without the line number, so known findings survive code shifts. `--update-baseline` rewrites the file from the current review and exits 0; `--interactive` hides findings one by one and appends them to the baseline. `--pr` posts one summary comment (up to 30 findings) to the current PR: inside GitHub Actions it uses the REST API with `GITHUB_TOKEN` (grant `permissions: pull-requests: write`), locally it uses the GitHub CLI (`gh pr comment`, requires `gh` installed and authenticated). It works from text and SARIF runs alike.
+
+Before the model runs, `review` also inspects the diff locally: newly added dependencies are checked for typosquats, unpinned versions and VCS/URL specs across npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle and NuGet manifests (`DEPENDENCY_CHANGES` hint, `meta.dependencies`); a large logic change (20+ added code lines) with no test files produces a `TEST_COVERAGE_HINT` (`--require-tests` turns it into exit 3, `meta.testDelta`); and added lines matching prompt-injection heuristics (instruction overrides, role hijacking, prompt exfiltration, base64 blobs, invisible Unicode) produce a `PROMPT_INJECTION_RISKS` warning (`meta.injection`).
+
+See [Second opinion](#second-opinion-openai) for the verification flow.
 
 ### `test-fix`
 
@@ -313,6 +333,25 @@ oc-pilot cache --clear    # delete everything
 
 The cache only works inside a git repository and only applies to the `openai` engine.
 
+### `stats`
+
+Prints usage statistics from `.git/oc-pilot/stats.jsonl`: runs, API calls, cache hits, average call duration and findings (critical/warning/style) for today, the last 7 days and all time.
+
+```bash
+oc-pilot stats
+oc-pilot stats --json
+oc-pilot stats --clear
+```
+
+### `day`
+
+A local activity digest: what was committed since a point in time, which files churned most, lines added/deleted, and the oc-pilot findings for that period.
+
+```bash
+oc-pilot day
+oc-pilot day --since "3 days ago" --json
+```
+
 ### `setup`
 
 Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, Windsurf, ZCode, and any client that reads `.agents/mcp.json`. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead. Generated servers start read-only; add `--allow-write` if the agent should apply patches and run tests.
@@ -374,7 +413,7 @@ oc-pilot init --preset node
 
 Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--force` is passed. With `--preset <a,b>` it also writes a curated `.oc-pilot/rules.md` for the stack. One or more presets can be combined, e.g. `--preset react,security`:
 
-`base` (language-agnostic), `node`, `react`, `next`, `vue`, `svelte`, `angular`, `typescript`, `python`, `go`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby`, `security` (cross-stack hardening), `devops` (Docker, CI, infrastructure).
+`base` (language-agnostic), `node`, `react`, `next`, `vue`, `svelte`, `angular`, `typescript`, `python`, `go`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby`, `flutter`, `elixir`, `zig`, `scala`, `security` (cross-stack hardening), `devops` (Docker, CI, infrastructure).
 
 The rules file is a normal project rules file — edit it freely.
 
@@ -509,7 +548,10 @@ Markdown response:
   "maxFileChars": 60000,
   "timeoutSeconds": 300,
   "redactSecrets": true,
-  "testCommand": "npm test"
+  "testCommand": "npm test",
+  "agentRules": true,
+  "secondOpinionEnabled": false,
+  "maxDailyApiCalls": 0
 }
 ```
 
@@ -706,7 +748,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.10.0
+      - uses: MyNameIsNikki/oc-pilot@v0.11.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -729,7 +771,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.10.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.11.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

@@ -32,12 +32,16 @@ function stageChange(dir) {
     writeFileSync(join(dir, "wallet.ts"), "export function deduct(): void {}\n");
     execSync("git add wallet.ts", { cwd: dir, stdio: "ignore" });
 }
-function startLoopback(content) {
+function startLoopback(content, verifierContent) {
     const server = createServer((request, response) => {
-        request.resume();
+        let body = "";
+        request.on("data", (chunk) => {
+            body += chunk.toString("utf8");
+        });
         request.on("end", () => {
+            const reply = body.includes('"verifier-model"') && verifierContent ? verifierContent : content;
             response.setHeader("content-type", "application/json");
-            response.end(JSON.stringify({ choices: [{ message: { content } }] }));
+            response.end(JSON.stringify({ choices: [{ message: { content: reply } }] }));
         });
     });
     return new Promise((resolvePromise) => {
@@ -82,6 +86,48 @@ test("--update-baseline records the current findings and exits 0", async () => {
         assert.equal(code, 0);
         const baseline = loadBaseline(dir);
         assert.equal(baseline.count, 1);
+    }
+    finally {
+        server.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("--second-opinion downgrades rejected critical findings", async () => {
+    const dir = makeRepo("oc-pilot-review-second-");
+    const { server, url } = await startLoopback(ANALYSIS, "VERDICT: REJECT — speculative finding");
+    try {
+        stageChange(dir);
+        const engine = ["--engine", "openai", "--model", "test-model", "--base-url", url, "--timeout", "30"];
+        const verified = await runReview([
+            "--cwd", dir,
+            "--staged",
+            "--fail-on", "critical",
+            "--second-opinion",
+            "--second-opinion-model", "verifier-model",
+            "--no-cache",
+            ...engine,
+        ]);
+        assert.equal(verified, 0, "a rejected critical finding must be downgraded and not fail the build");
+    }
+    finally {
+        server.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("--require-tests fails logic-only changes", async () => {
+    const dir = makeRepo("oc-pilot-review-tests-");
+    const { server, url } = await startLoopback("LGTM: no critical issues found.");
+    try {
+        const lines = Array.from({ length: 30 }, (_, index) => `export const value${index} = ${index};`).join("\n");
+        writeFileSync(join(dir, "logic.ts"), `${lines}\n`);
+        execSync("git add logic.ts", { cwd: dir, stdio: "ignore" });
+        const engine = ["--engine", "openai", "--model", "test-model", "--base-url", url, "--timeout", "30"];
+        const code = await runReview(["--cwd", dir, "--staged", "--require-tests", ...engine]);
+        assert.equal(code, 3, "logic changes without tests must fail with --require-tests");
+        writeFileSync(join(dir, "logic.test.ts"), 'import "./logic.js";\n');
+        execSync("git add logic.test.ts", { cwd: dir, stdio: "ignore" });
+        const withTests = await runReview(["--cwd", dir, "--staged", "--require-tests", ...engine]);
+        assert.equal(withTests, 0);
     }
     finally {
         server.close();

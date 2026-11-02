@@ -478,7 +478,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.10.0
+- uses: MyNameIsNikki/oc-pilot@v0.11.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -521,7 +521,7 @@ The repository ships `.pre-commit-hooks.yaml`, so the standard
 ```yaml
 repos:
   - repo: https://github.com/MyNameIsNikki/oc-pilot
-    rev: v0.10.0
+    rev: v0.11.0
     hooks:
       - id: oc-pilot-secrets  # oc-pilot scan --staged
       - id: oc-pilot-review   # oc-pilot review --staged --fail-on critical --fail-on-secrets
@@ -563,10 +563,13 @@ deliberately excluded, so a finding survives code shifts above it. Baseline
 filtering applies to the exit code, text output, `--json`, SARIF, and PR
 comments; hidden findings are counted in `meta.baseline` (`known`, `total`).
 
-`review --pr` posts a single summary comment on the current pull request via
-the GitHub CLI (`gh pr comment --body-file -`). Up to 30 findings are listed,
-grouped by severity, with a footer showing the oc-pilot version and reviewed
-commit. `gh` must be installed and authenticated; on failure the command
+`review --pr` posts a single summary comment on the current pull request. Inside
+GitHub Actions it posts through the REST API with `GITHUB_TOKEN` — the workflow
+needs `permissions: pull-requests: write` and the default `GITHUB_TOKEN` secret;
+no `gh` install or extra credentials are required. Locally it falls back to the
+GitHub CLI (`gh pr comment --body-file -`), which must be installed and
+authenticated. Up to 30 findings are listed, grouped by severity, with a footer
+showing the oc-pilot version and reviewed commit; on failure the command
 exits 1 with a hint.
 
 ## Response cache

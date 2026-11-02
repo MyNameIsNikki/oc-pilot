@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0
+
+- Second opinion: `review --second-opinion` (engine=openai) прогоняет до 10 критичных находок через вторую скептическую модель (`--second-opinion-model` / `--second-opinion-base-url` / `--second-opinion-api-key-env`, конфиг `secondOpinionEnabled` и др.). `VERDICT: REJECT` понижает находку с critical до style с пометкой `[second opinion: rejected — причина]`; ошибка верификатора оставляет находки как есть. Итог — в `meta.secondOpinion`.
+- Dependency gate: `review` автоматически разбирает новые зависимости в 8 манифестах (npm, pypi, go, cargo, rubygems, packagist, maven/gradle, nuget) — тайпосквоты (`lodahs` рядом с популярными пакетами), незакреплённые версии (`""`, `*`, `latest`), VCS/URL-спеки. Предупреждение `DEPENDENCY_CHANGES` уходит в промпт, счётчик — в `meta.dependencies`.
+- Test delta: логика изменена (≥ 20 добавленных строк в кодовых файлах) без тестов — предупреждение `TEST_COVERAGE_HINT`; `review --require-tests` превращает его в exit-код 3.
+- `oc-pilot stats`: запуски, API-вызовы, попадания кеша, средняя длительность и находки за сегодня / неделю / всё время (`.git/oc-pilot/stats.jsonl`, `--clear`).
+- `oc-pilot day`: сводка активности за период (`--since "1 day ago"`) — коммиты, файлы по churn, строки +/- и находки oc-pilot.
+- Дневной лимит API-вызовов: `maxDailyApiCalls` / `OC_PILOT_MAX_DAILY_API_CALLS` (0 — без лимита); при исчерпании exit 1, попадания кеша не расходуют лимит.
+- PR-комментарии без gh: внутри GitHub Actions `review --pr` постит сводку через REST API с `GITHUB_TOKEN` (нужна permission `pull-requests: write`); локально — как раньше через `gh`.
+- Agent-rules: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.github/copilot-instructions.md` автоматически попадают в промпт (до 10 000 символов, секреты маскируются); отключается `agentRules: false`.
+- Пресеты `flutter`, `elixir`, `zig`, `scala` — всего 23.
+- `review --interactive`: по находке спрашивает «Скрыть в baseline? [y/N]», выбранные дописываются в `.oc-pilot/baseline.json` (TTY-only).
+- Эвристики prompt injection: 6 паттернов (переопределение инструкций, role-hijack, эксфильтрация промпта, base64-блобы, невидимый Unicode) в добавленных строках — предупреждение `PROMPT_INJECTION_RISKS` и `meta.injection`.
+- 225 тестов; версия 0.11.0.
+
 ## 0.10.0
 
 - Пресеты правил для новых стеков: к `base`, `node`, `react`, `python`, `go` добавлены `next`, `vue`, `svelte`, `angular`, `typescript`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby` плюс сквозные `security` (инъекции, авторизация, крипто, утечки) и `devops` (Dockerfile, CI-workflow, Terraform/K8s). Всего 19 пресетов.
