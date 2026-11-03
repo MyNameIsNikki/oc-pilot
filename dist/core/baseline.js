@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseFindingBullet } from "./findings.js";
 const BASELINE_VERSION = 1;
-export function baselinePath(cwd) {
+function baselinePath(cwd) {
     return join(cwd, ".oc-pilot", "baseline.json");
 }
 /**

@@ -466,6 +466,30 @@ oc-pilot replay --in saved.json --fail-on critical
 
 `--format` accepts text, json and sarif; `--as` adds md for the PR comment body. `--in` reads any file with a `findings` array. The exit code follows `--fail-on`, exactly as in `review`.
 
+### `slop`
+
+Measures the entropy that fast, model-assisted coding leaves behind. `oc-pilot slop` scores a repository from 0 (clean) to 100 (rotten) without an API key, a model or network access: it needs only git and the working tree.
+
+| Category | What it finds | Max |
+| --- | --- | --- |
+| Duplicates | Blocks of 72 or more tokens repeated across two different files | 30 |
+| Dead code | Exports whose name appears in no other file (type-only exports and entry points are skipped) | 25 |
+| Churn without tests | Files touched by five or more commits while tests changed in fewer than 40% of them | 25 |
+| TODO graveyard | `TODO`, `FIXME`, `HACK` and `XXX` inside comments, weighted by age from `git blame` | 20 |
+
+```bash
+oc-pilot slop
+oc-pilot slop --since origin/main --max-delta 10
+oc-pilot slop --json -o slop.json
+oc-pilot slop --badge -o slop.svg
+```
+
+`--since <ref>` compares the working tree with a revision and reports what this branch introduced and removed per category, plus `deltaPoints`. The delta matters more than the absolute number: a repository can sit at 50 and still be stable.
+
+Other flags: `--limit` (items per category), `--since-days` (churn and blame window, default 30), `--exclude` (globs or substrings), `--no-blame` (skip `git blame`, much faster), `--max-index` and `--max-delta` (exit code 3 when exceeded), `--badge` (shields-style SVG), `--json`.
+
+False positives go to `.oc-pilot/slopignore`: one glob or substring per line, `#` starts a comment. Comments and string literals are stripped before analysis, and test files, generated files and lock files are skipped. The score is a heuristic, not a verdict.
+
 ### `setup`
 
 Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, Windsurf, ZCode, and any client that reads `.agents/mcp.json`. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead. Generated servers start read-only; add `--allow-write` if the agent should apply patches and run tests.
@@ -880,7 +904,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.20.0
+      - uses: MyNameIsNikki/oc-pilot@v0.21.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -903,7 +927,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.20.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.21.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

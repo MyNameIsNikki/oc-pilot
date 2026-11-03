@@ -8,7 +8,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { truncateText } from "./diff.js";
 
-export const AGENT_RULE_FILES = [
+const AGENT_RULE_FILES = [
   "AGENTS.md",
   "CLAUDE.md",
   "GEMINI.md",

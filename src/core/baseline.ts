@@ -26,7 +26,7 @@ export interface LoadedBaseline {
   count: number;
 }
 
-export function baselinePath(cwd: string): string {
+function baselinePath(cwd: string): string {
   return join(cwd, ".oc-pilot", "baseline.json");
 }
 
