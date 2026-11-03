@@ -110,7 +110,11 @@ oc-pilot review --engine openai --model qwen2.5-coder \
 
 ### Умный slicing (`openai`)
 
-Когда diff не помещается в один промпт (300 000 символов), движок `openai` не отбрасывает файлы усечением. Вместо этого блоки diff по файлам группируются в слайсы, каждый укладывается в бюджет; на каждый слайс делается отдельный вызов API с тем же дополнительным контекстом, ответы склеиваются в один анализ по OUTPUT SCHEMA (количество вызовов видно в `meta.slices`). Файл, чей diff больше бюджета, уходит отдельным слайсом и усекается только тогда. Slicing работает для `review`, `test-fix`, `custom` и `commit --engine openai`; `fix` всегда шлёт один промпт, потому что должен вернуть единый патч.
+Когда diff не помещается в один промпт (300 000 символов), движок `openai` не отбрасывает файлы усечением. Вместо этого блоки diff по файлам группируются в слайсы, каждый укладывается в бюджет; на каждый слайс делается отдельный вызов API с тем же дополнительным контекстом, ответы склеиваются в один анализ по OUTPUT SCHEMA (количество вызовов видно в `meta.slices`). До трёх слайсов уходят параллельно, ответы собираются в исходном порядке файлов. Файл, чей diff больше бюджета, уходит отдельным слайсом и усекается только тогда. Slicing работает для `review`, `test-fix`, `custom` и `commit --engine openai`; `fix` всегда шлёт один промпт, потому что должен вернуть единый патч.
+
+### Повторы запросов
+
+Временные сбои не валят прогон: ответы 408, 425, 429, 500, 502, 503 и 504 повторяются до трёх раз с экспоненциальной задержкой (500 мс, 1 с, 2 с, потолок 8 с), заголовок `Retry-After` важнее расчётной задержки. Ошибки аутентификации, прочие 4xx, сетевые ошибки и таймауты падают сразу — повторять их бессмысленно. Слайсы подчиняются тому же правилу.
 
 ### Двухфазный роутинг (`openai`)
 
@@ -179,11 +183,12 @@ oc-pilot review [пути...] [опции]
 | `--second-opinion` | проверить критичные находки второй моделью (`openai`) |
 | `--second-opinion-model <m>` | модель-верификатор (по умолчанию `secondOpinionModel` или основная) |
 | `--require-tests` | код 3, если логика изменена без тестов |
+| `--no-test-weakening` | код 3, если тесты ослаблены (skip, удалённые проверки) |
 | `--interactive` | по каждой находке спросить, не скрыть ли её в baseline (TTY) |
 
 С `--baseline` находки, уже записанные в `.oc-pilot/baseline.json`, скрываются из вывода и не влияют на код возврата, JSON, SARIF и PR-комментарий — блокируют только новые. Отпечаток находки — `severity | файл | нормализованный текст`, без номера строки, поэтому известные находки переживают сдвиги кода. `--update-baseline` перезаписывает файл по текущему ревью и выходит с кодом 0; `--interactive` прячет находки по одной и дописывает их в baseline. `--pr` отправляет один сводный комментарий (до 30 находок) в текущий PR: внутри GitHub Actions — через REST API с `GITHUB_TOKEN` (нужна permission `pull-requests: write`), локально — через GitHub CLI (`gh pr comment`, нужен установленный и авторизованный `gh`). Работает и в текстовом, и в SARIF-режиме.
 
-До вызова модели `review` сам осматривает diff: новые зависимости проверяются на тайпосквоты, незакреплённые версии и VCS/URL-спеки в манифестах npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle и NuGet (подсказка `DEPENDENCY_CHANGES`, `meta.dependencies`); крупное изменение логики (20+ добавленных строк кода) без тестов даёт `TEST_COVERAGE_HINT` (`--require-tests` превращает в код 3, `meta.testDelta`); добавленные строки с признаками prompt injection (переопределение инструкций, role-hijack, эксфильтрация промпта, base64-блобы, невидимый Unicode) дают предупреждение `PROMPT_INJECTION_RISKS` (`meta.injection`).
+До вызова модели `review` сам осматривает diff: новые зависимости проверяются на тайпосквоты, незакреплённые версии и VCS/URL-спеки в манифестах npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle и NuGet (подсказка `DEPENDENCY_CHANGES`, `meta.dependencies`); крупное изменение логики (20+ добавленных строк кода) без тестов даёт `TEST_COVERAGE_HINT` (`--require-tests` превращает в код 3, `meta.testDelta`); ослабленные тесты дают `TEST_WEAKENING` (пропущенные и сфокусированные тесты, удалённые проверки без замены, закомментированные ассерты, поднятые таймауты; `--no-test-weakening` превращает в код 3, `meta.testWeakening`); добавленные строки с признаками prompt injection (переопределение инструкций, role-hijack, эксфильтрация промпта, base64-блобы, невидимый Unicode) дают предупреждение `PROMPT_INJECTION_RISKS` (`meta.injection`).
 
 ### `test-fix`
 
@@ -263,6 +268,7 @@ oc-pilot custom "Объясни архитектуру" --context @ARCHITECTURE.
 ```bash
 oc-pilot scan
 oc-pilot scan --staged --strict
+oc-pilot scan --all
 git diff main...HEAD | oc-pilot scan --stdin --json
 
 # SARIF 2.1.0 для GitHub Code Scanning
@@ -270,6 +276,8 @@ oc-pilot scan --staged --format sarif -o oc-pilot.sarif
 ```
 
 Код возврата `1` при critical-находках (или при любых с `--strict`), `0` — чисто, `--no-fail` — всегда `0`. `--format sarif` пишет отчёт SARIF 2.1.0 (правила `oc-pilot/secret`, `oc-pilot/critical`, `oc-pilot/warning`), который загружается в GitHub Code Scanning; превью секретов остаются замаскированными.
+
+`--all` сканирует всё дерево, а не diff: учитываются `.gitignore` и `.oc-pilot/ignore`, пропускаются бинарники, `node_modules`, `dist` и файлы больше 512 КБ, в отчёте есть число проверенных файлов (`meta.filesScanned`).
 
 ### `commit`
 
@@ -337,6 +345,17 @@ oc-pilot stats --clear
 oc-pilot day
 oc-pilot day --since "3 days ago" --json
 ```
+
+### `impact`
+
+Показывает, где ещё используются изменённые символы. Из diff извлекаются объявления функций, методов, классов, типов и интерфейсов — и из добавленных, и из удалённых строк, поэтому переименование видно под обоими именами, — затем по ним ищутся вхождения в tracked и untracked файлах. Это текстовый поиск, а не AST, поэтому возможны лишние совпадения; команда никогда не валит сборку.
+
+```bash
+oc-pilot impact
+oc-pilot impact --staged --json
+```
+
+`--json` отдаёт `symbols`, `references`, `scannedFiles` и `touchedFiles` — ровно то, что нужно агенту, чтобы понять, что ещё может сломаться от изменения.
 
 ### `setup`
 
@@ -582,7 +601,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.11.1
+      - uses: MyNameIsNikki/oc-pilot@v0.12.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

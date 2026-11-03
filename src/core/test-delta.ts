@@ -24,7 +24,7 @@ const TEST_FILE_PATTERNS: RegExp[] = [
 
 const NON_CODE_EXTENSIONS = /\.(md|txt|rst|json|ya?ml|toml|ini|lock|csv|env|gitignore|editorconfig|dockerignore|nvmrc|node-version|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|pdf)$/i;
 
-function isTestFile(file: string): boolean {
+export function isTestFile(file: string): boolean {
   return TEST_FILE_PATTERNS.some((pattern) => pattern.test(file));
 }
 

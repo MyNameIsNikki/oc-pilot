@@ -18,6 +18,23 @@ import { loadSecretIgnore, scanText } from "./secrets.js";
 import { recordRun } from "./stats.js";
 import { lgtmText, mergeSliceAnalyses, planDiffSlices } from "./slicing.js";
 const MAX_PROMPT_CHARS = 300_000;
+/** Slices are independent diff blocks, so a few API calls can overlap. */
+const SLICE_CONCURRENCY = 3;
+async function mapWithConcurrency(items, limit, run) {
+    const results = new Array(items.length);
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+        for (;;) {
+            const index = cursor;
+            cursor += 1;
+            if (index >= items.length)
+                return;
+            results[index] = await run(items[index], index);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
 function printSecretWarnings(findings, redacted) {
     if (findings.length === 0)
         return;
@@ -285,23 +302,24 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
         warnings = validateAnalysis(analysis.text, payload.recipe);
     }
     else if (slicePlan) {
-        const responses = [];
-        const sliceWarnings = [];
-        const seenWarnings = new Set();
-        let totalDurationMs = 0;
-        for (let index = 0; index < slicePlan.slices.length; index += 1) {
-            const slice = slicePlan.slices[index];
+        const slices = slicePlan.slices;
+        const prepared = slices.map((slice, index) => {
             const slicePayload = {
                 ...effective,
                 diff: slice,
                 additionalContext: sliceContext,
             };
-            const sliceInput = enforcePromptLimit(slicePayload, ctx.config.redactSecrets, effectiveRepoContext, lang);
-            const filesInSlice = slicePlan.filesPerSlice[index]?.length ?? 0;
-            log.info(`Слайс ${index + 1}/${slicePlan.slices.length} (файлов: ${filesInSlice})`);
-            const sliceResult = await cachedRunOpenAi({
+            return {
+                index,
+                input: enforcePromptLimit(slicePayload, ctx.config.redactSecrets, effectiveRepoContext, lang),
+                files: slicePlan.filesPerSlice[index]?.length ?? 0,
+            };
+        });
+        const results = await mapWithConcurrency(prepared, SLICE_CONCURRENCY, async (item) => {
+            log.info(`Слайс ${item.index + 1}/${slices.length} (файлов: ${item.files})`);
+            const result = await cachedRunOpenAi({
                 systemPrompt,
-                input: sliceInput,
+                input: item.input,
                 baseUrl: ctx.config.baseUrl,
                 apiKeyEnv: ctx.config.apiKeyEnv,
                 model: ctx.config.model,
@@ -310,12 +328,18 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
                 ttlSeconds: cacheTtl,
                 dailyLimit: ctx.config.maxDailyApiCalls,
             });
+            return { ...result, index: item.index };
+        });
+        const ordered = [...results].sort((left, right) => left.index - right.index);
+        let totalDurationMs = 0;
+        const sliceWarnings = [];
+        const seenWarnings = new Set();
+        for (const sliceResult of ordered) {
             if (sliceResult.cached)
                 cacheStatus = "hit";
             else if (!cacheStatus)
                 cacheStatus = "miss";
             totalDurationMs += sliceResult.durationMs;
-            responses.push(sliceResult.text);
             for (const warning of validateAnalysis(sliceResult.text, payload.recipe)) {
                 if (seenWarnings.has(warning.message))
                     continue;
@@ -323,7 +347,7 @@ export async function executeRecipeDetailed(payload, ctx, options = {}) {
                 sliceWarnings.push(warning);
             }
         }
-        const merged = mergeSliceAnalyses(responses, lang);
+        const merged = mergeSliceAnalyses(ordered.map((sliceResult) => sliceResult.text), lang);
         analysis = { text: merged.text, durationMs: totalDurationMs, stderr: "" };
         warnings = sliceWarnings;
     }

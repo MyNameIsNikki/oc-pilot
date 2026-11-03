@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { runCache } from "./commands/cache.js";
 import { runDay } from "./commands/day.js";
+import { runImpact } from "./commands/impact.js";
 import { runStats } from "./commands/stats.js";
 import { runCommit } from "./commands/commit.js";
 import { runCustom } from "./commands/custom.js";
@@ -35,6 +36,7 @@ const HANDLERS: Record<string, Handler> = {
   cache: runCache,
   stats: runStats,
   day: runDay,
+  impact: runImpact,
   setup: runSetup,
   doctor: runDoctor,
   mcp: runMcp,
@@ -61,6 +63,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   cache       Кеш ответов движка: --stats, --prune, --clear
   stats       Статистика использования: запуски, кеш, находки (--clear)
   day         Сводка активности агента за период (--since)
+  impact      Показать, где ещё используются изменённые в diff символы
   setup       Установить MCP-сервер в Claude Code, Cursor, OpenCode, Codex, Gemini, DeepSeek Harness, VS Code
   doctor      Проверить установку, движок, ключи, git и MCP-конфиги
   mcp         Запустить MCP-сервер (stdio или --http)
@@ -119,7 +122,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, fix, docgen, custom, scan, commit, install-hook, restore, cache, stats, day, setup, init.",
+      hint: "Доступные команды: review, test-fix, fix, docgen, custom, scan, commit, install-hook, restore, cache, stats, day, impact, setup, init.",
       exitCode: 2,
     });
   }

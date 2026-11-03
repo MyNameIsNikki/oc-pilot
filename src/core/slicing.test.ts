@@ -242,3 +242,90 @@ test("executeRecipeDetailed splits oversized diffs across multiple API calls", a
     server.close();
   }
 });
+
+test("executeRecipeDetailed runs slices concurrently and keeps their order", async () => {
+  let requests = 0;
+  let inFlight = 0;
+  let maxInFlight = 0;
+
+  const server = createServer((request, response) => {
+    requests += 1;
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    let raw = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => {
+      raw += chunk;
+    });
+    request.on("end", () => {
+      const marker =
+        [
+          ["one", "a"],
+          ["two", "b"],
+          ["three", "c"],
+        ].find(([, pad]) => raw.includes(pad!.repeat(50)))?.[0] ?? "one";
+      const content = [
+        `### Analysis: ${marker} reviewed.`,
+        "",
+        "#### Findings / Actions",
+        `- **[🔴 Critical \`${marker}.ts:1\`]: bug in ${marker}`,
+        "",
+        "#### Solution",
+        "none",
+        "",
+      ].join("\n");
+      setTimeout(() => {
+        inFlight -= 1;
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ choices: [{ message: { content } }] }));
+      }, 120);
+    });
+  });
+
+  const url = await new Promise<string>((resolvePromise) => {
+    server.listen(0, "127.0.0.1", () => {
+      resolvePromise(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`);
+    });
+  });
+
+  try {
+    const bigBlock = (name: string, pad: string): string =>
+      `diff --git a/${name}.ts b/${name}.ts\nindex 111..222 100644\n--- a/${name}.ts\n+++ b/${name}.ts\n@@ -1 +1 @@\n+${pad.repeat(160_000)}\n`;
+    const diff = bigBlock("one", "a") + bigBlock("two", "b") + bigBlock("three", "c");
+
+    const ctx = {
+      cwd: process.cwd(),
+      config: {
+        ...DEFAULT_CONFIG,
+        engine: "openai" as const,
+        baseUrl: url,
+        model: "slice-parallel-model",
+        timeoutSeconds: 30,
+        repoContext: false,
+      },
+      flags: { cwd: process.cwd(), json: false, dryRun: false, verbose: false, strict: false, github: false },
+    };
+
+    const execution = await executeRecipeDetailed(
+      {
+        recipe: "review" as const,
+        projectType: "TypeScript",
+        additionalContext: "",
+        diff,
+        secretFindings: [],
+        changedFiles: ["one.ts", "two.ts", "three.ts"],
+      },
+      ctx,
+      { capture: true },
+    );
+
+    assert.equal(requests, 3);
+    assert.equal(execution.meta?.slices, 3);
+    assert.ok(maxInFlight >= 2, "slices should overlap");
+    assert.ok(maxInFlight <= 3, "concurrency must stay bounded");
+    const locations = parseFindings(execution.analysis ?? "").map((finding) => finding.location);
+    assert.deepEqual(locations, ["one.ts:1", "two.ts:1", "three.ts:1"]);
+  } finally {
+    server.close();
+  }
+});

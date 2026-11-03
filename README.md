@@ -133,7 +133,11 @@ The key is read from `OC_PILOT_API_KEY`, or `OPENAI_API_KEY` when the default va
 
 ### Smart slicing (`openai`)
 
-When a diff is too large for a single prompt (300 000 characters), the `openai` engine does not truncate files away. Instead it groups the per-file diff blocks into slices that each fit the budget, runs one API call per slice with the same additional context, and merges the responses back into a single schema-compliant analysis (`meta.slices` shows how many calls were made). A single file whose diff exceeds the budget is sent as its own slice and only then truncated. Slicing applies to `review`, `test-fix`, `custom` and `commit --engine openai`; `fix` keeps a single prompt because it must return one patch.
+When a diff is too large for a single prompt (300 000 characters), the `openai` engine does not truncate files away. Instead it groups the per-file diff blocks into slices that each fit the budget, runs one API call per slice with the same additional context, and merges the responses back into a single schema-compliant analysis (`meta.slices` shows how many calls were made). Up to three slices run in parallel and their answers are merged in the original file order. A single file whose diff exceeds the budget is sent as its own slice and only then truncated. Slicing applies to `review`, `test-fix`, `custom` and `commit --engine openai`; `fix` keeps a single prompt because it must return one patch.
+
+### Retries
+
+Transient failures are retried instead of failing the run: HTTP 408, 425, 429, 500, 502, 503 and 504 are attempted up to three times with an exponential delay (500 ms, 1 s, 2 s, capped at 8 s). A `Retry-After` header wins over the computed delay. Authentication errors, other 4xx responses, network errors and timeouts still fail immediately, because retrying them only burns time. Slice calls share the same policy.
 
 ### Two-phase routing (`openai`)
 
@@ -201,11 +205,12 @@ git diff | oc-pilot review --stdin
 | `--second-opinion` | Verify critical findings with a second model (`openai`) |
 | `--second-opinion-model <m>` | Verifier model (default: `secondOpinionModel` or the main model) |
 | `--require-tests` | Exit 3 when logic changed without tests |
+| `--no-test-weakening` | Exit 3 when tests were weakened (skips, removed assertions) |
 | `--interactive` | Ask per finding whether to hide it in the baseline (TTY) |
 
 With `--baseline`, findings already recorded in `.oc-pilot/baseline.json` are hidden from the output and no longer affect the exit code, JSON, SARIF or PR comment — only new findings block. A finding fingerprint is `severity | file | normalized text`, without the line number, so known findings survive code shifts. `--update-baseline` rewrites the file from the current review and exits 0; `--interactive` hides findings one by one and appends them to the baseline. `--pr` posts one summary comment (up to 30 findings) to the current PR: inside GitHub Actions it uses the REST API with `GITHUB_TOKEN` (grant `permissions: pull-requests: write`), locally it uses the GitHub CLI (`gh pr comment`, requires `gh` installed and authenticated). It works from text and SARIF runs alike.
 
-Before the model runs, `review` also inspects the diff locally: newly added dependencies are checked for typosquats, unpinned versions and VCS/URL specs across npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle and NuGet manifests (`DEPENDENCY_CHANGES` hint, `meta.dependencies`); a large logic change (20+ added code lines) with no test files produces a `TEST_COVERAGE_HINT` (`--require-tests` turns it into exit 3, `meta.testDelta`); and added lines matching prompt-injection heuristics (instruction overrides, role hijacking, prompt exfiltration, base64 blobs, invisible Unicode) produce a `PROMPT_INJECTION_RISKS` warning (`meta.injection`).
+Before the model runs, `review` also inspects the diff locally: newly added dependencies are checked for typosquats, unpinned versions and VCS/URL specs across npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle and NuGet manifests (`DEPENDENCY_CHANGES` hint, `meta.dependencies`); a large logic change (20+ added code lines) with no test files produces a `TEST_COVERAGE_HINT` (`--require-tests` turns it into exit 3, `meta.testDelta`); weakened tests produce a `TEST_WEAKENING` hint (skipped or focused tests, removed assertions without replacements, commented-out assertions, raised timeouts; `--no-test-weakening` turns it into exit 3, `meta.testWeakening`); and added lines matching prompt-injection heuristics (instruction overrides, role hijacking, prompt exfiltration, base64 blobs, invisible Unicode) produce a `PROMPT_INJECTION_RISKS` warning (`meta.injection`).
 
 See [Second opinion](#second-opinion-openai) for the verification flow.
 
@@ -277,6 +282,7 @@ Offline secret scan. No model call.
 ```bash
 oc-pilot scan
 oc-pilot scan --staged --json
+oc-pilot scan --all
 git diff main...HEAD | oc-pilot scan --stdin
 
 # SARIF 2.1.0 for GitHub Code Scanning
@@ -284,6 +290,8 @@ oc-pilot scan --staged --format sarif -o oc-pilot.sarif
 ```
 
 Exit 1 means critical secrets were found. `--strict` also fails on warnings. `--format sarif` writes a SARIF 2.1.0 report (rules `oc-pilot/secret`, `oc-pilot/critical`, `oc-pilot/warning`) that GitHub Code Scanning can upload; secret previews stay redacted.
+
+`--all` scans the whole tree instead of a diff. It respects `.gitignore` and `.oc-pilot/ignore`, skips binaries, `node_modules`, `dist` and files over 512 KB, and reports how many files were checked (`meta.filesScanned`).
 
 ### `commit`
 
@@ -351,6 +359,17 @@ A local activity digest: what was committed since a point in time, which files c
 oc-pilot day
 oc-pilot day --since "3 days ago" --json
 ```
+
+### `impact`
+
+Shows where else the symbols you changed are used. It extracts function, method, class, type and interface declarations from the diff (both added and removed lines, so renames show up under both names) and greps tracked and untracked files for them. This is a text search, not AST analysis, so it can over-report; it never fails the build.
+
+```bash
+oc-pilot impact
+oc-pilot impact --staged --json
+```
+
+`--json` returns `symbols`, `references`, `scannedFiles` and `touchedFiles`, which is the shape agents want when they need to know what else a change might break.
 
 ### `setup`
 
@@ -759,7 +778,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.11.1
+      - uses: MyNameIsNikki/oc-pilot@v0.12.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -782,7 +801,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.11.1.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.12.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

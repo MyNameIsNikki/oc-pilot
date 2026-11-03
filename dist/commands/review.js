@@ -13,6 +13,7 @@ import { analysisFindingsToSarifResults, buildSarif } from "../core/sarif.js";
 import { writeOutput } from "../core/io.js";
 import { analyzeDependencyChanges, describeDependencyFindings } from "../core/deps.js";
 import { analyzeTestDelta, describeTestDelta } from "../core/test-delta.js";
+import { analyzeTestWeakness, describeTestWeakening } from "../core/test-weakening.js";
 import { describeInjectionFindings, scanDiffForInjection } from "../core/injection.js";
 const OPTIONS = withCommon({
     staged: { type: "boolean" },
@@ -35,6 +36,7 @@ const OPTIONS = withCommon({
     "second-opinion-base-url": { type: "string" },
     "second-opinion-api-key-env": { type: "string" },
     "require-tests": { type: "boolean" },
+    "no-test-weakening": { type: "boolean" },
     interactive: { type: "boolean" },
 });
 const HELP = `Использование:
@@ -64,6 +66,7 @@ const HELP = `Использование:
       --second-opinion-base-url <url> отдельный endpoint для проверки
       --second-opinion-api-key-env <name> отдельный env с ключом
       --require-tests       exit 3, если логика изменена без тестов
+      --no-test-weakening   exit 3, если тесты ослаблены (skip, удалённые проверки)
       --interactive         разобрать находки и скрыть часть в baseline
 ${COMMON_HELP}
 
@@ -110,6 +113,12 @@ export async function runReview(argv) {
         parts.push(`TEST_COVERAGE_HINT: ${describeTestDelta(testDelta)} — обдумай, нужны ли тесты/обновления тестов.`);
         log.warn(describeTestDelta(testDelta));
     }
+    // Test weakening: skipped tests, removed or commented-out assertions.
+    const testWeakness = analyzeTestWeakness(data.diff);
+    if (testWeakness.length > 0) {
+        parts.push(`TEST_WEAKENING (похоже, тесты ослаблены вместо починки кода):\n${describeTestWeakening(testWeakness)}`);
+        log.warn(`Ослабление тестов: подозрительных мест ${testWeakness.length}.`);
+    }
     // Prompt-injection heuristics over added lines.
     const injectionFindings = scanDiffForInjection(data.diff);
     if (injectionFindings.length > 0) {
@@ -124,6 +133,7 @@ export async function runReview(argv) {
     const prWanted = asBoolean(values, "pr");
     const interactiveWanted = asBoolean(values, "interactive");
     const requireTests = asBoolean(values, "require-tests");
+    const forbidWeakening = asBoolean(values, "no-test-weakening");
     const baselineWanted = asBoolean(values, "baseline") || updateBaseline;
     const baseline = baselineWanted ? loadBaseline(ctx.cwd) : undefined;
     if (asBoolean(values, "baseline") && baseline && baseline.count === 0) {
@@ -147,6 +157,7 @@ export async function runReview(argv) {
             ...(testDelta.gap
                 ? { testDelta: { addedCodeLines: testDelta.addedCodeLines, codeFiles: testDelta.codeFiles.length } }
                 : {}),
+            ...(testWeakness.length > 0 ? { testWeakening: testWeakness.length } : {}),
             ...(injectionFindings.length > 0 ? { injection: injectionFindings.length } : {}),
         },
     };
@@ -169,6 +180,10 @@ export async function runReview(argv) {
         const code = await executeRecipe(payload, ctx, { router: routerOptions, secondOpinion });
         if (requireTests && testDelta.gap && code === 0) {
             log.warn("--require-tests: логика изменена без тестов.");
+            return 3;
+        }
+        if (forbidWeakening && testWeakness.length > 0 && code === 0) {
+            log.warn("--no-test-weakening: тесты ослаблены, а не починены.");
             return 3;
         }
         return code;
@@ -230,6 +245,10 @@ export async function runReview(argv) {
     }
     if (requireTests && testDelta.gap && execution.exitCode === 0) {
         log.warn("--require-tests: логика изменена без тестов.");
+        return 3;
+    }
+    if (forbidWeakening && testWeakness.length > 0 && execution.exitCode === 0) {
+        log.warn("--no-test-weakening: тесты ослаблены, а не починены.");
         return 3;
     }
     return execution.exitCode;

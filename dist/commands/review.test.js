@@ -92,6 +92,29 @@ test("--update-baseline records the current findings and exits 0", async () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("--no-test-weakening turns skipped tests into a policy failure", async () => {
+    const dir = makeRepo("oc-pilot-review-weakening-");
+    const { server, url } = await startLoopback("LGTM: no critical issues found.");
+    try {
+        writeFileSync(join(dir, "wallet.test.ts"), 'it.skip("deduct", () => {});\n');
+        execSync("git add wallet.test.ts", { cwd: dir, stdio: "ignore" });
+        const engine = ["--engine", "openai", "--model", "test-model", "--base-url", url, "--timeout", "30"];
+        const soft = await runReview(["--cwd", dir, "--staged", "--fail-on", "none", ...engine]);
+        assert.equal(soft, 0, "weakening is only a warning by default");
+        const blocked = await runReview([
+            "--cwd", dir,
+            "--staged",
+            "--no-test-weakening",
+            "--fail-on", "none",
+            ...engine,
+        ]);
+        assert.equal(blocked, 3, "--no-test-weakening must fail the run");
+    }
+    finally {
+        server.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("--second-opinion downgrades rejected critical findings", async () => {
     const dir = makeRepo("oc-pilot-review-second-");
     const { server, url } = await startLoopback(ANALYSIS, "VERDICT: REJECT — speculative finding");

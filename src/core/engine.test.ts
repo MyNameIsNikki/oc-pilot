@@ -159,6 +159,82 @@ test("runOpenAiCompatible allows a keyless local endpoint", async () => {
   assert.equal(capture.authorization, undefined);
 });
 
+test("runOpenAiCompatible retries a rate-limited request", async () => {
+  let requests = 0;
+  const { baseUrl, server } = await startServer((_request, response) => {
+    requests += 1;
+    if (requests === 1) {
+      response.statusCode = 429;
+      response.setHeader("retry-after", "0");
+      response.end(JSON.stringify({ error: { message: "slow down" } }));
+      return;
+    }
+    response.end(JSON.stringify({ choices: [{ message: { content: "after retry" } }] }));
+  });
+  servers.push(server);
+
+  const result = await runOpenAiCompatible({
+    systemPrompt: "s",
+    input: "i",
+    baseUrl,
+    model: "m",
+    timeoutMs: 5_000,
+    retryAttempts: 3,
+    retryDelayMs: 0,
+  });
+
+  assert.equal(result.text, "after retry");
+  assert.equal(requests, 2);
+});
+
+test("runOpenAiCompatible gives up after the retry limit", async () => {
+  let requests = 0;
+  const { baseUrl, server } = await startServer((_request, response) => {
+    requests += 1;
+    response.statusCode = 503;
+    response.end(JSON.stringify({ error: { message: "unavailable" } }));
+  });
+  servers.push(server);
+
+  await assert.rejects(
+    runOpenAiCompatible({
+      systemPrompt: "s",
+      input: "i",
+      baseUrl,
+      model: "m",
+      timeoutMs: 5_000,
+      retryAttempts: 3,
+      retryDelayMs: 0,
+    }),
+    /HTTP 503/,
+  );
+  assert.equal(requests, 3);
+});
+
+test("runOpenAiCompatible does not retry client errors", async () => {
+  let requests = 0;
+  const { baseUrl, server } = await startServer((_request, response) => {
+    requests += 1;
+    response.statusCode = 400;
+    response.end(JSON.stringify({ error: { message: "bad request" } }));
+  });
+  servers.push(server);
+
+  await assert.rejects(
+    runOpenAiCompatible({
+      systemPrompt: "s",
+      input: "i",
+      baseUrl,
+      model: "m",
+      timeoutMs: 5_000,
+      retryAttempts: 3,
+      retryDelayMs: 0,
+    }),
+    /HTTP 400/,
+  );
+  assert.equal(requests, 1);
+});
+
 test("runOpenAiCompatible reports a timeout", async () => {
   const { baseUrl, server } = await startServer((_request, response) => {
     setTimeout(() => response.end(JSON.stringify({ choices: [{ message: { content: "late" } }] })), 300);

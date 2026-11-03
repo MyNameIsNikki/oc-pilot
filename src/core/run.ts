@@ -28,6 +28,28 @@ import { lgtmText, mergeSliceAnalyses, planDiffSlices, type SlicePlan } from "./
 
 const MAX_PROMPT_CHARS = 300_000;
 
+/** Slices are independent diff blocks, so a few API calls can overlap. */
+const SLICE_CONCURRENCY = 3;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      results[index] = await run(items[index]!, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /** Two-phase routing preferences for executeRecipeDetailed. */
 export interface RouterOptions {
   enabled: boolean;
@@ -392,24 +414,25 @@ export async function executeRecipeDetailed(
     analysis = { text: lgtmText(lang), durationMs: Number(routerMeta.durationMs ?? 0), stderr: "" };
     warnings = validateAnalysis(analysis.text, payload.recipe);
   } else if (slicePlan) {
-    const responses: string[] = [];
-    const sliceWarnings: FormatWarning[] = [];
-    const seenWarnings = new Set<string>();
-    let totalDurationMs = 0;
-
-    for (let index = 0; index < slicePlan.slices.length; index += 1) {
-      const slice = slicePlan.slices[index]!;
+    const slices = slicePlan.slices;
+    const prepared = slices.map((slice, index) => {
       const slicePayload: RecipePayload = {
         ...effective,
         diff: slice,
         additionalContext: sliceContext,
       };
-      const sliceInput = enforcePromptLimit(slicePayload, ctx.config.redactSecrets, effectiveRepoContext, lang);
-      const filesInSlice = slicePlan.filesPerSlice[index]?.length ?? 0;
-      log.info(`Слайс ${index + 1}/${slicePlan.slices.length} (файлов: ${filesInSlice})`);
-      const sliceResult = await cachedRunOpenAi({
+      return {
+        index,
+        input: enforcePromptLimit(slicePayload, ctx.config.redactSecrets, effectiveRepoContext, lang),
+        files: slicePlan.filesPerSlice[index]?.length ?? 0,
+      };
+    });
+
+    const results = await mapWithConcurrency(prepared, SLICE_CONCURRENCY, async (item) => {
+      log.info(`Слайс ${item.index + 1}/${slices.length} (файлов: ${item.files})`);
+      const result = await cachedRunOpenAi({
         systemPrompt,
-        input: sliceInput,
+        input: item.input,
         baseUrl: ctx.config.baseUrl,
         apiKeyEnv: ctx.config.apiKeyEnv,
         model: ctx.config.model,
@@ -418,10 +441,18 @@ export async function executeRecipeDetailed(
         ttlSeconds: cacheTtl,
         dailyLimit: ctx.config.maxDailyApiCalls,
       });
+      return { ...result, index: item.index };
+    });
+
+    const ordered = [...results].sort((left, right) => left.index - right.index);
+    let totalDurationMs = 0;
+    const sliceWarnings: FormatWarning[] = [];
+    const seenWarnings = new Set<string>();
+
+    for (const sliceResult of ordered) {
       if (sliceResult.cached) cacheStatus = "hit";
       else if (!cacheStatus) cacheStatus = "miss";
       totalDurationMs += sliceResult.durationMs;
-      responses.push(sliceResult.text);
       for (const warning of validateAnalysis(sliceResult.text, payload.recipe)) {
         if (seenWarnings.has(warning.message)) continue;
         seenWarnings.add(warning.message);
@@ -429,7 +460,10 @@ export async function executeRecipeDetailed(
       }
     }
 
-    const merged = mergeSliceAnalyses(responses, lang);
+    const merged = mergeSliceAnalyses(
+      ordered.map((sliceResult) => sliceResult.text),
+      lang,
+    );
     analysis = { text: merged.text, durationMs: totalDurationMs, stderr: "" };
     warnings = sliceWarnings;
   } else if (ctx.config.engine === "openai") {

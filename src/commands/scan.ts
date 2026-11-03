@@ -5,6 +5,8 @@ import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, type OptionS
 import { asBoolean } from "../core/parse.js";
 import { formatFindings, severityIcon } from "../core/secrets.js";
 import { buildSarif, secretFindingsToSarifResults } from "../core/sarif.js";
+import { scanTree } from "../core/tree-scan.js";
+import type { SecretFinding } from "../types.js";
 
 const OPTIONS: OptionSpec = withCommon({
   staged: { type: "boolean" },
@@ -13,13 +15,14 @@ const OPTIONS: OptionSpec = withCommon({
   diff: { type: "string" },
   stdin: { type: "boolean" },
   "include-untracked": { type: "boolean" },
+  all: { type: "boolean" },
   "no-fail": { type: "boolean" },
 });
 
 const HELP = `Использование:
   oc-pilot scan [пути...] [опции]
 
-Офлайн-поиск секретов в добавленных строках diff. Модель не вызывается.
+Офлайн-поиск секретов. Модель не вызывается.
 
 Опции:
       --staged              только staged-изменения
@@ -28,8 +31,9 @@ const HELP = `Использование:
       --diff <file|->       готовый diff из файла или stdin
       --stdin               читать diff из stdin
       --include-untracked   включить новые файлы
+      --all                 просканировать весь репозиторий, а не diff
       --no-fail             всегда exit 0
-      --format sarif       SARIF 2.1.0 для GitHub Code Scanning
+      --format sarif        SARIF 2.1.0 для GitHub Code Scanning
 ${COMMON_HELP}
 
 Коды возврата:
@@ -40,6 +44,7 @@ ${COMMON_HELP}
 Примеры:
   oc-pilot scan
   oc-pilot scan --staged --strict
+  oc-pilot scan --all --json
   oc-pilot scan --staged --format sarif -o oc-pilot.sarif
   git diff main...HEAD | oc-pilot scan --stdin --json
 `;
@@ -52,14 +57,33 @@ export async function runScan(argv: string[]): Promise<number> {
   }
 
   const ctx = resolveContext(values);
-  const data = await loadDiff(values, ctx, positionals);
+  const scanAll = asBoolean(values, "all");
 
-  if (!data.diff.trim()) {
-    log.info("Изменений нет — сканировать нечего.");
-    return 0;
+  let findings: SecretFinding[];
+  let source: string;
+  let changedFiles: number;
+  let stats: unknown;
+  let filesScanned: number | undefined;
+
+  if (scanAll) {
+    const tree = scanTree(ctx.cwd);
+    findings = tree.findings;
+    source = "весь репозиторий";
+    changedFiles = tree.files;
+    filesScanned = tree.files;
+    log.detail(`Проверено файлов: ${tree.files}, пропущено: ${tree.skipped}.`);
+  } else {
+    const data = await loadDiff(values, ctx, positionals);
+    if (!data.diff.trim()) {
+      log.info("Изменений нет — сканировать нечего.");
+      return 0;
+    }
+    findings = data.findings;
+    source = data.source;
+    changedFiles = data.changedFiles.length;
+    stats = data.stats;
   }
 
-  const findings = data.findings;
   if (ctx.flags.format === "sarif") {
     const sarif = buildSarif(secretFindingsToSarifResults(findings));
     const path = writeOutput(JSON.stringify(sarif, null, 2), ctx.flags.output);
@@ -68,9 +92,10 @@ export async function runScan(argv: string[]): Promise<number> {
     const payload = {
       findings,
       meta: {
-        source: data.source,
-        filesChanged: data.changedFiles.length,
-        stats: data.stats,
+        source,
+        filesChanged: changedFiles,
+        filesScanned,
+        stats,
         critical: findings.filter((finding) => finding.severity === "critical").length,
         warnings: findings.filter((finding) => finding.severity === "warning").length,
       },
@@ -84,8 +109,10 @@ export async function runScan(argv: string[]): Promise<number> {
     log.success("Секретов не найдено.");
   } else {
     const lines = [
-      `Сканирование: ${data.source}`,
-      `Файлов в diff: ${data.changedFiles.length}, найдено: ${findings.length}`,
+      `Сканирование: ${source}`,
+      filesScanned === undefined
+        ? `Файлов в diff: ${changedFiles}, найдено: ${findings.length}`
+        : `Файлов проверено: ${filesScanned}, найдено: ${findings.length}`,
       "",
       ...formatFindings(findings),
       "",

@@ -1,4 +1,5 @@
 import { PilotError } from "./errors.js";
+import { log } from "./log.js";
 export const ENGINES = ["opencode", "openai"];
 export const DEFAULT_API_BASE_URL = "https://api.openai.com/v1";
 export const DEFAULT_API_KEY_ENV = "OC_PILOT_API_KEY";
@@ -83,6 +84,32 @@ function sanitize(message, apiKey) {
         value = value.split(apiKey).join("[REDACTED:API key]");
     return value.length > 2_000 ? `${value.slice(0, 2_000)}…` : value;
 }
+export const DEFAULT_RETRY_ATTEMPTS = 3;
+export const DEFAULT_RETRY_DELAY_MS = 500;
+const MAX_RETRY_DELAY_MS = 8_000;
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+function wait(ms) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+function parseRetryAfter(value) {
+    if (!value)
+        return undefined;
+    const seconds = Number(value.trim());
+    if (Number.isFinite(seconds) && seconds >= 0)
+        return seconds * 1_000;
+    const date = Date.parse(value);
+    if (Number.isNaN(date))
+        return undefined;
+    return Math.max(0, date - Date.now());
+}
+function retryDelay(attempt, baseMs, header) {
+    const hinted = parseRetryAfter(header);
+    if (hinted !== undefined)
+        return Math.min(hinted, MAX_RETRY_DELAY_MS);
+    return Math.min(baseMs * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS);
+}
 /**
  * Calls an OpenAI-compatible /chat/completions endpoint.
  * Works with OpenAI, DeepSeek, Groq, OpenRouter, vLLM, Ollama and similar
@@ -111,35 +138,53 @@ export async function runOpenAiCompatible(options) {
     };
     if (key)
         headers.authorization = `Bearer ${key}`;
-    let response;
-    try {
-        response = await fetch(endpointFor(baseUrl), {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-                model,
-                messages: [
-                    { role: "system", content: options.systemPrompt },
-                    { role: "user", content: options.input },
-                ],
-                temperature: 0.2,
-                stream: false,
-            }),
-            signal: AbortSignal.timeout(options.timeoutMs),
-        });
+    const attempts = Math.max(1, options.retryAttempts ?? DEFAULT_RETRY_ATTEMPTS);
+    const baseDelay = Math.max(0, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS);
+    let ok = false;
+    let status = 0;
+    let raw = "";
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        let response;
+        try {
+            response = await fetch(endpointFor(baseUrl), {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                    model,
+                    messages: [
+                        { role: "system", content: options.systemPrompt },
+                        { role: "user", content: options.input },
+                    ],
+                    temperature: 0.2,
+                    stream: false,
+                }),
+                signal: AbortSignal.timeout(options.timeoutMs),
+            });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const timedOut = /abort|timeout/i.test(message);
+            throw new PilotError(timedOut ? "OpenAI-совместимый API не ответил вовремя" : "Не удалось подключиться к API", {
+                hint: timedOut
+                    ? `Увеличьте --timeout (сейчас ${Math.round(options.timeoutMs / 1000)} с).`
+                    : `${baseUrl}: ${sanitize(message, key)}`,
+                exitCode: 1,
+            });
+        }
+        status = response.status;
+        raw = await response.text();
+        if (response.ok) {
+            ok = true;
+            break;
+        }
+        if (!RETRYABLE_STATUS.has(status) || attempt === attempts)
+            break;
+        const delay = retryDelay(attempt, baseDelay, response.headers.get("retry-after"));
+        const waitLabel = delay >= 1_000 ? `${Math.round(delay / 1_000)} с` : `${Math.round(delay)} мс`;
+        log.warn(`API вернул HTTP ${status}; повтор через ${waitLabel} (попытка ${attempt + 1} из ${attempts}).`);
+        await wait(delay);
     }
-    catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const timedOut = /abort|timeout/i.test(message);
-        throw new PilotError(timedOut ? "OpenAI-совместимый API не ответил вовремя" : "Не удалось подключиться к API", {
-            hint: timedOut
-                ? `Увеличьте --timeout (сейчас ${Math.round(options.timeoutMs / 1000)} с).`
-                : `${baseUrl}: ${sanitize(message, key)}`,
-            exitCode: 1,
-        });
-    }
-    const raw = await response.text();
-    if (!response.ok) {
+    if (!ok) {
         let detail = raw;
         try {
             const parsed = JSON.parse(raw);
@@ -148,7 +193,7 @@ export async function runOpenAiCompatible(options) {
         catch {
             // Keep the raw body.
         }
-        throw new PilotError(`API вернул HTTP ${response.status}`, {
+        throw new PilotError(`API вернул HTTP ${status}`, {
             hint: sanitize(detail, key),
             exitCode: 1,
         });

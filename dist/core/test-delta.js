@@ -9,7 +9,7 @@ const TEST_FILE_PATTERNS = [
     /\.(uitest|snap)\.[a-z]+$/i,
 ];
 const NON_CODE_EXTENSIONS = /\.(md|txt|rst|json|ya?ml|toml|ini|lock|csv|env|gitignore|editorconfig|dockerignore|nvmrc|node-version|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|pdf)$/i;
-function isTestFile(file) {
+export function isTestFile(file) {
     return TEST_FILE_PATTERNS.some((pattern) => pattern.test(file));
 }
 function isCodeFile(file) {
