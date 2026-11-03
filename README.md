@@ -730,7 +730,18 @@ Or use `docker-compose up`; the compose file requires `OC_PILOT_MCP_TOKEN`. The 
 
 ### Agent skills
 
-`skills/oc-pilot/SKILL.md` is an Agent Skill for Claude Code, Codex, and OpenCode. It teaches an agent when to call `scan`, `review`, `test-fix`, `fix`, and `docgen` through MCP or the CLI. Copy the `skills/oc-pilot` directory into your skills directory, or point the client at this repository.
+`skills/` contains portable Agent Skills for Claude Code, Codex, Cursor, Copilot and OpenCode. Each one teaches an agent a gate to clear before the work is called done:
+
+| Skill | Purpose |
+| --- | --- |
+| `oc-pilot` | Entry point: when to call `scan`, `review`, `test-fix`, `fix` and `docgen`. |
+| `agent-self-review` | Pre-commit loop: scan, review, fix, re-verify, report the exit code. |
+| `test-failure-triage` | Capture the failing log, find the root cause, patch with a snapshot, re-run. |
+| `secure-diff-gate` | Secrets, security rules, prompt-injection signals and dependency risks, plus SARIF. |
+| `commit-discipline` | Conventional Commit message from the staged diff, with a secret gate. |
+| `stack-review-packs` | Combinable rules packs for 23 stacks. |
+
+Copy the directory you need into your skills directory, or point the client at this repository.
 
 See [docs/integrations.md](docs/integrations.md) for protocols, result shapes, setup details, and shell-only fallbacks.
 
@@ -748,7 +759,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.11.0
+      - uses: MyNameIsNikki/oc-pilot@v0.11.1
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -771,7 +782,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.11.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.11.1.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

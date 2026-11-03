@@ -35,6 +35,16 @@ oc-pilot docgen "src/**/*.ts"
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.
 
+## Related skills
+
+Focused workflows built on the same CLI:
+
+- `agent-self-review` — pre-commit gate loop with a verified exit code.
+- `test-failure-triage` — root cause first, then a patch with a snapshot.
+- `secure-diff-gate` — secrets, security rules, injection and dependency risks.
+- `commit-discipline` — Conventional Commit message from the staged diff.
+- `stack-review-packs` — rules packs for 23 languages and frameworks.
+
 ## Safety
 
 - Never paste real secrets into a prompt. `oc-pilot` redacts common secrets in

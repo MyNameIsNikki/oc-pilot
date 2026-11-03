@@ -553,7 +553,18 @@ docker run --rm -p 8787:8787 \
 
 Или `docker-compose up`. Образ включает OpenCode; `scan` работает без модели.
 
-Agent Skill для Claude Code/Codex/OpenCode лежит в [`skills/oc-pilot/SKILL.md`](skills/oc-pilot/SKILL.md): он объясняет агенту, когда вызывать `scan`, `review`, `test-fix`, `fix` и `docgen`.
+В `skills/` лежат переносимые Agent Skills для Claude Code, Codex, Cursor, Copilot и OpenCode. Каждый объясняет агенту, какой шлагбаум нужно закрыть, прежде чем считать работу готовой:
+
+| Skill | Назначение |
+| --- | --- |
+| `oc-pilot` | Точка входа: когда вызывать `scan`, `review`, `test-fix`, `fix` и `docgen`. |
+| `agent-self-review` | Цикл перед коммитом: скан, ревью, фикс, повторная проверка, отчёт с кодом возврата. |
+| `test-failure-triage` | Захват лога падения, первопричина, патч со снимком, повторный прогон. |
+| `secure-diff-gate` | Секреты, правила безопасности, признаки промпт-инъекций и риски зависимостей, SARIF. |
+| `commit-discipline` | Conventional Commit по staged-diff с блокировкой при секретах. |
+| `stack-review-packs` | Комбинируемые наборы правил для 23 стеков. |
+
+Скопируйте нужный каталог в свой skills-каталог или укажите клиенту на этот репозиторий.
 
 Конфигурации для Codex, Cursor, Gemini CLI и OpenCode, формат результата и CI-примеры — в [docs/integrations.md](docs/integrations.md). Инструменты принимают `diff` и `log` как текст, а `paths` — относительно `--cwd`.
 
@@ -571,7 +582,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.11.0
+      - uses: MyNameIsNikki/oc-pilot@v0.11.1
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

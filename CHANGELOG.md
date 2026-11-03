@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.1
+
+- Пять новых Agent Skills в `skills/`: `agent-self-review` (цикл перед коммитом: скан, ревью, фикс, повторная проверка), `test-failure-triage` (лог падения → первопричина → патч со снимком → прогон), `secure-diff-gate` (секреты, security-пресет, second opinion, признаки инъекций, SARIF), `commit-discipline` (conventional commit по staged-diff с блокировкой при секретах) и `stack-review-packs` (комбинируемые наборы правил). Базовый `oc-pilot` получил секцию `## Related skills`.
+- `docs/agensi-listing.md` — план листинга на маркетплейсе Agent Skills: бесплатные и платные SKU, поля карточки, требования, чего не обещать.
+- Тест `src/skills.test.ts` проверяет каждый скилл: frontmatter, имя каталога, длину описания, реальные команды и флаги CLI, отсутствие заглушек.
+- 228 тестов; версия 0.11.1.
+
 ## 0.11.0
 
 - Second opinion: `review --second-opinion` (engine=openai) прогоняет до 10 критичных находок через вторую скептическую модель (`--second-opinion-model` / `--second-opinion-base-url` / `--second-opinion-api-key-env`, конфиг `secondOpinionEnabled` и др.). `VERDICT: REJECT` понижает находку с critical до style с пометкой `[second opinion: rejected — причина]`; ошибка верификатора оставляет находки как есть. Итог — в `meta.secondOpinion`.
