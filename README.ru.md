@@ -212,7 +212,8 @@ oc-pilot review [пути...] [опции]
 | `--pr` | отправить inline-комментарии к строкам PR (Actions REST или `gh`) |
 | `--no-pr-inline` | отправить один сводный комментарий вместо inline |
 | `--pr-status` | выставить блокирующий commit status (`failure` при critical) |
-| `--mr` | отправить сводку в merge request GitLab (`CI_MERGE_REQUEST_IID`) |
+| `--mr` | отправить review в merge request GitLab (`CI_MERGE_REQUEST_IID`) |
+| `--no-mr-inline` | только сводная заметка в MR, без inline-обсуждений |
 | `--mr-status` | выставить статус `oc-pilot` в GitLab (`GITLAB_TOKEN`) |
 | `--second-opinion` | проверить критичные находки второй моделью (`openai`) |
 | `--second-opinion-model <m>` | модель-верификатор (по умолчанию `secondOpinionModel` или основная) |
@@ -222,7 +223,7 @@ oc-pilot review [пути...] [опции]
 
 С `--baseline` находки, уже записанные в `.oc-pilot/baseline.json`, скрываются из вывода и не влияют на код возврата, JSON, SARIF и PR-комментарий — блокируют только новые. Отпечаток находки — `severity | файл | нормализованный текст`, без номера строки, поэтому известные находки переживают сдвиги кода. `--update-baseline` перезаписывает файл по текущему ревью и выходит с кодом 0; `--interactive` прячет находки по одной и дописывает их в baseline. `--pr` отправляет ревью в текущий PR: внутри GitHub Actions — через review API с `GITHUB_TOKEN`, до 25 находок прикрепляются inline-комментариями к своим строкам диффа (нужна permission `pull-requests: write`); находки вне изменённых строк и любой запуск вне Actions откатываются на один сводный комментарий (локально — через `gh pr comment`, нужен установленный и авторизованный `gh`). `--no-pr-inline` принудительно оставляет только сводный комментарий. `--pr-status` выставляет commit status в контексте `oc-pilot` — `failure`, пока остаются critical-находки, иначе `success` — чтобы правило защиты ветки могло его требовать (нужна `statuses: write`). Работает и в текстовом, и в SARIF-режиме.
 
-В GitLab CI `--mr` отправляет ту же сводку заметкой в merge request: `CI_MERGE_REQUEST_IID`, `CI_PROJECT_ID` и `CI_API_V4_URL` указывают на MR, а `GITLAB_TOKEN` должен иметь scope `api` (`CI_JOB_TOKEN` не умеет писать заметки). Добавьте `--mr-status`, чтобы выставить и commit status `oc-pilot`. Оба флага при отсутствии контекста пайплайна или токена деградируют до предупреждения, поэтому ревью никогда не падает из-за неготовой интеграции.
+В GitLab CI `--mr` отправляет ревью в merge request: до 25 находок становятся inline-обсуждениями, привязанными к своим строкам диффа, а сводка всегда уходит заметкой. `CI_MERGE_REQUEST_IID`, `CI_PROJECT_ID` и `CI_API_V4_URL` указывают на MR, а `GITLAB_TOKEN` должен иметь scope `api` (`CI_JOB_TOKEN` не умеет писать заметки). Для позиции обсуждения нужны `base_sha`/`start_sha`/`head_sha`: они берутся из `CI_MERGE_REQUEST_DIFF_BASE_SHA`, `CI_MERGE_REQUEST_TARGET_BRANCH_SHA` и `CI_COMMIT_SHA`, а если их нет — запрашиваются у merge request как `diff_refs`. `--no-mr-inline` оставляет только сводную заметку. Добавьте `--mr-status`, чтобы выставить и commit status `oc-pilot`. Любая часть при отсутствии контекста пайплайна, токена или отдельной позиции деградирует до предупреждения, поэтому ревью никогда не падает из-за неготовой интеграции.
 
 Минимальная задача выглядит так:
 
@@ -677,7 +678,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.17.0
+      - uses: MyNameIsNikki/oc-pilot@v0.18.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

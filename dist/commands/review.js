@@ -10,7 +10,7 @@ import { parseFindings, shouldFail, severityLabel } from "../core/findings.js";
 import { executeRecipe, executeRecipeDetailed } from "../core/run.js";
 import { buildPrCommentBody } from "../core/pr-comment.js";
 import { buildInlineComments, postPrReviewSummary, postPrStatus } from "../core/pr-review.js";
-import { postMrStatus, postMrSummary } from "../core/gitlab.js";
+import { postMrReview, postMrStatus } from "../core/gitlab.js";
 import { analysisFindingsToSarifResults, buildSarif } from "../core/sarif.js";
 import { writeOutput } from "../core/io.js";
 import { analyzeDependencyChanges, describeDependencyFindings } from "../core/deps.js";
@@ -34,6 +34,7 @@ const OPTIONS = withCommon({
     "update-baseline": { type: "boolean" },
     pr: { type: "boolean" },
     "no-pr-inline": { type: "boolean" },
+    "no-mr-inline": { type: "boolean" },
     "pr-status": { type: "boolean" },
     mr: { type: "boolean" },
     "mr-status": { type: "boolean" },
@@ -69,7 +70,8 @@ const HELP = `Использование:
       --pr                  отправить review в PR: inline-комментарии к строкам (Actions)
       --no-pr-inline        только один сводный комментарий, без inline
       --pr-status           выставить статус-чек oc-pilot (нужен для branch protection)
-      --mr                  отправить сводку в GitLab merge request (CI_MERGE_REQUEST_IID)
+      --mr                  отправить review в GitLab merge request (CI_MERGE_REQUEST_IID)
+      --no-mr-inline        только сводная заметка в MR, без inline-обсуждений
       --mr-status           выставить статус oc-pilot в GitLab (GITLAB_TOKEN)
       --second-opinion      проверить критичные находки второй моделью (openai)
       --second-opinion-model <m>  модель проверки (по умолчанию secondOpinionModel)
@@ -145,6 +147,7 @@ export async function runReview(argv) {
     const prInline = !asBoolean(values, "no-pr-inline");
     const prStatus = asBoolean(values, "pr-status");
     const mrWanted = asBoolean(values, "mr");
+    const mrInline = !asBoolean(values, "no-mr-inline");
     const mrStatus = asBoolean(values, "mr-status");
     const interactiveWanted = asBoolean(values, "interactive");
     const requireTests = asBoolean(values, "require-tests");
@@ -282,7 +285,11 @@ export async function runReview(argv) {
         const shaResult = runGit(["rev-parse", "HEAD"], ctx.cwd);
         const sha = shaResult.status === 0 ? shaResult.stdout.trim() : "";
         const summary = buildPrCommentBody(findings, { sha, knownHidden });
-        await postMrSummary(summary, ctx.cwd);
+        const mrComments = mrInline ? buildInlineComments(findings, data.diff) : [];
+        const posted = await postMrReview(summary, mrComments, ctx.cwd);
+        if (!posted.posted && !posted.summary && posted.inline === 0) {
+            log.warn("GitLab: ревью не отправлено, проверьте токен и окружение CI.");
+        }
         if (mrStatus) {
             const blocked = findings.some((finding) => finding.severity === "critical");
             const state = blocked ? "failed" : "success";

@@ -231,7 +231,8 @@ git diff | oc-pilot review --stdin
 | `--pr` | Post inline review comments to the PR (Actions REST or `gh`) |
 | `--no-pr-inline` | Post a single summary comment instead of inline comments |
 | `--pr-status` | Post a blocking commit status (`failure` on critical findings) |
-| `--mr` | Post the summary to a GitLab merge request (`CI_MERGE_REQUEST_IID`) |
+| `--mr` | Post the review to a GitLab merge request (`CI_MERGE_REQUEST_IID`) |
+| `--no-mr-inline` | Post a single summary note instead of inline discussions |
 | `--mr-status` | Set the `oc-pilot` commit status in GitLab (`GITLAB_TOKEN`) |
 | `--second-opinion` | Verify critical findings with a second model (`openai`) |
 | `--second-opinion-model <m>` | Verifier model (default: `secondOpinionModel` or the main model) |
@@ -241,7 +242,7 @@ git diff | oc-pilot review --stdin
 
 With `--baseline`, findings already recorded in `.oc-pilot/baseline.json` are hidden from the output and no longer affect the exit code, JSON, SARIF or PR comment — only new findings block. A finding fingerprint is `severity | file | normalized text`, without the line number, so known findings survive code shifts. `--update-baseline` rewrites the file from the current review and exits 0; `--interactive` hides findings one by one and appends them to the baseline. `--pr` posts the review to the current PR: inside GitHub Actions it uses the review API with `GITHUB_TOKEN` and attaches up to 25 findings as inline comments on their diff lines (grant `permissions: pull-requests: write`); findings that do not map to a changed line, and every run outside Actions, fall back to one summary comment (locally through `gh pr comment`, which must be installed and authenticated). `--no-pr-inline` forces that summary comment. `--pr-status` posts a commit status under the `oc-pilot` context - `failure` while critical findings remain, `success` otherwise - so a branch protection rule can require it (needs `statuses: write`). It works from text and SARIF runs alike.
 
-Inside GitLab CI, `--mr` posts the same summary as a merge request note: `CI_MERGE_REQUEST_IID`, `CI_PROJECT_ID` and `CI_API_V4_URL` identify the merge request, and `GITLAB_TOKEN` needs the `api` scope (`CI_JOB_TOKEN` cannot write notes). Add `--mr-status` to set the `oc-pilot` commit status as well. Both flags degrade to a warning when the pipeline context or the token is missing, so a review never fails because of a missing integration.
+Inside GitLab CI, `--mr` posts the review to the merge request: up to 25 findings become inline discussions anchored to their diff lines, and the summary always lands as a note. `CI_MERGE_REQUEST_IID`, `CI_PROJECT_ID` and `CI_API_V4_URL` identify the merge request, and `GITLAB_TOKEN` needs the `api` scope (`CI_JOB_TOKEN` cannot write notes). The discussion position needs `base_sha`/`start_sha`/`head_sha`: they are read from `CI_MERGE_REQUEST_DIFF_BASE_SHA`, `CI_MERGE_REQUEST_TARGET_BRANCH_SHA` and `CI_COMMIT_SHA`, and when those are absent the tool asks the merge request for its `diff_refs` instead. `--no-mr-inline` keeps the summary note only. Add `--mr-status` to set the `oc-pilot` commit status as well. Every part degrades to a warning when the pipeline context, the token or a single position is missing, so a review never fails because of a missing integration.
 
 A minimal job looks like this:
 
@@ -851,7 +852,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.17.0
+      - uses: MyNameIsNikki/oc-pilot@v0.18.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -874,7 +875,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.17.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.18.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
