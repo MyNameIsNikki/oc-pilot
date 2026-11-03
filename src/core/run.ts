@@ -20,6 +20,7 @@ import { log } from "./log.js";
 import { runOpenCode } from "./opencode.js";
 import { buildInput, systemPromptFor, TRIAGE_SYSTEM_PROMPT } from "./prompt.js";
 import { loadRules } from "./rules.js";
+import { saveLastReview } from "./last-review.js";
 import { parseTriageDecision } from "./router.js";
 import { downgradeFindingInText, verifyCriticalFindings } from "./second-opinion.js";
 import { loadSecretIgnore, scanText } from "./secrets.js";
@@ -369,6 +370,7 @@ export async function executeRecipeDetailed(
         cwd: ctx.cwd,
         ttlSeconds: cacheTtl,
         dailyLimit: ctx.config.maxDailyApiCalls,
+        maxCostUsd: ctx.config.maxCostUsd,
       });
       const decision = parseTriageDecision(triage.text);
       routerMeta = { model: routerModel ?? null, decision, durationMs: triage.durationMs };
@@ -440,7 +442,9 @@ export async function executeRecipeDetailed(
         cwd: ctx.cwd,
         ttlSeconds: cacheTtl,
         dailyLimit: ctx.config.maxDailyApiCalls,
+        maxCostUsd: ctx.config.maxCostUsd,
       });
+      log.detail(`Слайс ${item.index + 1}/${slices.length} готов за ${result.durationMs} мс`);
       return { ...result, index: item.index };
     });
 
@@ -477,6 +481,7 @@ export async function executeRecipeDetailed(
       cwd: ctx.cwd,
       ttlSeconds: cacheTtl,
       dailyLimit: ctx.config.maxDailyApiCalls,
+        maxCostUsd: ctx.config.maxCostUsd,
     });
     analysis = result;
     cacheStatus = result.cached ? "hit" : "miss";
@@ -557,6 +562,14 @@ export async function executeRecipeDetailed(
         );
       }
     }
+  }
+
+  if (payload.recipe === "review") {
+    saveLastReview(ctx.cwd, {
+      recipe: payload.recipe,
+      model: ctx.config.model,
+      findings: analysisFindings,
+    });
   }
 
   if (analysisFindings.length > 0) log.info(`Замечания: ${describeFindings(analysisFindings)}`);

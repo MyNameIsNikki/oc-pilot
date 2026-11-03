@@ -1,6 +1,6 @@
 {
   "name": "oc-pilot",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Local AI code review, tested fixes, test-failure analysis and secret scanning for agent CLIs",
   "type": "module",
   "repository": {

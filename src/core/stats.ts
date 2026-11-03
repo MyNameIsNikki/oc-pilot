@@ -12,6 +12,8 @@ export interface ApiCallRecord {
   model: string | null;
   cached: boolean;
   durationMs: number;
+  /** Estimated cost in USD when the model price is known. */
+  costUsd?: number;
 }
 
 export interface RunRecord {
@@ -53,8 +55,18 @@ function appendStatsLine(cwd: string, record: unknown): void {
   }
 }
 
-export function recordApiCall(cwd: string, call: { model?: string; cached: boolean; durationMs: number }): void {
-  appendStatsLine(cwd, { type: "api", ts: Date.now(), model: call.model?.trim() || null, cached: call.cached, durationMs: Math.round(call.durationMs) } satisfies ApiCallRecord & { type: string });
+export function recordApiCall(
+  cwd: string,
+  call: { model?: string; cached: boolean; durationMs: number; costUsd?: number },
+): void {
+  appendStatsLine(cwd, {
+    type: "api",
+    ts: Date.now(),
+    model: call.model?.trim() || null,
+    cached: call.cached,
+    durationMs: Math.round(call.durationMs),
+    ...(call.costUsd !== undefined ? { costUsd: call.costUsd } : {}),
+  } satisfies ApiCallRecord & { type: string });
 }
 
 export function recordRun(
@@ -102,6 +114,14 @@ export function todayStartMs(now: number = Date.now()): number {
 /** Uncached API calls since the given timestamp (what budgets count). */
 export function countApiCallsSince(records: StatsRecords, sinceMs: number): number {
   return records.apiCalls.filter((call) => !call.cached && call.ts >= sinceMs).length;
+}
+
+/** Estimated spend since the given timestamp, in USD. */
+export function sumCostSince(records: StatsRecords, sinceMs: number): number {
+  const total = records.apiCalls
+    .filter((call) => call.ts >= sinceMs)
+    .reduce((sum, call) => sum + (call.costUsd ?? 0), 0);
+  return Math.round(total * 1_000_000) / 1_000_000;
 }
 
 export interface StatsSummary {

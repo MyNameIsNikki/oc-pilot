@@ -180,7 +180,7 @@ The TTL defaults to 24 hours (`cacheTtlSeconds`, or `OC_PILOT_CACHE_TTL`; `0` di
 
 ### Usage limits and statistics
 
-Every run and API call is recorded to `.git/oc-pilot/stats.jsonl` (findings, engine, exit code, cache hits). `oc-pilot stats` prints runs, API calls, cache hits and findings for today, the week and all time (`--clear` resets). A daily API-call budget can be enforced with `maxDailyApiCalls` or `OC_PILOT_MAX_DAILY_API_CALLS` (`0` disables it); once the limit of uncached calls is reached, the command exits 1 — cache hits never consume the budget. `oc-pilot day --since "1 day ago"` summarizes what the agent did: commits, churn per file, added/deleted lines and oc-pilot findings.
+Every run and API call is recorded to `.git/oc-pilot/stats.jsonl` (findings, engine, exit code, cache hits). `oc-pilot stats` prints runs, API calls, cache hits and findings for today, the week and all time (`--clear` resets). A daily API-call budget can be enforced with `maxDailyApiCalls` or `OC_PILOT_MAX_DAILY_API_CALLS` (`0` disables it); once the limit of uncached calls is reached, the command exits 1 — cache hits never consume the budget. `oc-pilot day --since "1 day ago"` summarizes what the agent did: commits, churn per file, added/deleted lines and oc-pilot findings. A spend cap works the same way: `--max-cost 0.5` (or `maxCostUsd` / `OC_PILOT_MAX_COST`) adds up the estimated cost of today's uncached calls — tokens from the API response times the built-in price table — and refuses the next call once the cap is reached. Pricing is estimated, so treat it as a guard rail rather than an invoice; unknown models count as zero and cache hits are free.
 
 ### Agent rules awareness
 
@@ -388,6 +388,17 @@ oc-pilot impact --staged --json
 
 `--json` returns `symbols`, `references`, `scannedFiles` and `touchedFiles`, which is the shape agents want when they need to know what else a change might break.
 
+### `explain`
+
+Explains the findings of the previous review for one place in the code. Every `review` run stores its findings in `.git/oc-pilot/last-review.json`; `explain` looks up the finding on the given line, or the nearest one within three lines, and prints it next to a snippet of the current file. Secrets in the snippet are redacted by the same scanner as everywhere else.
+
+```bash
+oc-pilot explain src/wallet.ts:42
+oc-pilot explain src/wallet.ts:42 --json
+```
+
+Without a line number, or when nothing matches, it falls back to every finding in that file, so the command stays useful when the file shifted.
+
 ### `setup`
 
 Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, Windsurf, ZCode, and any client that reads `.agents/mcp.json`. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead. Generated servers start read-only; add `--allow-write` if the agent should apply patches and run tests.
@@ -470,6 +481,7 @@ The rules file is a normal project rules file — edit it freely.
 | `--fail-on <level>` | `none` | Exit 3 on `critical`, `warning`, or `style` findings |
 | `--max-diff <size>` | `120000` | Diff/context budget |
 | `--max-file <size>` | `60000` | Per-file budget for docgen |
+| `--max-cost <usd>` | `0` | Daily spend cap for `openai` calls (`0` disables) |
 | `--timeout <duration>` | `300` | Model/test timeout; supports `5m` |
 | `-o, --output <path>` | stdout | Write the result to a file |
 | `--format <f>` | `text` | Output format: `text`, `json`, `sarif` (`scan`, `review`) |
@@ -798,7 +810,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.14.0
+      - uses: MyNameIsNikki/oc-pilot@v0.15.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -821,7 +833,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.14.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.15.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

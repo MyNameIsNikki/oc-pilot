@@ -21,6 +21,7 @@ export const DEFAULT_CONFIG = {
     cacheTtlSeconds: DEFAULT_CACHE_TTL_SECONDS,
     agentRules: true,
     maxDailyApiCalls: 0,
+    maxCostUsd: 0,
 };
 function findConfigFile(start) {
     let directory = resolve(start);
@@ -85,6 +86,14 @@ function optionalNonNegativeInt(value, name) {
         return undefined;
     if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
         throw new PilotError(`Поле ${name} в конфиге должно быть целым числом >= 0`);
+    }
+    return value;
+}
+function optionalNonNegativeNumber(value, name) {
+    if (value === undefined)
+        return undefined;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        throw new PilotError(`Поле ${name} в конфиге должно быть числом >= 0`);
     }
     return value;
 }
@@ -155,6 +164,7 @@ function fromFile(file) {
         "secondOpinionApiKeyEnv",
         "agentRules",
         "maxDailyApiCalls",
+        "maxCostUsd",
     ]);
     for (const key of Object.keys(data)) {
         if (!known.has(key))
@@ -185,6 +195,7 @@ function fromFile(file) {
         secondOpinionApiKeyEnv: optionalString(data.secondOpinionApiKeyEnv, "secondOpinionApiKeyEnv"),
         agentRules: optionalBoolean(data.agentRules, "agentRules"),
         maxDailyApiCalls: optionalNonNegativeInt(data.maxDailyApiCalls, "maxDailyApiCalls"),
+        maxCostUsd: optionalNonNegativeNumber(data.maxCostUsd, "maxCostUsd"),
     };
 }
 function envPositiveInt(name) {
@@ -194,6 +205,16 @@ function envPositiveInt(name) {
     const value = Number(raw);
     if (!Number.isInteger(value) || value <= 0) {
         throw new PilotError(`Переменная окружения ${name} должна быть положительным целым числом`);
+    }
+    return value;
+}
+function envNonNegativeNumber(name) {
+    const raw = process.env[name];
+    if (raw === undefined || raw.trim() === "")
+        return undefined;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) {
+        throw new PilotError(`Некорректное значение ${name}: ожидается число >= 0`);
     }
     return value;
 }
@@ -274,6 +295,7 @@ function fromEnv() {
         secondOpinionApiKeyEnv: process.env.OC_PILOT_SECOND_OPINION_API_KEY_ENV?.trim() || undefined,
         agentRules: envBoolean("OC_PILOT_AGENT_RULES"),
         maxDailyApiCalls: envNonNegativeInt("OC_PILOT_MAX_DAILY_API_CALLS"),
+        maxCostUsd: envNonNegativeNumber("OC_PILOT_MAX_COST"),
     };
 }
 function defined(value) {
@@ -327,6 +349,7 @@ export function configTemplate() {
         secondOpinionEnabled: false,
         agentRules: true,
         maxDailyApiCalls: 0,
+        maxCostUsd: 0,
     }, null, 2)}\n`;
 }
 //# sourceMappingURL=config.js.map

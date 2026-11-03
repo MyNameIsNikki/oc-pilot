@@ -24,6 +24,7 @@ export const COMMON_OPTIONS: OptionSpec = {
   timeout: { type: "string" },
   "max-diff": { type: "string" },
   "max-file": { type: "string" },
+  "max-cost": { type: "string" },
   output: { type: "string", short: "o" },
   format: { type: "string" },
   "no-repo-context": { type: "boolean" },
@@ -69,6 +70,19 @@ function parseOutputFormat(value: string): OutputFormat {
   });
 }
 
+/** `--max-cost` takes a plain USD amount such as `0.5` or `2`. */
+function parseCost(value: string): number {
+  const normalized = value.trim().replace(",", ".");
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new PilotError(`Некорректный --max-cost: ${value}`, {
+      hint: "Ожидается положительное число в долларах, например 0.5",
+      exitCode: 2,
+    });
+  }
+  return parsed;
+}
+
 export function resolveContext(values: ArgsValues): CommandContext {
   const rawCwd = asString(values, "cwd");
   const cwd = rawCwd ? resolve(process.cwd(), rawCwd) : process.cwd();
@@ -105,6 +119,8 @@ export function resolveContext(values: ArgsValues): CommandContext {
   if (agent !== undefined) overrides.agent = agent;
   if (maxDiff !== undefined) overrides.maxDiffChars = parseSize(maxDiff, "max-diff");
   if (maxFile !== undefined) overrides.maxFileChars = parseSize(maxFile, "max-file");
+  const maxCost = asString(values, "max-cost");
+  if (maxCost !== undefined) overrides.maxCostUsd = parseCost(maxCost);
   if (timeout !== undefined) overrides.timeoutSeconds = parseSeconds(timeout, "timeout");
   if (lang !== undefined) overrides.lang = parsePromptLang(lang);
   if (failOn !== undefined) {
@@ -162,6 +178,7 @@ export const COMMON_HELP = `  -C, --cwd <dir>       Рабочая директ�
       --timeout <dur>   Таймаут запроса: секунды или 5m (по умолчанию 300)
       --max-diff <size> Лимит diff: 120k, 1m (по умолчанию 120000)
       --max-file <size> Лимит одного файла для docgen (по умолчанию 60000)
+      --max-cost <usd>  Дневной лимит расходов в долларах (openai)
       --fail-on <level> Exit 3 при замечаниях: critical, warning, style, none
   -o, --output <path>   Записать результат в файл
       --format <f>      Формат вывода: text, json, sarif (scan/review)

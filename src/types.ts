@@ -78,6 +78,8 @@ export interface ResolvedConfig {
   agentRules?: boolean;
   /** Hard cap on uncached API calls per day for engine=openai; 0 disables the limit. */
   maxDailyApiCalls?: number;
+  /** Estimated USD spend cap per day for engine=openai; 0 disables the limit. */
+  maxCostUsd?: number;
 }
 
 export interface ConfigOverrides {
@@ -103,6 +105,7 @@ export interface ConfigOverrides {
   secondOpinionApiKeyEnv?: string;
   agentRules?: boolean;
   maxDailyApiCalls?: number;
+  maxCostUsd?: number;
 }
 
 export interface LoadedConfig {
@@ -141,6 +144,8 @@ export interface AnalysisResult {
   text: string;
   sessionID?: string;
   cost?: number;
+  /** Token usage reported by OpenAI-compatible APIs, when present. */
+  usage?: { promptTokens: number; completionTokens: number };
   durationMs: number;
   stderr: string;
 }

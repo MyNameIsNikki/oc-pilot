@@ -24,6 +24,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   cacheTtlSeconds: DEFAULT_CACHE_TTL_SECONDS,
   agentRules: true,
   maxDailyApiCalls: 0,
+  maxCostUsd: 0,
 };
 
 interface LoadOptions {
@@ -96,6 +97,14 @@ function optionalNonNegativeInt(value: unknown, name: string): number | undefine
   return value;
 }
 
+function optionalNonNegativeNumber(value: unknown, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new PilotError(`Поле ${name} в конфиге должно быть числом >= 0`);
+  }
+  return value;
+}
+
 function optionalFailOn(value: unknown, name: string): FailOn | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string" || value.trim() === "") {
@@ -162,6 +171,7 @@ function fromFile(file: string): Partial<ResolvedConfig> {
     "secondOpinionApiKeyEnv",
     "agentRules",
     "maxDailyApiCalls",
+    "maxCostUsd",
   ]);
 
   for (const key of Object.keys(data)) {
@@ -193,6 +203,7 @@ function fromFile(file: string): Partial<ResolvedConfig> {
     secondOpinionApiKeyEnv: optionalString(data.secondOpinionApiKeyEnv, "secondOpinionApiKeyEnv"),
     agentRules: optionalBoolean(data.agentRules, "agentRules"),
     maxDailyApiCalls: optionalNonNegativeInt(data.maxDailyApiCalls, "maxDailyApiCalls"),
+    maxCostUsd: optionalNonNegativeNumber(data.maxCostUsd, "maxCostUsd"),
   };
 }
 
@@ -202,6 +213,16 @@ function envPositiveInt(name: string): number | undefined {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new PilotError(`Переменная окружения ${name} должна быть положительным целым числом`);
+  }
+  return value;
+}
+
+function envNonNegativeNumber(name: string): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new PilotError(`Некорректное значение ${name}: ожидается число >= 0`);
   }
   return value;
 }
@@ -280,6 +301,7 @@ function fromEnv(): Partial<ResolvedConfig> {
     secondOpinionApiKeyEnv: process.env.OC_PILOT_SECOND_OPINION_API_KEY_ENV?.trim() || undefined,
     agentRules: envBoolean("OC_PILOT_AGENT_RULES"),
     maxDailyApiCalls: envNonNegativeInt("OC_PILOT_MAX_DAILY_API_CALLS"),
+    maxCostUsd: envNonNegativeNumber("OC_PILOT_MAX_COST"),
   };
 }
 
@@ -340,6 +362,7 @@ export function configTemplate(): string {
       secondOpinionEnabled: false,
       agentRules: true,
       maxDailyApiCalls: 0,
+      maxCostUsd: 0,
     },
     null,
     2,

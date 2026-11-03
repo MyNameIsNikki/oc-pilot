@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AnalysisResult } from "../types.js";
-import { normalizeBaseUrl, runOpenAiCompatible, type ApiRunOptions } from "./engine.js";
+import { estimateCostUsd, normalizeBaseUrl, runOpenAiCompatible, type ApiRunOptions } from "./engine.js";
 import { PilotError } from "./errors.js";
 import { getRepoRoot, isGitRepo, runGit } from "./git.js";
 import { log } from "./log.js";
-import { countApiCallsSince, readStats, recordApiCall, todayStartMs } from "./stats.js";
+import { countApiCallsSince, readStats, recordApiCall, sumCostSince, todayStartMs } from "./stats.js";
 
 export const DEFAULT_CACHE_TTL_SECONDS = 86_400;
 const CACHE_VERSION = 1;
@@ -23,6 +23,8 @@ export interface CachedApiOptions extends ApiRunOptions {
   ttlSeconds: number;
   /** Uncached calls per local day before the gate refuses to spend more (0 = unlimited). */
   dailyLimit?: number;
+  /** Estimated USD per local day before the gate refuses to spend more (0 = unlimited). */
+  maxCostUsd?: number;
 }
 
 function sha256(value: string): string {
@@ -159,7 +161,7 @@ export function clearCache(cwd: string): number {
  * diff (CI retries, hooks, slicing re-runs) do not call the API again.
  */
 export async function cachedRunOpenAi(options: CachedApiOptions): Promise<AnalysisResult & { cached?: boolean }> {
-  const { cwd, ttlSeconds, dailyLimit, ...api } = options;
+  const { cwd, ttlSeconds, dailyLimit, maxCostUsd, ...api } = options;
 
   const enforceDailyLimit = (): void => {
     if (!dailyLimit || dailyLimit <= 0) return;
@@ -172,10 +174,27 @@ export async function cachedRunOpenAi(options: CachedApiOptions): Promise<Analys
     }
   };
 
+  const enforceCostLimit = (): void => {
+    if (!maxCostUsd || maxCostUsd <= 0) return;
+    const spent = sumCostSince(readStats(cwd), todayStartMs());
+    if (spent >= maxCostUsd) {
+      throw new PilotError(
+        `Дневной лимит расходов oc-pilot исчерпан ($${spent.toFixed(2)} из $${maxCostUsd.toFixed(2)}).`,
+        { hint: "Кеш всё ещё работает; лимит задаётся maxCostUsd / OC_PILOT_MAX_COST. Цены берутся из встроенной таблицы для известных моделей.", exitCode: 1 },
+      );
+    }
+  };
+
   if (ttlSeconds <= 0) {
     enforceDailyLimit();
+    enforceCostLimit();
     const direct = await runOpenAiCompatible(api);
-    recordApiCall(cwd, { model: api.model, cached: false, durationMs: direct.durationMs });
+    recordApiCall(cwd, {
+      model: api.model,
+      cached: false,
+      durationMs: direct.durationMs,
+      costUsd: estimateCostUsd(api.model, direct.usage),
+    });
     return direct;
   }
 
@@ -187,13 +206,19 @@ export async function cachedRunOpenAi(options: CachedApiOptions): Promise<Analys
   const hit = readEntry(root, key, now);
   if (hit !== undefined) {
     log.detail("Ответ движка взят из локального кеша (без вызова API).");
-    recordApiCall(cwd, { model: api.model, cached: true, durationMs: 0 });
+    recordApiCall(cwd, { model: api.model, cached: true, durationMs: 0, costUsd: 0 });
     return { text: hit, durationMs: 0, stderr: "", cached: true };
   }
 
   enforceDailyLimit();
+  enforceCostLimit();
   const result = await runOpenAiCompatible(api);
-  recordApiCall(cwd, { model: api.model, cached: false, durationMs: result.durationMs });
+  recordApiCall(cwd, {
+    model: api.model,
+    cached: false,
+    durationMs: result.durationMs,
+    costUsd: estimateCostUsd(api.model, result.usage),
+  });
   writeEntry(root, key, result.text, ttlSeconds, now);
   return { ...result, cached: false };
 }

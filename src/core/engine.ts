@@ -193,6 +193,36 @@ function retryDelay(attempt: number, baseMs: number, header: string | null): num
 }
 
 /**
+ * Rough public list prices in USD per million tokens. They exist so `--max-cost`
+ * can stop a runaway loop without asking the user to configure anything; pass
+ * your own numbers in `.oc-pilot.json` when your provider bills differently.
+ */
+const MODEL_PRICES: Array<{ prefix: string; input: number; output: number }> = [
+  { prefix: "gpt-4.1-mini", input: 0.4, output: 1.6 },
+  { prefix: "gpt-4.1-nano", input: 0.1, output: 0.4 },
+  { prefix: "gpt-4.1", input: 2, output: 8 },
+  { prefix: "gpt-4o-mini", input: 0.15, output: 0.6 },
+  { prefix: "gpt-4o", input: 2.5, output: 10 },
+  { prefix: "o4-mini", input: 1.1, output: 4.4 },
+  { prefix: "o3-mini", input: 1.1, output: 4.4 },
+];
+
+/** Estimated USD cost of one call, or undefined when the model is unknown. */
+export function estimateCostUsd(
+  model: string | undefined,
+  usage: { promptTokens: number; completionTokens: number } | undefined,
+  prices: Array<{ prefix: string; input: number; output: number }> = MODEL_PRICES,
+): number | undefined {
+  if (!usage) return undefined;
+  const name = model?.trim().toLowerCase();
+  if (!name) return undefined;
+  const match = prices.find((entry) => name.startsWith(entry.prefix));
+  if (!match) return undefined;
+  const cost = (usage.promptTokens * match.input + usage.completionTokens * match.output) / 1_000_000;
+  return Math.round(cost * 1_000_000) / 1_000_000;
+}
+
+/**
  * Calls an OpenAI-compatible /chat/completions endpoint.
  * Works with OpenAI, DeepSeek, Groq, OpenRouter, vLLM, Ollama and similar
  * services. No provider SDK is required.
@@ -307,6 +337,14 @@ export async function runOpenAiCompatible(options: ApiRunOptions): Promise<Analy
 
   return {
     text,
+    ...(payload.usage
+      ? {
+          usage: {
+            promptTokens: payload.usage.prompt_tokens ?? 0,
+            completionTokens: payload.usage.completion_tokens ?? 0,
+          },
+        }
+      : {}),
     durationMs: Date.now() - started,
     stderr: "",
   };

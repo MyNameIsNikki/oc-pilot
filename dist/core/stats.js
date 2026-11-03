@@ -34,7 +34,14 @@ function appendStatsLine(cwd, record) {
     }
 }
 export function recordApiCall(cwd, call) {
-    appendStatsLine(cwd, { type: "api", ts: Date.now(), model: call.model?.trim() || null, cached: call.cached, durationMs: Math.round(call.durationMs) });
+    appendStatsLine(cwd, {
+        type: "api",
+        ts: Date.now(),
+        model: call.model?.trim() || null,
+        cached: call.cached,
+        durationMs: Math.round(call.durationMs),
+        ...(call.costUsd !== undefined ? { costUsd: call.costUsd } : {}),
+    });
 }
 export function recordRun(cwd, run) {
     appendStatsLine(cwd, { type: "run", ts: Date.now(), ...run });
@@ -81,6 +88,13 @@ export function todayStartMs(now = Date.now()) {
 /** Uncached API calls since the given timestamp (what budgets count). */
 export function countApiCallsSince(records, sinceMs) {
     return records.apiCalls.filter((call) => !call.cached && call.ts >= sinceMs).length;
+}
+/** Estimated spend since the given timestamp, in USD. */
+export function sumCostSince(records, sinceMs) {
+    const total = records.apiCalls
+        .filter((call) => call.ts >= sinceMs)
+        .reduce((sum, call) => sum + (call.costUsd ?? 0), 0);
+    return Math.round(total * 1_000_000) / 1_000_000;
 }
 export function summarizeStats(records, sinceMs) {
     const runs = records.runs.filter((run) => run.ts >= sinceMs);
