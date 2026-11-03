@@ -852,7 +852,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.18.0
+      - uses: MyNameIsNikki/oc-pilot@v0.19.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -875,7 +875,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.18.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.19.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
@@ -932,6 +932,14 @@ npm run prompt:export
 `npm test` builds first and runs `node --test "dist/**/*.test.js"`.
 
 The project has no runtime dependencies. Dev dependencies are TypeScript and `@types/node`.
+
+### Regression tests
+
+Three layers keep the contracts the model sees from drifting:
+
+- `test/golden/` pins the built prompt input for fixed diffs, so section order, empty-value handling and secret redaction only change on purpose. Regenerate with `OC_PILOT_UPDATE_GOLDEN=1 npm test` and read the diff before committing.
+- `test/fixtures/model-output/` holds realistic model replies; `src/core/output-format.test.ts` asserts which severity, location and text the CLI reports for each one.
+- `normalizeLocation` collapses the location shapes models actually emit (`a.ts:10-14`, `a.ts:10,12`, `a.ts#L12`, `a.ts (line 10)` → `a.ts:10`), and bullets inside fenced code blocks are ignored when parsing.
 
 ## License
 

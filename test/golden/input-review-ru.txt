@@ -1,0 +1,17 @@
+Проанализируй входные данные и верни ответ строго по OUTPUT SCHEMA. Пиши по-русски, без вступлений и заключений.
+
+PROJECT_TYPE: Go
+RECIPE: review
+REPO_CONTEXT: disabled (только diff)
+ADDITIONAL_CONTEXT:
+type User struct { ID string; Balance int }
+
+SECRET_SCAN: чистых добавленных строк с секретами не найдено.
+
+GIT_DIFF:
+diff --git a/wallet.go b/wallet.go
+@@ -10,3 +10,4 @@ func DeductBalance(u *User, amount int) {
+-	u.Balance -= amount
++	u.Balance -= amount
++	log.Info("deduct", amount)
+ }

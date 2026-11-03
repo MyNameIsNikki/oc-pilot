@@ -1,0 +1,12 @@
+Analyze the input and return a response strictly in the OUTPUT SCHEMA. Write in English, with no preamble or closing remarks.
+
+PROJECT_TYPE: Go
+RECIPE: commit
+REPO_CONTEXT: enabled (read-only tools)
+ADDITIONAL_CONTEXT:
+(empty)
+
+SECRET_SCAN: no secrets found in added lines.
+
+GIT_DIFF:
+(empty; see ADDITIONAL_CONTEXT)

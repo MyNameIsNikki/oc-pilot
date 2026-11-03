@@ -15,16 +15,16 @@ export function validateAnalysis(text: string, recipe: Recipe): FormatWarning[] 
   }
 
   const warnings: FormatWarning[] = [];
-  if (!/^###\s+(?:Анализ|Analysis)\s*:/m.test(text)) {
+  if (!/^###\s+(?:Анализ|Analysis)\s*:?/m.test(text)) {
     warnings.push({ code: "missing-analysis", message: "отсутствует заголовок `### Анализ:` / `### Analysis:`" });
   }
-  if (!/^####\s+(?:Замечания\s*\/\s*Действия|Findings\s*\/\s*Actions)/m.test(text)) {
+  if (!/^####\s+(?:Замечания|Findings)(?:\s*\/\s*(?:Действия|Actions))?(?=\s|:|$)/m.test(text)) {
     warnings.push({
       code: "missing-findings",
       message: "отсутствует заголовок `#### Замечания / Действия` / `#### Findings / Actions`",
     });
   }
-  if (!/^####\s+(?:Решение|Solution)/m.test(text)) {
+  if (!/^####\s+(?:Решение|Исправление|Solution|Fix)(?=\s|:|$)/m.test(text)) {
     warnings.push({ code: "missing-solution", message: "отсутствует заголовок `#### Решение` / `#### Solution`" });
   }
   return warnings;

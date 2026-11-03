@@ -36,6 +36,42 @@ function detectSeverity(text: string): FindingSeverity | undefined {
   return undefined;
 }
 
+const LINE_RANGE = /^(.*?):(\d+)(?::(\d+))?(?:\s*[-–—,]\s*\d+(?::\d+)?)*$/;
+const HASH_LINE = /^(.*?)#L(\d+)(?:-L?\d+)?$/i;
+const WORD_LINE = /^(.*?)\s*\(?\s*(?:line|строк[аи])\s*(\d+)\s*\)?$/i;
+
+/**
+ * Brings the location formats models actually produce to `file:line[:column]`:
+ * `a.ts:10-14` → `a.ts:10`, `a.ts:10,12` → `a.ts:10`, `a.ts#L10` → `a.ts:10`,
+ * `a.ts (line 10)` → `a.ts:10`. Ranges collapse to their first line because the
+ * PR/MR APIs anchor a comment to a single line. Unknown shapes are kept as-is.
+ */
+export function normalizeLocation(value: string): string | undefined {
+  const raw = value.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!raw) return undefined;
+
+  const range = LINE_RANGE.exec(raw);
+  if (range) {
+    const file = (range[1] ?? "").trim();
+    if (!file) return undefined;
+    return `${file}:${range[2]}${range[3] ? `:${range[3]}` : ""}`;
+  }
+
+  const hash = HASH_LINE.exec(raw);
+  if (hash) {
+    const file = (hash[1] ?? "").trim();
+    if (file) return `${file}:${hash[2]}`;
+  }
+
+  const word = WORD_LINE.exec(raw);
+  if (word) {
+    const file = (word[1] ?? "").trim();
+    if (file) return `${file}:${word[2]}`;
+  }
+
+  return raw;
+}
+
 function stripMarkdown(value: string): string {
   return value
     .replace(/`/g, "")
@@ -59,7 +95,7 @@ export function parseFindingBullet(line: string): AnalysisFinding | undefined {
   if (!severity) return undefined;
 
   const locationMatch = /`([^`]+)`/.exec(body);
-  const location = locationMatch ? locationMatch[1]!.trim() : undefined;
+  const location = locationMatch ? normalizeLocation(locationMatch[1]!) : undefined;
 
   let rawText = body;
   if (locationMatch) rawText = rawText.replace(locationMatch[0], "");
@@ -83,7 +119,7 @@ export function parseFindings(markdown: string): AnalysisFinding[] {
   const normalized = markdown.replace(/\r\n?/g, "\n");
   if (/LGTM:\s*(?:критических проблем не обнаружено|no critical issues found)/i.test(normalized)) return [];
 
-  const heading = /^####\s+(?:Замечания\s*\/\s*Действия|Findings\s*\/\s*Actions)\s*$/im.exec(normalized);
+  const heading = /^####\s+(?:Замечания|Findings)(?:\s*\/\s*(?:Действия|Actions))?\s*:?\s*$/im.exec(normalized);
   if (!heading) return [];
 
   const start = heading.index + heading[0].length;
@@ -93,7 +129,13 @@ export function parseFindings(markdown: string): AnalysisFinding[] {
   if (!section) return [];
 
   const findings: AnalysisFinding[] = [];
+  let fenced = false;
   for (const line of section.split("\n")) {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
     const finding = parseFindingBullet(line);
     if (finding) findings.push(finding);
   }

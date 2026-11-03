@@ -678,7 +678,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.18.0
+      - uses: MyNameIsNikki/oc-pilot@v0.19.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -783,6 +783,14 @@ prompts/oc-pilot.ru.md
 README.md
 README.ru.md
 ```
+
+### Регрессионные тесты
+
+Три уровня защищают контракты, которые видит модель:
+
+- `test/golden/` фиксирует собранный INPUT для заданных diff: порядок секций, обработка пустых значений и redaction секретов меняются только осознанно. Пересобрать: `OC_PILOT_UPDATE_GOLDEN=1 npm test`, затем прочитать diff перед коммитом.
+- `test/fixtures/model-output/` — реалистичные ответы моделей; `src/core/output-format.test.ts` проверяет, какие severity, локации и текст CLI из них извлекает.
+- `normalizeLocation` приводит форматы локаций, которые реально пишут модели (`a.ts:10-14`, `a.ts:10,12`, `a.ts#L12`, `a.ts (line 10)` → `a.ts:10`), а списки внутри code fence при разборе игнорируются.
 
 ## Лицензия
 
