@@ -75,3 +75,51 @@ referral applies to first purchases and to anything else the user buys.
   (secrets, injection, risky dependencies, missing tests), not correctness.
 - Do not bundle a pinned CLI version without a note that the CLI is published
   separately.
+
+## Submission format
+
+Agensi takes one zip per listing: `SKILL.md` at the archive root, valid
+frontmatter with `name` and `description`, plus any scripts, references and
+assets. Up to 50 MB.
+
+Build all archives from the repository:
+
+```bash
+pwsh scripts/build-skills.ps1            # writes dist-skills/*.zip
+pwsh scripts/build-skills.ps1 -OutDir out
+```
+
+The script packs the *contents* of each `skills/<name>/` directory, so the
+archive root is exactly `SKILL.md` — not `agent-self-review/SKILL.md`.
+Current bundles: `agent-self-review`, `commit-discipline`, `oc-pilot`,
+`secure-diff-gate`, `stack-review-packs`, `test-failure-triage`, about 1-2 KB
+each because every skill is a single document that drives the CLI.
+
+`dist-skills/` is generated output and stays out of git.
+
+## Payouts
+
+- Stripe pays to your own account instantly where Stripe operates.
+- Where Stripe does not operate, Agensi uses Zoneless: USDC on Solana to your
+  own wallet within 72 hours, onboarded separately.
+- There is no Wise, wire transfer or direct bank route.
+- A free listing needs no payout setup.
+
+Practical consequence: publish the free skills first. They need no payout
+account and they establish the listing graph and install counts. Enable the
+paid SKUs ($19 triage, $29 security gate, $39 bundle) only after Zoneless is
+connected, so the first sale is not stuck behind onboarding.
+
+## Open questions for Agensi
+
+These are unanswered and worth confirming before paying for promotion:
+
+1. Moderation: is there a review step, a quality bar, and what causes a
+   rejection?
+2. Analytics: are installs, conversions and refunds exposed per skill?
+3. Versioning: when a skill changes, is the listing edited in place or is a new
+   archive uploaded, and does the previous version stay available?
+4. Dependencies: is a documented `npm i -g` requirement in `SKILL.md`
+   acceptable, or are self-contained bundles expected?
+5. Multi-agent manifests: which agents consume `SKILL.md` unmodified, and which
+   need a sidecar manifest?
