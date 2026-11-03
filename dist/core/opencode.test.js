@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BUILTIN_AGENT, buildAgentDefinition, buildConfigContent } from "./opencode.js";
+import { BUILTIN_AGENT, buildAgentDefinition, buildConfigContent, quoteShellArg } from "./opencode.js";
 function rulesFor(definition) {
     return definition.permissions.map((rule) => `${rule.effect}:${rule.action}:${rule.resource}`);
 }
@@ -16,6 +16,15 @@ test("repo-context agent allows only read, glob and grep", () => {
     assert.ok(rules.includes("deny:external_directory:*"));
     assert.ok(rules.indexOf("deny:read:*.env") > rules.indexOf("allow:read:*"));
     assert.ok(rules.indexOf("allow:read:*.env.example") > rules.indexOf("deny:read:*.env.*"));
+});
+test("quoteShellArg escapes backslashes before quotes and at the end", () => {
+    assert.equal(quoteShellArg("plain-arg"), "plain-arg");
+    assert.equal(quoteShellArg("C:\\tmp\\file.txt"), "C:\\tmp\\file.txt");
+    assert.equal(quoteShellArg("with space"), '"with space"');
+    assert.equal(quoteShellArg('say "hi"'), '"say \\"hi\\""');
+    assert.equal(quoteShellArg('back\\slash "quoted"'), '"back\\slash \\"quoted\\""');
+    assert.equal(quoteShellArg("trailing\\"), '"trailing\\\\"');
+    assert.equal(quoteShellArg('already \\"escaped\\"'), '"already \\\\\\"escaped\\\\\\""');
 });
 test("diff-only agent denies every tool", () => {
     const definition = buildAgentDefinition("SYSTEM", false);

@@ -6,8 +6,21 @@ import { PilotError } from "./errors.js";
 import { log } from "./log.js";
 import { killProcessTree } from "./process.js";
 export const BUILTIN_AGENT = "oc-pilot";
-function quoteShellArg(value) {
-    return /^[A-Za-z0-9_./:@#%+=,-]+$/.test(value) ? value : `"${value.replace(/"/g, '\\"')}"`;
+/**
+ * Quotes one argv element for the Windows `cmd.exe` command line. The opencode
+ * CLI ships as a `.cmd` shim there, so the command has to go through a shell.
+ * Windows programs parse their command line with the C runtime rules:
+ * backslashes are literal, but a run of them doubles when it precedes an
+ * embedded quote, and a trailing run doubles before the closing quote.
+ */
+export function quoteShellArg(value) {
+    // A backslash is safe while unquoted, but a trailing run would swallow the
+    // closing quote once we add one, so that case goes through the escape path.
+    if (/^[-A-Za-z0-9_./:@#%+=,\\]+$/.test(value) && !value.endsWith("\\")) {
+        return value;
+    }
+    const escaped = value.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1");
+    return `"${escaped}"`;
 }
 function errorMessage(error) {
     if (error instanceof Error)
