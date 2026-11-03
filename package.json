@@ -1,6 +1,6 @@
 {
   "name": "oc-pilot",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Local AI code review, tested fixes, test-failure analysis and secret scanning for agent CLIs",
   "type": "module",
   "repository": {
@@ -43,6 +43,7 @@
     "dev": "npm run build && node dist/cli.js",
     "mcp": "node dist/mcp.js",
     "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "test:coverage": "npm run build && node --test --experimental-test-coverage \"dist/**/*.test.js\"",
     "check": "tsc -p tsconfig.json --noEmit",
     "prompt:export": "npm run build && node scripts/export-prompt.mjs",
     "prepublishOnly": "npm test"

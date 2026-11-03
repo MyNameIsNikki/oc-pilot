@@ -15,6 +15,47 @@ export function parseEngine(value, source = "--engine") {
         exitCode: 2,
     });
 }
+/**
+ * Ready-made endpoints for OpenAI-compatible providers. They only change the
+ * defaults, so any explicit --base-url, --api-key-env or --model still wins.
+ */
+export const ENGINE_PRESETS = [
+    {
+        id: "ollama",
+        baseUrl: "http://localhost:11434/v1",
+        apiKeyEnv: "OLLAMA_API_KEY",
+        model: "llama3.2",
+        note: "локальный Ollama, ключ не нужен",
+    },
+    {
+        id: "lmstudio",
+        baseUrl: "http://localhost:1234/v1",
+        apiKeyEnv: "LMSTUDIO_API_KEY",
+        note: "локальный LM Studio, ключ не нужен",
+    },
+    {
+        id: "openrouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKeyEnv: "OPENROUTER_API_KEY",
+        note: "агрегатор OpenRouter",
+    },
+];
+export function presetIds() {
+    return ENGINE_PRESETS.map((preset) => preset.id);
+}
+export function findEnginePreset(id) {
+    const normalized = id.trim().toLowerCase();
+    return ENGINE_PRESETS.find((preset) => preset.id === normalized);
+}
+export function parseEnginePreset(value, source = "--engine-preset") {
+    const preset = findEnginePreset(value);
+    if (preset)
+        return preset;
+    throw new PilotError(`Неизвестный пресет движка в ${source}: ${value}`, {
+        hint: `Доступные пресеты: ${presetIds().join(", ")}`,
+        exitCode: 2,
+    });
+}
 export function normalizeBaseUrl(value) {
     return (value?.trim() || DEFAULT_API_BASE_URL).replace(/\/+$/, "");
 }

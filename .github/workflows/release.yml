@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -40,3 +40,27 @@ jobs:
       # publish credential. No NPM_TOKEN and no registry-url on purpose — the
       # token is minted per run and scoped to this repository and workflow name.
       - run: npm publish --provenance --access public --ignore-scripts
+
+      # The release body is the CHANGELOG section for this version, so the
+      # GitHub release and the repository history never drift apart.
+      - name: Extract changelog section
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            index($0, "## " ver) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "See CHANGELOG.md for the changes in $GITHUB_REF_NAME." > RELEASE_NOTES.md
+          fi
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false

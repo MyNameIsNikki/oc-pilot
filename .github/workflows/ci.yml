@@ -26,6 +26,12 @@ jobs:
       - run: npm run check
       - run: npm test
 
+      # Coverage is informational: `node --test --experimental-test-coverage`
+      # prints the table without enforcing a threshold, so a slow or noisy
+      # signal can never block a release.
+      - run: npm run test:coverage
+        if: matrix.node == 24
+
   package:
     name: Package contents
     runs-on: ubuntu-latest

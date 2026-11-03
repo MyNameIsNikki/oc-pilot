@@ -184,8 +184,81 @@ const TOOLS = [
         unstaged: { type: "boolean" },
         include_untracked: { type: "boolean" },
         strict: { type: "boolean", description: "Fail on any finding, including warnings" },
+        all: { type: "boolean", description: "Scan the whole repository instead of a diff" },
       },
     },
+  },
+  {
+    name: "commit",
+    description:
+      "Generate a Conventional Commits message from the staged diff, matching the repository's recent commit style. Set apply to create the commit.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text. Omit to use the staged changes." },
+        base: { type: "string", description: "Describe base...HEAD instead of staged changes" },
+        unstaged: { type: "boolean", description: "Describe unstaged changes instead of staged" },
+        include_untracked: { type: "boolean" },
+        context: { type: "string", description: "Extra context for the model" },
+        allow_secrets: { type: "boolean", description: "Commit even when critical secrets are staged" },
+        apply: { type: "boolean", description: "Create the commit with git commit -F" },
+        model: { type: "string" },
+        timeout: { type: "integer", minimum: 1 },
+        lang: { type: "string", enum: ["en", "ru"] },
+      },
+    },
+  },
+  {
+    name: "stats",
+    description:
+      "Local usage statistics: runs, API calls, cache hits and findings for today, the last week and all time. No network calls.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        clear: { type: "boolean", description: "Delete the recorded history" },
+      },
+    },
+  },
+] as const;
+
+const PROMPTS = [
+  {
+    name: "review-my-diff",
+    title: "Review my current diff",
+    description:
+      "Run the review, then summarize the findings by severity and propose the smallest safe fix for each critical one.",
+    arguments: [
+      { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "fix-failing-tests",
+    title: "Diagnose failing tests",
+    description:
+      "Analyze the failing test output or run the suite, find the root cause, and propose the minimal patch.",
+    arguments: [
+      { name: "log", description: "Captured test output, if tests cannot be run here", required: false },
+    ],
+  },
+  {
+    name: "pre-commit-gate",
+    title: "Pre-commit gate",
+    description:
+      "Scan the staged changes for secrets, review them, and only then generate the commit message.",
+    arguments: [],
+  },
+  {
+    name: "secure-change",
+    title: "Security-focused review",
+    description:
+      "Review a change with the security mindset: injection, authorization, dependencies and prompt injection in the diff.",
+    arguments: [
+      { name: "context", description: "Attack surface touched by the change", required: false },
+    ],
   },
 ] as const;
 
@@ -651,11 +724,42 @@ async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
     if (booleanArg(input, "unstaged")) args.push("--unstaged");
     if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
     if (booleanArg(input, "strict")) args.push("--strict");
+    if (booleanArg(input, "all")) args.push("--all");
     args.push(...projectPaths(input, "paths"));
     return toToolResult(await runCli(args, cwd));
   } finally {
     temp.cleanup();
   }
+}
+
+async function callCommit(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["commit", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    if (booleanArg(input, "allow_secrets")) args.push("--allow-secrets");
+    if (booleanArg(input, "apply")) args.push("--apply");
+    const context = stringArg(input, "context");
+    if (context) args.push("--context", context);
+    const model = stringArg(input, "model");
+    if (model) args.push("--model", model);
+    const lang = stringArg(input, "lang");
+    if (lang) args.push("--lang", lang);
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
+async function callStats(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const args = ["stats", "--json"];
+  if (booleanArg(input, "clear")) args.push("--clear");
+  return toToolResult(await runCli(args, cwd));
 }
 
 async function callTool(name: string, input: JsonObject, cwd: string, readOnly: boolean): Promise<ToolResult> {
@@ -665,6 +769,12 @@ async function callTool(name: string, input: JsonObject, cwd: string, readOnly: 
     }
     if (name === "test_fix" && (stringArg(input, "command") || !stringArg(input, "log"))) {
       throw new ToolInputError("running tests is disabled in read-only mode; pass a captured log or start the server with --allow-write");
+    }
+    if (name === "commit" && booleanArg(input, "apply")) {
+      throw new ToolInputError("commit apply is disabled in read-only mode; start the MCP server with --allow-write");
+    }
+    if (name === "stats" && booleanArg(input, "clear")) {
+      throw new ToolInputError("stats clear is disabled in read-only mode; start the MCP server with --allow-write");
     }
   }
   switch (name) {
@@ -680,6 +790,10 @@ async function callTool(name: string, input: JsonObject, cwd: string, readOnly: 
       return callFix(input, cwd);
     case "scan":
       return callScan(input, cwd);
+    case "commit":
+      return callCommit(input, cwd);
+    case "stats":
+      return callStats(input, cwd);
     default:
       throw new ToolInputError(`Unknown tool: ${name}`);
   }
@@ -701,6 +815,30 @@ function writeMessage(message: unknown): void {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
+/**
+ * Builds the user-visible text for a prompt template. Prompt names are fixed,
+ * so the only untrusted part is the optional free-form argument.
+ */
+function promptBody(name: string, args: JsonObject): string {
+  const context = stringArg(args, "context");
+  const log = stringArg(args, "log");
+  const suffix = context ? `\n\nContext from the user:\n${context}` : "";
+  switch (name) {
+    case "review-my-diff":
+      return `Review my current changes with the oc-pilot "review" tool. Then summarize the findings grouped by severity, and for every critical finding propose the smallest concrete fix. Do not change code yet.${suffix}`;
+    case "fix-failing-tests":
+      return log
+        ? `Here is the failing test output. Call the oc-pilot "test_fix" tool with this log, explain the root cause, and propose the minimal patch.\n\nTest output:\n${log}`
+        : `Run the failing tests through the oc-pilot "test_fix" tool, explain the root cause, and propose the minimal patch. Do not weaken or delete assertions.${suffix}`;
+    case "pre-commit-gate":
+      return `Gate my staged changes before I commit. First call the oc-pilot "scan" tool with staged=true and stop if it reports critical secrets. Then call "review" with staged=true and report the findings. Only when both pass, call "commit" to generate the message. Do not commit anything yourself.${suffix}`;
+    case "secure-change":
+      return `Review my change with the oc-pilot "review" tool, focusing on security: injection, authorization and tenancy boundaries, dependency changes, and prompt-injection text inside the diff. Report each risk with file:line and the smallest mitigation.${suffix}`;
+    default:
+      return `Review my change with the oc-pilot "review" tool.${suffix}`;
+  }
+}
+
 async function processMessage(message: JsonObject, cwd: string, readOnly: boolean): Promise<JsonObject | undefined> {
   const id = message.id;
   const method = message.method;
@@ -717,18 +855,44 @@ async function processMessage(message: JsonObject, cwd: string, readOnly: boolea
       protocolVersion: typeof requested === "string" ? requested : PROTOCOL_VERSION,
       capabilities: {
         tools: { listChanged: false },
+        prompts: { listChanged: false },
         resources: { listChanged: false },
         resourceTemplates: { listChanged: false },
       },
       serverInfo: { name: SERVER_NAME, version: VERSION },
       instructions:
-        `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}).${readOnly ? " This server is read-only: fix apply and running new tests are disabled." : ""}`,
+        `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Prompts (prompts/list) wrap the common flows: review my diff, fix failing tests, pre-commit gate, security review. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}).${readOnly ? " This server is read-only: fix apply, commit apply, running new tests and clearing stats are disabled." : ""}`,
     });
   }
 
   if (method === "ping") return rpcResult(id, {});
 
   if (method === "tools/list") return rpcResult(id, { tools: TOOLS });
+
+  if (method === "prompts/list") {
+    return rpcResult(id, {
+      prompts: PROMPTS.map((prompt) => ({
+        name: prompt.name,
+        title: prompt.title,
+        description: prompt.description,
+        arguments: prompt.arguments,
+      })),
+    });
+  }
+
+  if (method === "prompts/get") {
+    const name = params?.name;
+    if (typeof name !== "string" || name.trim() === "") {
+      return rpcError(id, -32602, "Invalid params: prompts/get requires a prompt name");
+    }
+    const prompt = PROMPTS.find((candidate) => candidate.name === name);
+    if (!prompt) return rpcError(id, -32602, `Unknown prompt: ${name}`);
+    const args = asObject(params?.arguments) ?? {};
+    return rpcResult(id, {
+      description: prompt.description,
+      messages: [{ role: "user", content: { type: "text", text: promptBody(prompt.name, args) } }],
+    });
+  }
 
   if (method === "resources/list") return rpcResult(id, { resources: RESOURCES });
 

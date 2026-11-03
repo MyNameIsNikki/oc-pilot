@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import type { CommandContext, ConfigOverrides, OutputFormat } from "../types.js";
 import { loadConfig } from "./config.js";
-import { parseBaseUrl, parseEngine } from "./engine.js";
+import { parseBaseUrl, parseEngine, parseEnginePreset } from "./engine.js";
 import { PilotError } from "./errors.js";
 import { parsePromptLang } from "./lang.js";
 import { parseFailOn } from "./findings.js";
@@ -14,6 +14,7 @@ export type OptionSpec = Record<string, { type: "string" | "boolean"; short?: st
 export const COMMON_OPTIONS: OptionSpec = {
   cwd: { type: "string", short: "C" },
   engine: { type: "string" },
+  "engine-preset": { type: "string" },
   "base-url": { type: "string" },
   "api-key-env": { type: "string" },
   model: { type: "string", short: "m" },
@@ -92,6 +93,15 @@ export function resolveContext(values: ArgsValues): CommandContext {
   if (baseUrl !== undefined) overrides.baseUrl = parseBaseUrl(baseUrl);
   if (apiKeyEnv !== undefined) overrides.apiKeyEnv = apiKeyEnv;
   if (model !== undefined) overrides.model = model;
+
+  const presetName = asString(values, "engine-preset");
+  if (presetName !== undefined) {
+    const preset = parseEnginePreset(presetName);
+    if (engine === undefined) overrides.engine = "openai";
+    if (baseUrl === undefined) overrides.baseUrl = preset.baseUrl;
+    if (apiKeyEnv === undefined) overrides.apiKeyEnv = preset.apiKeyEnv;
+    if (model === undefined && preset.model !== undefined) overrides.model = preset.model;
+  }
   if (agent !== undefined) overrides.agent = agent;
   if (maxDiff !== undefined) overrides.maxDiffChars = parseSize(maxDiff, "max-diff");
   if (maxFile !== undefined) overrides.maxFileChars = parseSize(maxFile, "max-file");
@@ -140,6 +150,7 @@ export function resolveContext(values: ArgsValues): CommandContext {
 
 export const COMMON_HELP = `  -C, --cwd <dir>       Рабочая директория (по умолчанию текущая)
       --engine <name>   Движок: opencode (по умолчанию) или openai
+      --engine-preset <p> Пресет openai-совместимого API: ollama, lmstudio, openrouter
       --base-url <url>  Base URL OpenAI-совместимого API (engine=openai)
       --api-key-env <n> Переменная с API-ключом (по умолчанию OC_PILOT_API_KEY)
   -m, --model <id>      Модель: provider/model для OpenCode или имя модели для API

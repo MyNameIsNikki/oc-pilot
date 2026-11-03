@@ -104,9 +104,24 @@ oc-pilot review --engine openai --model deepseek-chat \
 # Локальная модель через Ollama (ключ для localhost не нужен)
 oc-pilot review --engine openai --model qwen2.5-coder \
   --base-url http://127.0.0.1:11434/v1
+
+# То же через пресет
+oc-pilot review --engine-preset ollama --model qwen2.5-coder
 ```
 
 Ключ читается из `OC_PILOT_API_KEY` или `OPENAI_API_KEY`; переменную можно переименовать через `--api-key-env` / `apiKeyEnv`. Ключ не попадает в логи и ошибки.
+
+### Пресеты движков
+
+Для частых OpenAI-совместимых провайдеров `--engine-preset` сам подставляет base URL, переменную с ключом и (где есть разумный дефолт) модель:
+
+| Пресет | Base URL | Переменная ключа | Модель по умолчанию |
+| --- | --- | --- | --- |
+| `ollama` | `http://localhost:11434/v1` | `OLLAMA_API_KEY` (на loopback не нужен) | `llama3.2` |
+| `lmstudio` | `http://localhost:1234/v1` | `LMSTUDIO_API_KEY` (на loopback не нужен) | — |
+| `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | — |
+
+Пресет переключает движок на `openai`, если явно не указано иное, а явные флаги всегда важнее: `oc-pilot review --engine-preset ollama --model qwen2.5-coder` оставит endpoint из пресета и переопределит только модель.
 
 ### Умный slicing (`openai`)
 
@@ -167,6 +182,7 @@ oc-pilot review [пути...] [опции]
 | `--context <text\|@file>` | дополнительный контекст |
 | `--lang <en\|ru>` | язык системного промпта и ответа (по умолчанию `en`) |
 | `--engine <opencode\|openai>` | движок модели (по умолчанию `opencode`) |
+| `--engine-preset <p>` | пресет API: `ollama`, `lmstudio`, `openrouter` |
 | `--base-url <url>` | OpenAI-совместимый endpoint |
 | `--api-key-env <name>` | переменная с API-ключом (по умолчанию `OC_PILOT_API_KEY`) |
 | `--no-repo-context` | не давать агенту читать файлы (только diff) |
@@ -526,6 +542,10 @@ oc-pilot setup --client cursor --global
 
 ZCode импортирует серверы из Claude Code, Codex, OpenCode и `.agents`, либо пишет нативный конфиг через `oc-pilot setup --client zcode`.
 
+Инструменты: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`. У `scan` есть `all: true` — проверка всего репозитория, а не diff. Сервер по умолчанию read-only: `--allow-write` разрешает `fix` с `apply: true`, `commit` с `apply: true`, `test_fix` с командой и `stats` с `clear: true`.
+
+Готовые промпты отдаются через `prompts/list` и рендерятся `prompts/get`, чтобы клиент мог показать их в своём меню: `review-my-diff` (необязательный `context`), `fix-failing-tests` (необязательный `log`), `pre-commit-gate` (scan, review и commit одним проходом) и `secure-change` (ревью с фокусом на безопасность).
+
 Запуск вручную:
 
 ```bash
@@ -603,7 +623,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.13.0
+      - uses: MyNameIsNikki/oc-pilot@v0.14.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -652,6 +672,8 @@ jobs:
         with:
           sarif_file: oc-pilot.sarif
 ```
+
+Каждый релиз публикуется из тега workflow самого репозитория (OIDC trusted publishing с provenance-аттестацией), а тело GitHub Release берётся из соответствующего раздела `CHANGELOG.md`. CI гоняет тесты на Node 22 и 24 и печатает информационную таблицу покрытия через `node --test --experimental-test-coverage` — без порога, чтобы шумный сигнал не блокировал мерж.
 
 ## Ограничения
 

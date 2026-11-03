@@ -122,6 +122,9 @@ oc-pilot review --engine openai --model deepseek-chat \
 # Local model through Ollama (no key needed on loopback)
 oc-pilot review --engine openai --model qwen2.5-coder \
   --base-url http://127.0.0.1:11434/v1
+
+# The same, through a preset
+oc-pilot review --engine-preset ollama --model qwen2.5-coder
 ```
 
 | Engine | Best for | Repository tools | Requires |
@@ -130,6 +133,18 @@ oc-pilot review --engine openai --model qwen2.5-coder \
 | `openai` | Zero extra CLIs, CI, DeepSeek/OpenRouter/local models | No; full changed files are included | API endpoint and key |
 
 The key is read from `OC_PILOT_API_KEY`, or `OPENAI_API_KEY` when the default variable name is used. Set `apiKeyEnv` to use another variable. Logs and errors never print the key. With the `openai` engine, `repoContext` is forced off and `FULL_FILE_CONTEXT` is added automatically.
+
+### Engine presets
+
+For the common OpenAI-compatible providers, `--engine-preset` fills in the base URL, the key variable and (where it is a sensible default) the model:
+
+| Preset | Base URL | Key variable | Default model |
+| --- | --- | --- | --- |
+| `ollama` | `http://localhost:11434/v1` | `OLLAMA_API_KEY` (not needed on loopback) | `llama3.2` |
+| `lmstudio` | `http://localhost:1234/v1` | `LMSTUDIO_API_KEY` (not needed on loopback) | — |
+| `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | — |
+
+A preset switches the engine to `openai` unless you say otherwise, and explicit flags always win: `oc-pilot review --engine-preset ollama --model qwen2.5-coder` keeps the preset endpoint and overrides only the model.
 
 ### Smart slicing (`openai`)
 
@@ -445,6 +460,7 @@ The rules file is a normal project rules file — edit it freely.
 | `-C, --cwd <dir>` | current directory | Project directory |
 | `-m, --model <id>` | engine default | Model id (`provider/model` for OpenCode) |
 | `--engine <name>` | `opencode` | `opencode` or `openai` (any compatible API) |
+| `--engine-preset <p>` | — | `ollama`, `lmstudio`, `openrouter` |
 | `--base-url <url>` | `https://api.openai.com/v1` | OpenAI-compatible endpoint |
 | `--api-key-env <name>` | `OC_PILOT_API_KEY` | Environment variable holding the API key |
 | `--agent <name>` | `oc-pilot` | Use another OpenCode agent |
@@ -586,7 +602,9 @@ Environment variables: `OC_PILOT_ENGINE`, `OC_PILOT_BASE_URL`, `OC_PILOT_API_KEY
 
 Besides tools, the server exposes read-only MCP resources: `oc-pilot://config` (resolved configuration), `oc-pilot://rules` (project rules with secrets redacted), `oc-pilot://prompt/en` and `oc-pilot://prompt/ru` (the built-in system prompts), and `oc-pilot://version`. Resource templates cover live data: `oc-pilot://diff/{mode}` (staged/unstaged/head diff, secrets redacted), `oc-pilot://scan/{mode}` (offline secret scan as JSON) and `oc-pilot://file/{+path}` (any project file up to 2 MB with detected secrets redacted). Hosts can list them with `resources/list` and `resources/templates/list`.
 
-Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`. The server is read-only by default; start it with `--allow-write` to permit `fix` with `apply: true` and `test_fix` with a command.
+Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`. `scan` accepts `all: true` to sweep the whole repository instead of the diff. The server is read-only by default; start it with `--allow-write` to permit `fix` with `apply: true`, `commit` with `apply: true`, `test_fix` with a command and `stats` with `clear: true`.
+
+Ready-made prompts are advertised through `prompts/list` and rendered by `prompts/get`, so a host can offer them in its own menu: `review-my-diff` (optional `context`), `fix-failing-tests` (optional `log`), `pre-commit-gate` (scan, review and commit in one pass) and `secure-change` (security-focused review).
 
 Configure a client automatically:
 
@@ -780,7 +798,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.13.0
+      - uses: MyNameIsNikki/oc-pilot@v0.14.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -803,7 +821,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.13.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.14.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
@@ -820,6 +838,8 @@ To upload results to GitHub Code Scanning, write a SARIF report and upload it:
         with:
           sarif_file: oc-pilot.sarif
 ```
+
+Each release is published from a tag by the repository's own workflow (OIDC trusted publishing with a provenance attestation), and the GitHub release body is taken from the matching `CHANGELOG.md` section. CI runs the suite on Node 22 and 24 and prints an informational coverage table from `node --test --experimental-test-coverage` — no threshold, so a noisy signal never blocks a merge.
 
 ## Security model
 

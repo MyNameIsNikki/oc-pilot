@@ -1,0 +1,124 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { test } from "node:test";
+
+const MCP = resolve("dist/mcp.js");
+
+interface JsonRpcResponse {
+  jsonrpc: string;
+  id?: number;
+  result?: unknown;
+  error?: { code: number; message: string };
+}
+
+function runServer(
+  dir: string,
+  requests: unknown[],
+  args: string[] = [],
+): JsonRpcResponse[] {
+  const input = `${requests.map((request) => JSON.stringify(request)).join("\n")}\n`;
+  const result = spawnSync(process.execPath, [MCP, "--cwd", dir, ...args], {
+    input,
+    encoding: "utf8",
+    timeout: 60_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  return (result.stdout ?? "")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as JsonRpcResponse);
+}
+
+function tempDir(): string {
+  return mkdtempSync(join(tmpdir(), "oc-pilot-mcp-prompts-"));
+}
+
+test("MCP advertises prompts and renders them with arguments", () => {
+  const dir = tempDir();
+  try {
+    const responses = runServer(dir, [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05" } },
+      { jsonrpc: "2.0", id: 2, method: "prompts/list" },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "prompts/get",
+        params: { name: "review-my-diff", arguments: { context: "wallet refactor" } },
+      },
+    ]);
+
+    const init = responses[0]?.result as {
+      capabilities: Record<string, unknown>;
+    };
+    assert.ok(init.capabilities.prompts, "prompts capability is advertised");
+
+    const list = responses[1]?.result as {
+      prompts: { name: string; description: string; arguments?: unknown[] }[];
+    };
+    const names = list.prompts.map((prompt) => prompt.name);
+    assert.deepEqual(names, [
+      "review-my-diff",
+      "fix-failing-tests",
+      "pre-commit-gate",
+      "secure-change",
+    ]);
+    for (const prompt of list.prompts) {
+      assert.ok(prompt.description.length > 0);
+    }
+
+    const got = responses[2]?.result as {
+      description: string;
+      messages: { role: string; content: { type: string; text: string } }[];
+    };
+    assert.equal(got.messages.length, 1);
+    assert.equal(got.messages[0]?.role, "user");
+    const text = got.messages[0]?.content.text ?? "";
+    assert.match(text, /review/i);
+    assert.match(text, /wallet refactor/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP exposes commit and stats tools and keeps writes opt-in", () => {
+  const dir = tempDir();
+  try {
+    const responses = runServer(dir, [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05" } },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "stats", arguments: { clear: true } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "commit", arguments: { apply: true } },
+      },
+    ]);
+
+    const list = responses[1]?.result as {
+      tools: { name: string; annotations?: { readOnlyHint?: boolean } }[];
+    };
+    const byName = new Map(list.tools.map((tool) => [tool.name, tool]));
+    assert.ok(byName.has("commit"));
+    assert.ok(byName.has("stats"));
+    assert.equal(byName.get("stats")?.annotations?.readOnlyHint, true);
+
+    const stats = responses[2]?.result as { isError?: boolean; content: { text: string }[] };
+    assert.equal(stats.isError, true);
+    assert.match(stats.content[0]?.text ?? "", /read-only/);
+
+    const commit = responses[3]?.result as { isError?: boolean; content: { text: string }[] };
+    assert.equal(commit.isError, true);
+    assert.match(commit.content[0]?.text ?? "", /read-only/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
