@@ -10,6 +10,7 @@ import { parseFindings, shouldFail, severityLabel } from "../core/findings.js";
 import { executeRecipe, executeRecipeDetailed } from "../core/run.js";
 import { buildPrCommentBody } from "../core/pr-comment.js";
 import { buildInlineComments, postPrReviewSummary, postPrStatus } from "../core/pr-review.js";
+import { postMrStatus, postMrSummary } from "../core/gitlab.js";
 import { analysisFindingsToSarifResults, buildSarif } from "../core/sarif.js";
 import { writeOutput } from "../core/io.js";
 import { analyzeDependencyChanges, describeDependencyFindings } from "../core/deps.js";
@@ -34,6 +35,8 @@ const OPTIONS = withCommon({
     pr: { type: "boolean" },
     "no-pr-inline": { type: "boolean" },
     "pr-status": { type: "boolean" },
+    mr: { type: "boolean" },
+    "mr-status": { type: "boolean" },
     "second-opinion": { type: "boolean" },
     "second-opinion-model": { type: "string" },
     "second-opinion-base-url": { type: "string" },
@@ -66,6 +69,8 @@ const HELP = `Использование:
       --pr                  отправить review в PR: inline-комментарии к строкам (Actions)
       --no-pr-inline        только один сводный комментарий, без inline
       --pr-status           выставить статус-чек oc-pilot (нужен для branch protection)
+      --mr                  отправить сводку в GitLab merge request (CI_MERGE_REQUEST_IID)
+      --mr-status           выставить статус oc-pilot в GitLab (GITLAB_TOKEN)
       --second-opinion      проверить критичные находки второй моделью (openai)
       --second-opinion-model <m>  модель проверки (по умолчанию secondOpinionModel)
       --second-opinion-base-url <url> отдельный endpoint для проверки
@@ -139,6 +144,8 @@ export async function runReview(argv) {
     const prWanted = asBoolean(values, "pr");
     const prInline = !asBoolean(values, "no-pr-inline");
     const prStatus = asBoolean(values, "pr-status");
+    const mrWanted = asBoolean(values, "mr");
+    const mrStatus = asBoolean(values, "mr-status");
     const interactiveWanted = asBoolean(values, "interactive");
     const requireTests = asBoolean(values, "require-tests");
     const forbidWeakening = asBoolean(values, "no-test-weakening");
@@ -184,7 +191,7 @@ export async function runReview(argv) {
         baseUrl: asString(values, "second-opinion-base-url") ?? ctx.config.secondOpinionBaseUrl,
         apiKeyEnv: asString(values, "second-opinion-api-key-env") ?? ctx.config.secondOpinionApiKeyEnv,
     };
-    if (ctx.flags.format !== "sarif" && !updateBaseline && !prWanted && !interactiveWanted) {
+    if (ctx.flags.format !== "sarif" && !updateBaseline && !prWanted && !mrWanted && !interactiveWanted) {
         const code = await executeRecipe(payload, ctx, { router: routerOptions, secondOpinion });
         if (requireTests && testDelta.gap && code === 0) {
             log.warn("--require-tests: логика изменена без тестов.");
@@ -268,6 +275,25 @@ export async function runReview(argv) {
             }
             else {
                 log.warn("Статус-чек не отправлен: нужен запуск в Actions с GITHUB_TOKEN.");
+            }
+        }
+    }
+    if (mrWanted) {
+        const shaResult = runGit(["rev-parse", "HEAD"], ctx.cwd);
+        const sha = shaResult.status === 0 ? shaResult.stdout.trim() : "";
+        const summary = buildPrCommentBody(findings, { sha, knownHidden });
+        await postMrSummary(summary, ctx.cwd);
+        if (mrStatus) {
+            const blocked = findings.some((finding) => finding.severity === "critical");
+            const state = blocked ? "failed" : "success";
+            const description = blocked
+                ? `oc-pilot: ${findings.length} finding(s), critical present`
+                : "oc-pilot: no blocking findings";
+            if (await postMrStatus(state, description, sha)) {
+                log.info(`Статус oc-pilot в GitLab: ${state}.`);
+            }
+            else {
+                log.warn("Статус в GitLab не отправлен: нужен GITLAB_TOKEN с правом api.");
             }
         }
     }

@@ -163,7 +163,7 @@ export function resolveContext(values) {
     };
 }
 export const COMMON_HELP = `  -C, --cwd <dir>       Рабочая директория (по умолчанию текущая)
-      --engine <name>   Движок: opencode (по умолчанию) или openai
+      --engine <name>   Движок: opencode (по умолчанию), openai или anthropic
       --engine-preset <p> Пресет openai-совместимого API: ollama, lmstudio, openrouter
       --base-url <url>  Base URL OpenAI-совместимого API (engine=openai)
       --api-key-env <n> Переменная с API-ключом (по умолчанию OC_PILOT_API_KEY)

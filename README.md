@@ -146,6 +146,18 @@ For the common OpenAI-compatible providers, `--engine-preset` fills in the base 
 
 A preset switches the engine to `openai` unless you say otherwise, and explicit flags always win: `oc-pilot review --engine-preset ollama --model qwen2.5-coder` keeps the preset endpoint and overrides only the model.
 
+### Anthropic engine
+
+`--engine anthropic` talks to the Claude Messages API directly, without an SDK:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... oc-pilot review --engine anthropic --model claude-sonnet-4-5
+```
+
+The system prompt is sent as a `system` block with `cache_control: {"type": "ephemeral"}`, so repeated reviews reuse the cached prefix. Requests use `anthropic-version: 2023-06-01` and `x-api-key`. Token usage is mapped onto the same cost table as the OpenAI engine, so `--max-cost` and `oc-pilot stats` work unchanged.
+
+Slicing, the two-phase router and the response cache are `openai`-only; the Anthropic engine always sends one request per run.
+
 ### Smart slicing (`openai`)
 
 When a diff is too large for a single prompt (300 000 characters), the `openai` engine does not truncate files away. Instead it groups the per-file diff blocks into slices that each fit the budget, runs one API call per slice with the same additional context, and merges the responses back into a single schema-compliant analysis (`meta.slices` shows how many calls were made). Up to three slices run in parallel and their answers are merged in the original file order. A single file whose diff exceeds the budget is sent as its own slice and only then truncated. Slicing applies to `review`, `test-fix`, `custom` and `commit --engine openai`; `fix` keeps a single prompt because it must return one patch.
@@ -219,6 +231,8 @@ git diff | oc-pilot review --stdin
 | `--pr` | Post inline review comments to the PR (Actions REST or `gh`) |
 | `--no-pr-inline` | Post a single summary comment instead of inline comments |
 | `--pr-status` | Post a blocking commit status (`failure` on critical findings) |
+| `--mr` | Post the summary to a GitLab merge request (`CI_MERGE_REQUEST_IID`) |
+| `--mr-status` | Set the `oc-pilot` commit status in GitLab (`GITLAB_TOKEN`) |
 | `--second-opinion` | Verify critical findings with a second model (`openai`) |
 | `--second-opinion-model <m>` | Verifier model (default: `secondOpinionModel` or the main model) |
 | `--require-tests` | Exit 3 when logic changed without tests |
@@ -226,6 +240,23 @@ git diff | oc-pilot review --stdin
 | `--interactive` | Ask per finding whether to hide it in the baseline (TTY) |
 
 With `--baseline`, findings already recorded in `.oc-pilot/baseline.json` are hidden from the output and no longer affect the exit code, JSON, SARIF or PR comment — only new findings block. A finding fingerprint is `severity | file | normalized text`, without the line number, so known findings survive code shifts. `--update-baseline` rewrites the file from the current review and exits 0; `--interactive` hides findings one by one and appends them to the baseline. `--pr` posts the review to the current PR: inside GitHub Actions it uses the review API with `GITHUB_TOKEN` and attaches up to 25 findings as inline comments on their diff lines (grant `permissions: pull-requests: write`); findings that do not map to a changed line, and every run outside Actions, fall back to one summary comment (locally through `gh pr comment`, which must be installed and authenticated). `--no-pr-inline` forces that summary comment. `--pr-status` posts a commit status under the `oc-pilot` context - `failure` while critical findings remain, `success` otherwise - so a branch protection rule can require it (needs `statuses: write`). It works from text and SARIF runs alike.
+
+Inside GitLab CI, `--mr` posts the same summary as a merge request note: `CI_MERGE_REQUEST_IID`, `CI_PROJECT_ID` and `CI_API_V4_URL` identify the merge request, and `GITLAB_TOKEN` needs the `api` scope (`CI_JOB_TOKEN` cannot write notes). Add `--mr-status` to set the `oc-pilot` commit status as well. Both flags degrade to a warning when the pipeline context or the token is missing, so a review never fails because of a missing integration.
+
+A minimal job looks like this:
+
+```yaml
+oc-pilot:
+  image: node:22
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - npm i -g oc-pilot
+    - oc-pilot review --base "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --fail-on critical --mr --mr-status
+  variables:
+    OC_PILOT_API_KEY: $OC_PILOT_API_KEY
+    GITLAB_TOKEN: $GITLAB_TOKEN
+```
 
 Before the model runs, `review` also inspects the diff locally: newly added dependencies are checked for typosquats, unpinned versions and VCS/URL specs across npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle and NuGet manifests (`DEPENDENCY_CHANGES` hint, `meta.dependencies`); a large logic change (20+ added code lines) with no test files produces a `TEST_COVERAGE_HINT` (`--require-tests` turns it into exit 3, `meta.testDelta`); weakened tests produce a `TEST_WEAKENING` hint (skipped or focused tests, removed assertions without replacements, commented-out assertions, raised timeouts; `--no-test-weakening` turns it into exit 3, `meta.testWeakening`); and added lines matching prompt-injection heuristics (instruction overrides, role hijacking, prompt exfiltration, base64 blobs, invisible Unicode) produce a `PROMPT_INJECTION_RISKS` warning (`meta.injection`).
 
@@ -810,7 +841,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.15.0
+      - uses: MyNameIsNikki/oc-pilot@v0.16.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -833,7 +864,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.15.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.16.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

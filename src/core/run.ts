@@ -14,7 +14,12 @@ import { truncateDiff, truncateText } from "./diff.js";
 import { buildFileContext } from "./file-context.js";
 import { describeFindings, countFindings, parseFindings, shouldFail } from "./findings.js";
 import { buildJsonAnalysis, validateAnalysis, type FormatWarning } from "./format.js";
-import { DEFAULT_API_BASE_URL, normalizeBaseUrl } from "./engine.js";
+import {
+  DEFAULT_ANTHROPIC_BASE_URL,
+  DEFAULT_API_BASE_URL,
+  normalizeBaseUrl,
+  runAnthropic,
+} from "./engine.js";
 import { writeOutput } from "./io.js";
 import { log } from "./log.js";
 import { runOpenCode } from "./opencode.js";
@@ -400,6 +405,10 @@ export async function executeRecipeDetailed(
         slicePlan ? ` · слайсов: ${slicePlan.slices.length}` : ""
       }${routerMeta ? ` · router: ${String(routerMeta.decision)}` : ""}`,
     );
+  } else if (ctx.config.engine === "anthropic") {
+    log.step(
+      `Anthropic: ${modelLabel} · ${normalizeBaseUrl(ctx.config.baseUrl) || DEFAULT_ANTHROPIC_BASE_URL} · cached system prompt`,
+    );
   } else {
     log.step(
       `OpenCode: ${modelLabel} · агент ${ctx.config.agent} · ${
@@ -485,6 +494,16 @@ export async function executeRecipeDetailed(
     });
     analysis = result;
     cacheStatus = result.cached ? "hit" : "miss";
+    warnings = validateAnalysis(analysis.text, payload.recipe);
+  } else if (ctx.config.engine === "anthropic") {
+    analysis = await runAnthropic({
+      systemPrompt,
+      input,
+      baseUrl: ctx.config.baseUrl,
+      apiKeyEnv: ctx.config.apiKeyEnv,
+      model: ctx.config.model,
+      timeoutMs: ctx.config.timeoutSeconds * 1000,
+    });
     warnings = validateAnalysis(analysis.text, payload.recipe);
   } else {
     analysis = await runOpenCode({

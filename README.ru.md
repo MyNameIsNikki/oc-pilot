@@ -123,6 +123,18 @@ oc-pilot review --engine-preset ollama --model qwen2.5-coder
 
 Пресет переключает движок на `openai`, если явно не указано иное, а явные флаги всегда важнее: `oc-pilot review --engine-preset ollama --model qwen2.5-coder` оставит endpoint из пресета и переопределит только модель.
 
+### Движок Anthropic
+
+`--engine anthropic` работает с Claude Messages API напрямую, без SDK:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... oc-pilot review --engine anthropic --model claude-sonnet-4-5
+```
+
+Системный промпт уходит блоком `system` с `cache_control: {"type": "ephemeral"}`, поэтому повторные ревью переиспользуют закэшированный префикс. Запросы несут `anthropic-version: 2023-06-01` и `x-api-key`. Расход токенов попадает в ту же таблицу цен, что и у движка `openai`, так что `--max-cost` и `oc-pilot stats` работают без изменений.
+
+Slicing, двухфазный роутинг и кеш ответов остаются только у `openai`: движок Anthropic всегда отправляет один запрос за прогон.
+
 ### Умный slicing (`openai`)
 
 Когда diff не помещается в один промпт (300 000 символов), движок `openai` не отбрасывает файлы усечением. Вместо этого блоки diff по файлам группируются в слайсы, каждый укладывается в бюджет; на каждый слайс делается отдельный вызов API с тем же дополнительным контекстом, ответы склеиваются в один анализ по OUTPUT SCHEMA (количество вызовов видно в `meta.slices`). До трёх слайсов уходят параллельно, ответы собираются в исходном порядке файлов. Файл, чей diff больше бюджета, уходит отдельным слайсом и усекается только тогда. Slicing работает для `review`, `test-fix`, `custom` и `commit --engine openai`; `fix` всегда шлёт один промпт, потому что должен вернуть единый патч.
@@ -200,6 +212,8 @@ oc-pilot review [пути...] [опции]
 | `--pr` | отправить inline-комментарии к строкам PR (Actions REST или `gh`) |
 | `--no-pr-inline` | отправить один сводный комментарий вместо inline |
 | `--pr-status` | выставить блокирующий commit status (`failure` при critical) |
+| `--mr` | отправить сводку в merge request GitLab (`CI_MERGE_REQUEST_IID`) |
+| `--mr-status` | выставить статус `oc-pilot` в GitLab (`GITLAB_TOKEN`) |
 | `--second-opinion` | проверить критичные находки второй моделью (`openai`) |
 | `--second-opinion-model <m>` | модель-верификатор (по умолчанию `secondOpinionModel` или основная) |
 | `--require-tests` | код 3, если логика изменена без тестов |
@@ -207,6 +221,23 @@ oc-pilot review [пути...] [опции]
 | `--interactive` | по каждой находке спросить, не скрыть ли её в baseline (TTY) |
 
 С `--baseline` находки, уже записанные в `.oc-pilot/baseline.json`, скрываются из вывода и не влияют на код возврата, JSON, SARIF и PR-комментарий — блокируют только новые. Отпечаток находки — `severity | файл | нормализованный текст`, без номера строки, поэтому известные находки переживают сдвиги кода. `--update-baseline` перезаписывает файл по текущему ревью и выходит с кодом 0; `--interactive` прячет находки по одной и дописывает их в baseline. `--pr` отправляет ревью в текущий PR: внутри GitHub Actions — через review API с `GITHUB_TOKEN`, до 25 находок прикрепляются inline-комментариями к своим строкам диффа (нужна permission `pull-requests: write`); находки вне изменённых строк и любой запуск вне Actions откатываются на один сводный комментарий (локально — через `gh pr comment`, нужен установленный и авторизованный `gh`). `--no-pr-inline` принудительно оставляет только сводный комментарий. `--pr-status` выставляет commit status в контексте `oc-pilot` — `failure`, пока остаются critical-находки, иначе `success` — чтобы правило защиты ветки могло его требовать (нужна `statuses: write`). Работает и в текстовом, и в SARIF-режиме.
+
+В GitLab CI `--mr` отправляет ту же сводку заметкой в merge request: `CI_MERGE_REQUEST_IID`, `CI_PROJECT_ID` и `CI_API_V4_URL` указывают на MR, а `GITLAB_TOKEN` должен иметь scope `api` (`CI_JOB_TOKEN` не умеет писать заметки). Добавьте `--mr-status`, чтобы выставить и commit status `oc-pilot`. Оба флага при отсутствии контекста пайплайна или токена деградируют до предупреждения, поэтому ревью никогда не падает из-за неготовой интеграции.
+
+Минимальная задача выглядит так:
+
+```yaml
+oc-pilot:
+  image: node:22
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - npm i -g oc-pilot
+    - oc-pilot review --base "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --fail-on critical --mr --mr-status
+  variables:
+    OC_PILOT_API_KEY: $OC_PILOT_API_KEY
+    GITLAB_TOKEN: $GITLAB_TOKEN
+```
 
 До вызова модели `review` сам осматривает diff: новые зависимости проверяются на тайпосквоты, незакреплённые версии и VCS/URL-спеки в манифестах npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle и NuGet (подсказка `DEPENDENCY_CHANGES`, `meta.dependencies`); крупное изменение логики (20+ добавленных строк кода) без тестов даёт `TEST_COVERAGE_HINT` (`--require-tests` превращает в код 3, `meta.testDelta`); ослабленные тесты дают `TEST_WEAKENING` (пропущенные и сфокусированные тесты, удалённые проверки без замены, закомментированные ассерты, поднятые таймауты; `--no-test-weakening` превращает в код 3, `meta.testWeakening`); добавленные строки с признаками prompt injection (переопределение инструкций, role-hijack, эксфильтрация промпта, base64-блобы, невидимый Unicode) дают предупреждение `PROMPT_INJECTION_RISKS` (`meta.injection`).
 
@@ -636,7 +667,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.15.0
+      - uses: MyNameIsNikki/oc-pilot@v0.16.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

@@ -1,17 +1,21 @@
 import { PilotError } from "./errors.js";
 import { log } from "./log.js";
-export const ENGINES = ["opencode", "openai"];
+export const ENGINES = ["opencode", "openai", "anthropic"];
 export const DEFAULT_API_BASE_URL = "https://api.openai.com/v1";
 export const DEFAULT_API_KEY_ENV = "OC_PILOT_API_KEY";
+export const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
+export const DEFAULT_ANTHROPIC_KEY_ENV = "ANTHROPIC_API_KEY";
+/** Anthropic requires an explicit output budget on every request. */
+const DEFAULT_ANTHROPIC_MAX_TOKENS = 8_192;
 export function isEngine(value) {
-    return value === "opencode" || value === "openai";
+    return value === "opencode" || value === "openai" || value === "anthropic";
 }
 export function parseEngine(value, source = "--engine") {
     const normalized = value.trim().toLowerCase();
     if (isEngine(normalized))
         return normalized;
     throw new PilotError(`Некорректное значение ${source}: ${value}`, {
-        hint: "Допустимо: opencode, openai (OpenAI-совместимый API).",
+        hint: "Допустимо: opencode, openai (OpenAI-совместимый API), anthropic (Claude Messages API).",
         exitCode: 2,
     });
 }
@@ -107,6 +111,11 @@ function endpointFor(baseUrl) {
         return baseUrl;
     return `${baseUrl}/chat/completions`;
 }
+function messagesEndpoint(baseUrl) {
+    if (/\/messages$/i.test(baseUrl))
+        return baseUrl;
+    return `${baseUrl}/messages`;
+}
 function contentOf(response) {
     const content = response.choices?.[0]?.message?.content;
     if (typeof content === "string")
@@ -164,7 +173,123 @@ const MODEL_PRICES = [
     { prefix: "gpt-4o", input: 2.5, output: 10 },
     { prefix: "o4-mini", input: 1.1, output: 4.4 },
     { prefix: "o3-mini", input: 1.1, output: 4.4 },
+    { prefix: "claude-opus-4", input: 15, output: 75 },
+    { prefix: "claude-sonnet-4", input: 3, output: 15 },
+    { prefix: "claude-haiku-4", input: 1, output: 5 },
+    { prefix: "claude-3-5-haiku", input: 0.8, output: 4 },
 ];
+/**
+ * Calls the Anthropic Messages API. The system prompt is sent as a cacheable
+ * block (`cache_control: ephemeral`), which pairs well with the stable prefix
+ * ordering used for OpenAI-compatible providers.
+ */
+export async function runAnthropic(options) {
+    const started = Date.now();
+    const baseUrl = parseBaseUrl(options.baseUrl ?? DEFAULT_ANTHROPIC_BASE_URL, "baseUrl");
+    const model = options.model?.trim();
+    if (!model) {
+        throw new PilotError("Для engine=anthropic нужна модель", {
+            hint: "Укажите --model (например, claude-sonnet-4-5) или поле model в .oc-pilot.json.",
+            exitCode: 2,
+        });
+    }
+    const { key, envName } = resolveApiKey(options.apiKeyEnv ?? DEFAULT_ANTHROPIC_KEY_ENV);
+    if (!key && !isLoopbackUrl(baseUrl)) {
+        throw new PilotError("Не найден API-ключ для engine=anthropic", {
+            hint: `Экспортируйте ${envName}. Для локального прокси без ключа используйте http://localhost.`,
+            exitCode: 2,
+        });
+    }
+    const headers = {
+        "content-type": "application/json",
+        accept: "application/json",
+        "anthropic-version": "2023-06-01",
+    };
+    if (key)
+        headers["x-api-key"] = key;
+    const attempts = Math.max(1, options.retryAttempts ?? DEFAULT_RETRY_ATTEMPTS);
+    const baseDelay = Math.max(0, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS);
+    let ok = false;
+    let status = 0;
+    let raw = "";
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        let response;
+        try {
+            response = await fetch(messagesEndpoint(baseUrl), {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                    model,
+                    max_tokens: DEFAULT_ANTHROPIC_MAX_TOKENS,
+                    temperature: 0.2,
+                    system: [
+                        {
+                            type: "text",
+                            text: options.systemPrompt,
+                            cache_control: { type: "ephemeral" },
+                        },
+                    ],
+                    messages: [{ role: "user", content: options.input }],
+                }),
+                signal: AbortSignal.timeout(options.timeoutMs),
+            });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const timedOut = /abort|timeout/i.test(message);
+            throw new PilotError(timedOut ? "Anthropic API не ответил вовремя" : "Не удалось подключиться к API", {
+                hint: timedOut
+                    ? `Увеличьте --timeout (сейчас ${Math.round(options.timeoutMs / 1000)} с).`
+                    : `${baseUrl}: ${sanitize(message, key)}`,
+                exitCode: 1,
+            });
+        }
+        status = response.status;
+        raw = await response.text();
+        if (response.ok) {
+            ok = true;
+            break;
+        }
+        if (!RETRYABLE_STATUS.has(status) || attempt === attempts)
+            break;
+        const delay = retryDelay(attempt, baseDelay, response.headers.get("retry-after"));
+        const waitLabel = delay >= 1_000 ? `${Math.round(delay / 1_000)} с` : `${Math.round(delay)} мс`;
+        log.warn(`API вернул HTTP ${status}; повтор через ${waitLabel} (попытка ${attempt + 1} из ${attempts}).`);
+        await wait(delay);
+    }
+    if (!ok) {
+        let detail = raw;
+        try {
+            detail = JSON.parse(raw).error?.message || raw;
+        }
+        catch {
+            // Keep the raw body.
+        }
+        throw new PilotError(`API вернул HTTP ${status}`, { hint: sanitize(detail, key), exitCode: 1 });
+    }
+    let payload;
+    try {
+        payload = JSON.parse(raw);
+    }
+    catch {
+        throw new PilotError("API вернул некорректный JSON", { hint: sanitize(raw, key), exitCode: 1 });
+    }
+    const text = (payload.content ?? [])
+        .filter((block) => block?.type === "text" && typeof block.text === "string")
+        .map((block) => block.text)
+        .join("\n")
+        .trim();
+    if (!text) {
+        throw new PilotError("Anthropic API вернул пустой ответ", { exitCode: 1 });
+    }
+    const usage = payload.usage
+        ? {
+            promptTokens: payload.usage.input_tokens ?? 0,
+            completionTokens: payload.usage.output_tokens ?? 0,
+        }
+        : undefined;
+    return { text, ...(usage ? { usage } : {}), durationMs: Date.now() - started, stderr: "" };
+}
 /** Estimated USD cost of one call, or undefined when the model is unknown. */
 export function estimateCostUsd(model, usage, prices = MODEL_PRICES) {
     if (!usage)

@@ -2,7 +2,7 @@ export type Recipe = "review" | "test-fix" | "docgen" | "custom" | "commit";
 
 export type PromptLang = "en" | "ru";
 
-export type Engine = "opencode" | "openai";
+export type Engine = "opencode" | "openai" | "anthropic";
 
 export type OutputFormat = "text" | "json" | "sarif";
 
