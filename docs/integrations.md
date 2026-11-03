@@ -478,7 +478,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.12.0
+- uses: MyNameIsNikki/oc-pilot@v0.13.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -521,7 +521,7 @@ The repository ships `.pre-commit-hooks.yaml`, so the standard
 ```yaml
 repos:
   - repo: https://github.com/MyNameIsNikki/oc-pilot
-    rev: v0.12.0
+    rev: v0.13.0
     hooks:
       - id: oc-pilot-secrets  # oc-pilot scan --staged
       - id: oc-pilot-review   # oc-pilot review --staged --fail-on critical --fail-on-secrets
@@ -563,14 +563,18 @@ deliberately excluded, so a finding survives code shifts above it. Baseline
 filtering applies to the exit code, text output, `--json`, SARIF, and PR
 comments; hidden findings are counted in `meta.baseline` (`known`, `total`).
 
-`review --pr` posts a single summary comment on the current pull request. Inside
-GitHub Actions it posts through the REST API with `GITHUB_TOKEN` — the workflow
-needs `permissions: pull-requests: write` and the default `GITHUB_TOKEN` secret;
-no `gh` install or extra credentials are required. Locally it falls back to the
-GitHub CLI (`gh pr comment --body-file -`), which must be installed and
-authenticated. Up to 30 findings are listed, grouped by severity, with a footer
-showing the oc-pilot version and reviewed commit; on failure the command
-exits 1 with a hint.
+`review --pr` posts the review to the current pull request. Inside GitHub
+Actions it posts through the review API with `GITHUB_TOKEN` — the workflow needs
+`permissions: pull-requests: write` and the default `GITHUB_TOKEN` secret; no
+`gh` install or extra credentials are required. Up to 25 findings become inline
+comments on the diff line they point at; findings that do not map to a changed
+line (or whole runs outside Actions) fall back to a single summary comment,
+which locally goes through the GitHub CLI (`gh pr comment --body-file -`) and
+must be installed and authenticated. `--no-pr-inline` forces the summary
+comment. `--pr-status` additionally posts a commit status under the `oc-pilot`
+context: `failure` while critical findings remain, `success` otherwise, so a
+branch protection rule can require it (needs `statuses: write`). On failure the
+command exits 1 with a hint.
 
 ## Response cache
 

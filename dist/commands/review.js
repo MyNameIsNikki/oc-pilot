@@ -8,7 +8,8 @@ import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../co
 import { detectProjectType } from "../core/project.js";
 import { parseFindings, shouldFail, severityLabel } from "../core/findings.js";
 import { executeRecipe, executeRecipeDetailed } from "../core/run.js";
-import { buildPrCommentBody, postPrComment } from "../core/pr-comment.js";
+import { buildPrCommentBody } from "../core/pr-comment.js";
+import { buildInlineComments, postPrReviewSummary, postPrStatus } from "../core/pr-review.js";
 import { analysisFindingsToSarifResults, buildSarif } from "../core/sarif.js";
 import { writeOutput } from "../core/io.js";
 import { analyzeDependencyChanges, describeDependencyFindings } from "../core/deps.js";
@@ -31,6 +32,8 @@ const OPTIONS = withCommon({
     baseline: { type: "boolean" },
     "update-baseline": { type: "boolean" },
     pr: { type: "boolean" },
+    "no-pr-inline": { type: "boolean" },
+    "pr-status": { type: "boolean" },
     "second-opinion": { type: "boolean" },
     "second-opinion-model": { type: "string" },
     "second-opinion-base-url": { type: "string" },
@@ -60,7 +63,9 @@ const HELP = `Использование:
       --router-model <m>    модель триажа (по умолчанию routerModel из конфига)
       --baseline            фильтровать известные находки из .oc-pilot/baseline.json
       --update-baseline     записать текущие находки в baseline и выйти (код 0)
-      --pr                  отправить сводку комментарием в PR (нужен gh)
+      --pr                  отправить review в PR: inline-комментарии к строкам (Actions)
+      --no-pr-inline        только один сводный комментарий, без inline
+      --pr-status           выставить статус-чек oc-pilot (нужен для branch protection)
       --second-opinion      проверить критичные находки второй моделью (openai)
       --second-opinion-model <m>  модель проверки (по умолчанию secondOpinionModel)
       --second-opinion-base-url <url> отдельный endpoint для проверки
@@ -80,6 +85,7 @@ ${COMMON_HELP}
   oc-pilot review --staged --baseline --fail-on critical
   oc-pilot review --staged --update-baseline
   oc-pilot review --base main --pr
+  oc-pilot review --base main --pr --pr-status
   oc-pilot review --staged --second-opinion --require-tests
 `;
 export async function runReview(argv) {
@@ -131,6 +137,8 @@ export async function runReview(argv) {
     }
     const updateBaseline = asBoolean(values, "update-baseline");
     const prWanted = asBoolean(values, "pr");
+    const prInline = !asBoolean(values, "no-pr-inline");
+    const prStatus = asBoolean(values, "pr-status");
     const interactiveWanted = asBoolean(values, "interactive");
     const requireTests = asBoolean(values, "require-tests");
     const forbidWeakening = asBoolean(values, "no-test-weakening");
@@ -240,8 +248,28 @@ export async function runReview(argv) {
     if (prWanted) {
         const shaResult = runGit(["rev-parse", "HEAD"], ctx.cwd);
         const sha = shaResult.status === 0 ? shaResult.stdout.trim() : "";
-        await postPrComment(buildPrCommentBody(findings, { sha, knownHidden }), ctx.cwd);
-        log.success("Комментарий отправлен в PR.");
+        const summary = buildPrCommentBody(findings, { sha, knownHidden });
+        const comments = prInline ? buildInlineComments(findings, data.diff) : [];
+        const posted = await postPrReviewSummary(summary, comments, ctx.cwd);
+        if (posted.inline) {
+            log.success(`Review с ${posted.count} inline-комментариями отправлен в PR.`);
+        }
+        else {
+            log.success("Сводный комментарий отправлен в PR.");
+        }
+        if (prStatus) {
+            const blocked = findings.some((finding) => finding.severity === "critical");
+            const state = blocked ? "failure" : "success";
+            const description = blocked
+                ? `oc-pilot: ${findings.length} finding(s), critical present`
+                : "oc-pilot: no blocking findings";
+            if (await postPrStatus(state, description, sha)) {
+                log.info(`Статус-чек oc-pilot: ${state}.`);
+            }
+            else {
+                log.warn("Статус-чек не отправлен: нужен запуск в Actions с GITHUB_TOKEN.");
+            }
+        }
     }
     if (requireTests && testDelta.gap && execution.exitCode === 0) {
         log.warn("--require-tests: логика изменена без тестов.");

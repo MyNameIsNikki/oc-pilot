@@ -201,14 +201,16 @@ git diff | oc-pilot review --stdin
 | `--router-model <m>` | Triage model (default: `routerModel` from the config) |
 | `--baseline` | Hide findings already recorded in `.oc-pilot/baseline.json` |
 | `--update-baseline` | Record current findings as the baseline and exit |
-| `--pr` | Post a summary comment to the PR (Actions REST or `gh`) |
+| `--pr` | Post inline review comments to the PR (Actions REST or `gh`) |
+| `--no-pr-inline` | Post a single summary comment instead of inline comments |
+| `--pr-status` | Post a blocking commit status (`failure` on critical findings) |
 | `--second-opinion` | Verify critical findings with a second model (`openai`) |
 | `--second-opinion-model <m>` | Verifier model (default: `secondOpinionModel` or the main model) |
 | `--require-tests` | Exit 3 when logic changed without tests |
 | `--no-test-weakening` | Exit 3 when tests were weakened (skips, removed assertions) |
 | `--interactive` | Ask per finding whether to hide it in the baseline (TTY) |
 
-With `--baseline`, findings already recorded in `.oc-pilot/baseline.json` are hidden from the output and no longer affect the exit code, JSON, SARIF or PR comment — only new findings block. A finding fingerprint is `severity | file | normalized text`, without the line number, so known findings survive code shifts. `--update-baseline` rewrites the file from the current review and exits 0; `--interactive` hides findings one by one and appends them to the baseline. `--pr` posts one summary comment (up to 30 findings) to the current PR: inside GitHub Actions it uses the REST API with `GITHUB_TOKEN` (grant `permissions: pull-requests: write`), locally it uses the GitHub CLI (`gh pr comment`, requires `gh` installed and authenticated). It works from text and SARIF runs alike.
+With `--baseline`, findings already recorded in `.oc-pilot/baseline.json` are hidden from the output and no longer affect the exit code, JSON, SARIF or PR comment — only new findings block. A finding fingerprint is `severity | file | normalized text`, without the line number, so known findings survive code shifts. `--update-baseline` rewrites the file from the current review and exits 0; `--interactive` hides findings one by one and appends them to the baseline. `--pr` posts the review to the current PR: inside GitHub Actions it uses the review API with `GITHUB_TOKEN` and attaches up to 25 findings as inline comments on their diff lines (grant `permissions: pull-requests: write`); findings that do not map to a changed line, and every run outside Actions, fall back to one summary comment (locally through `gh pr comment`, which must be installed and authenticated). `--no-pr-inline` forces that summary comment. `--pr-status` posts a commit status under the `oc-pilot` context - `failure` while critical findings remain, `success` otherwise - so a branch protection rule can require it (needs `statuses: write`). It works from text and SARIF runs alike.
 
 Before the model runs, `review` also inspects the diff locally: newly added dependencies are checked for typosquats, unpinned versions and VCS/URL specs across npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle and NuGet manifests (`DEPENDENCY_CHANGES` hint, `meta.dependencies`); a large logic change (20+ added code lines) with no test files produces a `TEST_COVERAGE_HINT` (`--require-tests` turns it into exit 3, `meta.testDelta`); weakened tests produce a `TEST_WEAKENING` hint (skipped or focused tests, removed assertions without replacements, commented-out assertions, raised timeouts; `--no-test-weakening` turns it into exit 3, `meta.testWeakening`); and added lines matching prompt-injection heuristics (instruction overrides, role hijacking, prompt exfiltration, base64 blobs, invisible Unicode) produce a `PROMPT_INJECTION_RISKS` warning (`meta.injection`).
 
@@ -778,7 +780,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.12.0
+      - uses: MyNameIsNikki/oc-pilot@v0.13.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -801,7 +803,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.12.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.13.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

@@ -179,14 +179,16 @@ oc-pilot review [пути...] [опции]
 | `--router-model <m>` | модель триажа (по умолчанию `routerModel` из конфига) |
 | `--baseline` | скрыть находки из `.oc-pilot/baseline.json` |
 | `--update-baseline` | перезаписать baseline текущими находками и выйти |
-| `--pr` | отправить сводный комментарий в PR (Actions REST или `gh`) |
+| `--pr` | отправить inline-комментарии к строкам PR (Actions REST или `gh`) |
+| `--no-pr-inline` | отправить один сводный комментарий вместо inline |
+| `--pr-status` | выставить блокирующий commit status (`failure` при critical) |
 | `--second-opinion` | проверить критичные находки второй моделью (`openai`) |
 | `--second-opinion-model <m>` | модель-верификатор (по умолчанию `secondOpinionModel` или основная) |
 | `--require-tests` | код 3, если логика изменена без тестов |
 | `--no-test-weakening` | код 3, если тесты ослаблены (skip, удалённые проверки) |
 | `--interactive` | по каждой находке спросить, не скрыть ли её в baseline (TTY) |
 
-С `--baseline` находки, уже записанные в `.oc-pilot/baseline.json`, скрываются из вывода и не влияют на код возврата, JSON, SARIF и PR-комментарий — блокируют только новые. Отпечаток находки — `severity | файл | нормализованный текст`, без номера строки, поэтому известные находки переживают сдвиги кода. `--update-baseline` перезаписывает файл по текущему ревью и выходит с кодом 0; `--interactive` прячет находки по одной и дописывает их в baseline. `--pr` отправляет один сводный комментарий (до 30 находок) в текущий PR: внутри GitHub Actions — через REST API с `GITHUB_TOKEN` (нужна permission `pull-requests: write`), локально — через GitHub CLI (`gh pr comment`, нужен установленный и авторизованный `gh`). Работает и в текстовом, и в SARIF-режиме.
+С `--baseline` находки, уже записанные в `.oc-pilot/baseline.json`, скрываются из вывода и не влияют на код возврата, JSON, SARIF и PR-комментарий — блокируют только новые. Отпечаток находки — `severity | файл | нормализованный текст`, без номера строки, поэтому известные находки переживают сдвиги кода. `--update-baseline` перезаписывает файл по текущему ревью и выходит с кодом 0; `--interactive` прячет находки по одной и дописывает их в baseline. `--pr` отправляет ревью в текущий PR: внутри GitHub Actions — через review API с `GITHUB_TOKEN`, до 25 находок прикрепляются inline-комментариями к своим строкам диффа (нужна permission `pull-requests: write`); находки вне изменённых строк и любой запуск вне Actions откатываются на один сводный комментарий (локально — через `gh pr comment`, нужен установленный и авторизованный `gh`). `--no-pr-inline` принудительно оставляет только сводный комментарий. `--pr-status` выставляет commit status в контексте `oc-pilot` — `failure`, пока остаются critical-находки, иначе `success` — чтобы правило защиты ветки могло его требовать (нужна `statuses: write`). Работает и в текстовом, и в SARIF-режиме.
 
 До вызова модели `review` сам осматривает diff: новые зависимости проверяются на тайпосквоты, незакреплённые версии и VCS/URL-спеки в манифестах npm, PyPI, Go, Cargo, RubyGems, Packagist, Maven/Gradle и NuGet (подсказка `DEPENDENCY_CHANGES`, `meta.dependencies`); крупное изменение логики (20+ добавленных строк кода) без тестов даёт `TEST_COVERAGE_HINT` (`--require-tests` превращает в код 3, `meta.testDelta`); ослабленные тесты дают `TEST_WEAKENING` (пропущенные и сфокусированные тесты, удалённые проверки без замены, закомментированные ассерты, поднятые таймауты; `--no-test-weakening` превращает в код 3, `meta.testWeakening`); добавленные строки с признаками prompt injection (переопределение инструкций, role-hijack, эксфильтрация промпта, base64-блобы, невидимый Unicode) дают предупреждение `PROMPT_INJECTION_RISKS` (`meta.injection`).
 
@@ -601,7 +603,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.12.0
+      - uses: MyNameIsNikki/oc-pilot@v0.13.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
