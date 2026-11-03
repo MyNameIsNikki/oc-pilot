@@ -430,6 +430,31 @@ oc-pilot explain src/wallet.ts:42 --json
 
 Без номера строки — или если совпадений нет — команда показывает все находки по этому файлу, так что она остаётся полезной, когда строки сдвинулись.
 
+### `reviewers`
+
+Предлагает, кому отдать текущий diff на ревью. Для каждого изменённого файла команда смотрит последние коммиты, которые его трогали, считает авторов и выбирает лучших кандидатов; боты пропускаются. `CODEOWNERS` читается из `.github/CODEOWNERS`, `CODEOWNERS` или `docs/CODEOWNERS` и матчится по тем же правилам, что в GitHub и GitLab: побеждает последнее подходящее правило.
+
+```bash
+oc-pilot reviewers --base main
+oc-pilot reviewers --staged --limit 5 --exclude renovate
+oc-pilot reviewers --base main --json -o reviewers.json
+```
+
+`--depth` увеличивает глубину истории (по умолчанию 50 коммитов). `--json` отдаёт файлы, кандидатов (`name`, `email`, `commits`, `files`, `share`) и найденных `codeowners` — этого достаточно, чтобы подставить имена в `gh pr create --reviewer`.
+
+### `replay`
+
+Повторно выводит последнее сохранённое ревью, не вызывая модель. Каждый `review` пишет `.git/oc-pilot/last-review.json`, поэтому SARIF-отчёт или комментарий для PR можно перегенерировать бесплатно — или отдать файл коллеге.
+
+```bash
+oc-pilot replay
+oc-pilot replay --format sarif -o report.sarif
+oc-pilot replay --as md -o pr-comment.md
+oc-pilot replay --in saved.json --fail-on critical
+```
+
+`--format` понимает text, json и sarif; `--as` добавляет md для тела комментария в PR. `--in` читает любой файл с массивом `findings`. Код возврата считается по `--fail-on`, как в `review`.
+
 ### `setup`
 
 Настраивает MCP-клиент на запуск `oc-pilot-mcp`, сохраняя чужие серверы и настройки. По умолчанию используется текущая установка (`node dist/mcp.js`); `--npx` записывает `npx -y oc-pilot@<version> mcp`, `--local` принудительно выбирает локальный путь. Сгенерированный сервер read-only; `--allow-write` разрешает агенту применять патчи и запускать тесты.
@@ -465,6 +490,7 @@ oc-pilot doctor --fix
 oc-pilot init
 oc-pilot init --force
 oc-pilot init --preset node
+oc-pilot init --hooks
 ```
 
 Создаёт `.oc-pilot.json` с настройками по умолчанию. С `--preset <a,b>` дополнительно пишет готовый `.oc-pilot/rules.md` под стек. Пресеты можно комбинировать, например `--preset react,security`:
@@ -472,6 +498,8 @@ oc-pilot init --preset node
 `base` (универсальный), `node`, `react`, `next`, `vue`, `svelte`, `angular`, `typescript`, `python`, `go`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby`, `flutter`, `elixir`, `zig`, `scala`, `security` (сквозная безопасность), `devops` (Docker, CI, инфраструктура).
 
 Это обычный файл правил — дополняйте его свободно.
+
+`--hooks` ставит те же git-хуки, что и `install-hook`: `scan --staged` на коммит и `review` на пуш. Существующие хуки сохраняются в бэкап, а отсутствие каталога хуков даёт только предупреждение, поэтому `init` из-за этого не падает.
 
 ## Конфигурация
 
@@ -678,7 +706,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.19.0
+      - uses: MyNameIsNikki/oc-pilot@v0.20.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

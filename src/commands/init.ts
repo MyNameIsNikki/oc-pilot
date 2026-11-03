@@ -6,10 +6,12 @@ import { log } from "../core/log.js";
 import { parseCommandArgs, type OptionSpec } from "../core/options.js";
 import { asBoolean, asString } from "../core/parse.js";
 import { combinePresets, getPreset, presetIds, type RulePreset } from "../core/presets.js";
+import { installHook, type HookKind } from "./install-hook.js";
 
 const OPTIONS: OptionSpec = {
   cwd: { type: "string", short: "C" },
   force: { type: "boolean" },
+  hooks: { type: "boolean" },
   preset: { type: "string" },
   json: { type: "boolean" },
   help: { type: "boolean", short: "h" },
@@ -24,6 +26,7 @@ const HELP = `Использование:
 Опции:
   -C, --cwd <dir>       Директория проекта
       --force           Перезаписать существующие файлы
+      --hooks           Установить git-хуки: scan --staged на commit, review на push
       --preset <a,b>    Пресет правил, можно несколько через запятую:
                           ${presetIds().join(", ")}
       --json            Вывести пути в JSON
@@ -91,8 +94,21 @@ export function runInit(argv: string[]): number {
     log.success(`Создан ${rulesPath} (${label})`);
   }
 
+  const hooks: Array<{ kind: HookKind; path: string }> = [];
+  if (asBoolean(values, "hooks")) {
+    for (const kind of ["pre-commit", "pre-push"] as HookKind[]) {
+      try {
+        const result = installHook(cwd, kind, force);
+        hooks.push({ kind, path: result.path });
+        log.success(`Установлен git-хук ${kind}: ${result.path}`);
+      } catch (error) {
+        log.warn(`Хук ${kind} не установлен: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
   if (asBoolean(values, "json")) {
-    process.stdout.write(`${JSON.stringify({ created: path, ...(rulesPath ? { rules: rulesPath } : {}) }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ created: path, ...(rulesPath ? { rules: rulesPath } : {}), ...(hooks.length > 0 ? { hooks } : {}) }, null, 2)}\n`);
     return 0;
   }
 

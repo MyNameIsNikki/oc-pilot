@@ -6,9 +6,11 @@ import { log } from "../core/log.js";
 import { parseCommandArgs } from "../core/options.js";
 import { asBoolean, asString } from "../core/parse.js";
 import { combinePresets, getPreset, presetIds } from "../core/presets.js";
+import { installHook } from "./install-hook.js";
 const OPTIONS = {
     cwd: { type: "string", short: "C" },
     force: { type: "boolean" },
+    hooks: { type: "boolean" },
     preset: { type: "string" },
     json: { type: "boolean" },
     help: { type: "boolean", short: "h" },
@@ -22,6 +24,7 @@ const HELP = `Использование:
 Опции:
   -C, --cwd <dir>       Директория проекта
       --force           Перезаписать существующие файлы
+      --hooks           Установить git-хуки: scan --staged на commit, review на push
       --preset <a,b>    Пресет правил, можно несколько через запятую:
                           ${presetIds().join(", ")}
       --json            Вывести пути в JSON
@@ -83,8 +86,21 @@ export function runInit(argv) {
             : `пресеты ${presets.map((preset) => preset.id).join(", ")}`;
         log.success(`Создан ${rulesPath} (${label})`);
     }
+    const hooks = [];
+    if (asBoolean(values, "hooks")) {
+        for (const kind of ["pre-commit", "pre-push"]) {
+            try {
+                const result = installHook(cwd, kind, force);
+                hooks.push({ kind, path: result.path });
+                log.success(`Установлен git-хук ${kind}: ${result.path}`);
+            }
+            catch (error) {
+                log.warn(`Хук ${kind} не установлен: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    }
     if (asBoolean(values, "json")) {
-        process.stdout.write(`${JSON.stringify({ created: path, ...(rulesPath ? { rules: rulesPath } : {}) }, null, 2)}\n`);
+        process.stdout.write(`${JSON.stringify({ created: path, ...(rulesPath ? { rules: rulesPath } : {}), ...(hooks.length > 0 ? { hooks } : {}) }, null, 2)}\n`);
         return 0;
     }
     log.blank();

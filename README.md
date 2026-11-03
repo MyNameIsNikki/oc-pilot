@@ -441,6 +441,31 @@ oc-pilot explain src/wallet.ts:42 --json
 
 Without a line number, or when nothing matches, it falls back to every finding in that file, so the command stays useful when the file shifted.
 
+### `reviewers`
+
+Suggests who should review the current diff. For every changed file it walks the recent commits that touched it, counts the authors and picks the top candidates; bots are skipped. `CODEOWNERS` from `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS` is read and matched with the same last-rule-wins semantics as GitHub and GitLab.
+
+```bash
+oc-pilot reviewers --base main
+oc-pilot reviewers --staged --limit 5 --exclude renovate
+oc-pilot reviewers --base main --json -o reviewers.json
+```
+
+`--depth` looks further back than the default 50 commits. `--json` returns the files, the candidates (`name`, `email`, `commits`, `files`, `share`) and the matched `codeowners`, which is enough to fill `gh pr create --reviewer`.
+
+### `replay`
+
+Re-renders the last saved review without calling a model. Every `review` writes `.git/oc-pilot/last-review.json`, so a SARIF report or a PR comment can be regenerated for free, or handed to a colleague.
+
+```bash
+oc-pilot replay
+oc-pilot replay --format sarif -o report.sarif
+oc-pilot replay --as md -o pr-comment.md
+oc-pilot replay --in saved.json --fail-on critical
+```
+
+`--format` accepts text, json and sarif; `--as` adds md for the PR comment body. `--in` reads any file with a `findings` array. The exit code follows `--fail-on`, exactly as in `review`.
+
 ### `setup`
 
 Configures an MCP client to launch `oc-pilot-mcp`. Existing server entries and unrelated settings are preserved. It writes configs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code, Windsurf, ZCode, and any client that reads `.agents/mcp.json`. By default it points at the current installation; `--npx` writes a version-pinned `npx -y oc-pilot@<version> mcp` entry instead. Generated servers start read-only; add `--allow-write` if the agent should apply patches and run tests.
@@ -498,13 +523,16 @@ It checks Node, the active engine, API credentials, git and repository state, th
 ```bash
 oc-pilot init
 oc-pilot init --preset node
+oc-pilot init --hooks
 ```
 
 Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--force` is passed. With `--preset <a,b>` it also writes a curated `.oc-pilot/rules.md` for the stack. One or more presets can be combined, e.g. `--preset react,security`:
 
 `base` (language-agnostic), `node`, `react`, `next`, `vue`, `svelte`, `angular`, `typescript`, `python`, `go`, `rust`, `java`, `kotlin`, `csharp`, `swift`, `php`, `ruby`, `flutter`, `elixir`, `zig`, `scala`, `security` (cross-stack hardening), `devops` (Docker, CI, infrastructure).
 
-The rules file is a normal project rules file — edit it freely.
+The rules file is a normal project rules file - edit it freely.
+
+`--hooks` installs the git hooks from `install-hook`: `scan --staged` on commit and `review` on push. Existing hooks are backed up, and a missing hook directory is only a warning, so `init` never fails because of it.
 
 ## Common options
 
@@ -852,7 +880,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.19.0
+      - uses: MyNameIsNikki/oc-pilot@v0.20.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -875,7 +903,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.19.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.20.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

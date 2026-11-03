@@ -12,7 +12,9 @@ import { runRestore } from "./commands/restore.js";
 import { runDocgen } from "./commands/docgen.js";
 import { runFix } from "./commands/fix.js";
 import { runInit } from "./commands/init.js";
+import { runReplay } from "./commands/replay.js";
 import { runReview } from "./commands/review.js";
+import { runReviewers } from "./commands/reviewers.js";
 import { runScan } from "./commands/scan.js";
 import { runSetup } from "./commands/setup.js";
 import { runTestFix } from "./commands/test-fix.js";
@@ -23,6 +25,7 @@ import { runMcp } from "./mcp.js";
 import { VERSION } from "./version.js";
 const HANDLERS = {
     review: runReview,
+    reviewers: runReviewers,
     "test-fix": runTestFix,
     fix: runFix,
     docgen: runDocgen,
@@ -36,6 +39,7 @@ const HANDLERS = {
     day: runDay,
     impact: runImpact,
     explain: runExplain,
+    replay: runReplay,
     setup: runSetup,
     doctor: runDoctor,
     mcp: runMcp,
@@ -63,6 +67,8 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   day         Сводка активности агента за период (--since)
   impact      Показать, где ещё используются изменённые в diff символы
   explain     Объяснить находки последнего ревью для файла:строки
+  reviewers   Предложить ревьюеров по истории файлов из diff и CODEOWNERS
+  replay      Вывести последнее сохранённое ревью в text/json/sarif/md
   setup       Установить MCP-сервер в Claude Code, Cursor, OpenCode, Codex, Gemini, DeepSeek Harness, VS Code
   doctor      Проверить установку, движок, ключи, git и MCP-конфиги
   mcp         Запустить MCP-сервер (stdio или --http)
@@ -86,6 +92,8 @@ ${COMMON_HELP}
   oc-pilot setup --all
   oc-pilot setup --client claude --http https://example.com/mcp --token "$OC_PILOT_MCP_TOKEN"
   oc-pilot doctor
+  oc-pilot reviewers --base main --limit 5
+  oc-pilot replay --as md -o pr-comment.md
   oc-pilot review --engine openai --model deepseek-chat --base-url https://api.deepseek.com/v1
   oc-pilot mcp --cwd /path/to/project
 

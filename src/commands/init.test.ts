@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { runInit } from "./init.js";
+import { runGit } from "../core/git.js";
 import { PilotError } from "../core/errors.js";
 
 test("init --preset writes rules.md next to the config", () => {
@@ -16,6 +17,19 @@ test("init --preset writes rules.md next to the config", () => {
     const rules = readFileSync(join(dir, ".oc-pilot", "rules.md"), "utf8");
     assert.ok(rules.includes("# Project review rules"));
     assert.ok(rules.includes("## Hooks"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init --hooks installs pre-commit and pre-push hooks", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-init-hooks-"));
+  try {
+    runGit(["init"], dir);
+    assert.equal(runInit(["--cwd", dir, "--hooks"]), 0);
+    const hooks = join(dir, ".git", "hooks");
+    assert.match(readFileSync(join(hooks, "pre-commit"), "utf8"), /oc-pilot hook v1/);
+    assert.match(readFileSync(join(hooks, "pre-push"), "utf8"), /oc-pilot hook v1/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
