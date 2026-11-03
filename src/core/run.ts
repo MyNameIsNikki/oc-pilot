@@ -7,7 +7,7 @@ import type {
   Recipe,
   SecretFinding,
 } from "../types.js";
-import { filterAnalysisText, filterFindings } from "./baseline.js";
+import { filterAnalysisText, filterFindings, findingFingerprint } from "./baseline.js";
 import { cachedRunOpenAi, DEFAULT_CACHE_TTL_SECONDS } from "./cache.js";
 import { findAgentRules } from "./agent-rules.js";
 import { truncateDiff, truncateText } from "./diff.js";
@@ -26,6 +26,7 @@ import { runOpenCode } from "./opencode.js";
 import { buildInput, systemPromptFor, TRIAGE_SYSTEM_PROMPT } from "./prompt.js";
 import { loadRules } from "./rules.js";
 import { saveLastReview } from "./last-review.js";
+import { applySuppressions, describeSuppressions } from "./suppressions.js";
 import { parseTriageDecision } from "./router.js";
 import { downgradeFindingInText, verifyCriticalFindings } from "./second-opinion.js";
 import { loadSecretIgnore, scanText } from "./secrets.js";
@@ -537,6 +538,23 @@ export async function executeRecipeDetailed(
     }
   }
 
+  // Inline suppressions: `oc-pilot:ignore: <reason>` on the target line, the
+  // line above it, or `oc-pilot:ignore-file` in the file header.
+  let suppressionMeta: ReturnType<typeof describeSuppressions> | undefined;
+  if (analysisFindings.length > 0) {
+    const outcome = applySuppressions(ctx.cwd, analysisFindings);
+    if (outcome.suppressed.length > 0) {
+      const hidden = new Set(outcome.suppressed.map((entry) => findingFingerprint(entry.finding)));
+      analysisFindings = outcome.kept;
+      outputText = filterAnalysisText(outputText, hidden);
+      suppressionMeta = describeSuppressions(outcome.suppressed);
+      log.info(`oc-pilot:ignore: подавлено находок: ${outcome.suppressed.length}.`);
+    }
+    if (outcome.missingReason > 0) {
+      log.warn(`oc-pilot:ignore без причины: ${outcome.missingReason} — маркер требует причину, находки оставлены.`);
+    }
+  }
+
   // Second opinion (engine=openai, recipe=review): verify each critical
   // finding with a second model call; rejected findings downgrade to style.
   let secondOpinionMeta: Record<string, unknown> | undefined;
@@ -619,6 +637,7 @@ export async function executeRecipeDetailed(
     ...(routerMeta ? { router: routerMeta } : {}),
     ...(cacheStatus ? { cache: cacheStatus } : {}),
     ...(baselineMeta ? baselineMeta : {}),
+    ...(suppressionMeta ? { suppressed: suppressionMeta } : {}),
     ...(secondOpinionMeta ? { secondOpinion: secondOpinionMeta } : {}),
     ...payload.meta,
   };

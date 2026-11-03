@@ -392,6 +392,36 @@ test("--fail-on critical exits 3 and exposes structured findings", () => {
   }
 });
 
+test("an inline oc-pilot:ignore marker removes the finding from exit code and meta", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-"));
+  try {
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, fixtureDiff());
+    const lines = Array.from({ length: 12 }, (_, index) => `// line ${index + 1}`);
+    lines[9] = "func pay() {} // oc-pilot:ignore: nil is impossible for a legacy wallet";
+    writeFileSync(join(dir, "wallet.go"), `${lines.join("\n")}\n`);
+    const env = installFakeOpenCode(dir);
+
+    const result = runCli(
+      ["review", "--diff", diffPath, "--cwd", dir, "--json", "--fail-on", "critical"],
+      dir,
+      { ...env, FAKE_CRITICAL: "1" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      findings: unknown[];
+      meta: { findings: { critical: number }; suppressed?: { count: number; entries: Array<{ reason: string }> } };
+    };
+    assert.equal(payload.findings.length, 0);
+    assert.equal(payload.meta.findings.critical, 0);
+    assert.equal(payload.meta.suppressed?.count, 1);
+    assert.equal(payload.meta.suppressed?.entries[0]?.reason, "nil is impossible for a legacy wallet");
+    assert.match(result.stderr, /oc-pilot:ignore: подавлено находок: 1/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("--fail-on warning does not fail on style-only output", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-"));
   try {
