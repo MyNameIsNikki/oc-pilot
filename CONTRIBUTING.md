@@ -31,7 +31,9 @@ Changes to secret detection, redaction, the read-only agent permissions, patch a
 
 ## Release
 
-Releases are tag-driven. Set `NPM_TOKEN` in GitHub Actions secrets, then:
+Releases are tag-driven and publish through npm trusted publishing (OIDC), so no `NPM_TOKEN` secret exists. Enable it once: on npmjs.com, open the `oc-pilot` package, go to **Settings → Trusted publishing**, and add a GitHub Actions publisher with org `MyNameIsNikki`, repository `oc-pilot`, workflow `release.yml`, and no environment. The names must match `.github/workflows/release.yml` exactly — npm checks them in the OIDC claim.
+
+Then release:
 
 ```bash
 npm version patch --no-git-tag-version
@@ -40,4 +42,4 @@ git tag vX.Y.Z
 git push origin main --tags
 ```
 
-The release workflow checks that the tag matches `package.json`, runs the full suite, and publishes with npm provenance.
+The release workflow checks that the tag matches `package.json`, runs the full suite, and publishes with npm provenance. A `workflow_dispatch` run publishes whatever version `package.json` holds, which is useful for verifying the publisher configuration: an "already published" rejection means OIDC worked and only the version number collided.
