@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { runCache } from "./commands/cache.js";
 import { runDay } from "./commands/day.js";
+import { runDeps } from "./commands/deps.js";
 import { runImpact } from "./commands/impact.js";
 import { runExplain } from "./commands/explain.js";
 import { runStats } from "./commands/stats.js";
@@ -37,6 +38,7 @@ const HANDLERS: Record<string, Handler> = {
   docgen: runDocgen,
   custom: runCustom,
   scan: runScan,
+  deps: runDeps,
   commit: runCommit,
   "install-hook": runInstallHook,
   restore: runRestore,
@@ -66,6 +68,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   docgen      Генерация GoDoc/RustDoc/JSDoc/docstrings
   custom      Свободный запрос к oc-pilot
   scan        Офлайн-поиск секретов в diff (без LLM)
+  deps        Аудит зависимостей: фантомные импорты, лишние пакеты, lockfile
   commit      Сгенерировать commit-сообщение по staged (--apply — закоммитить)
 
   install-hook  Установить git-хуки pre-commit/pre-push (scan/review)
@@ -96,6 +99,7 @@ ${COMMON_HELP}
   oc-pilot fix --apply --command "go test ./..."
   oc-pilot test-fix --command "go test ./..."
   oc-pilot test-gen --staged --apply
+  oc-pilot deps --json
   oc-pilot docgen "src/**/*.ts" --symbol buildPrompt
   git diff | oc-pilot scan --stdin
   oc-pilot commit --apply
@@ -141,7 +145,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, fix, docgen, custom, scan, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, fix, docgen, custom, scan, deps, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }

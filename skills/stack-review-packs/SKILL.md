@@ -12,7 +12,7 @@ router will not catch it". Rules packs are how the second reviewer happens.
 ## Setup
 
 ```bash
-npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.26.0.tar.gz
+npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.27.0.tar.gz
 ```
 
 ## Available packs

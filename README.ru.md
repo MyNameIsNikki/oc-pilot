@@ -362,6 +362,31 @@ oc-pilot scan --staged --format sarif -o oc-pilot.sarif
 
 `--all` сканирует всё дерево, а не diff: учитываются `.gitignore` и `.oc-pilot/ignore`, пропускаются бинарники, `node_modules`, `dist` и файлы больше 512 КБ, в отчёте есть число проверенных файлов (`meta.filesScanned`).
 
+### `deps`
+
+Офлайн-аудит здоровья npm-зависимостей. Модель не вызывается, сеть не используется.
+
+```bash
+oc-pilot deps
+oc-pilot deps --json
+oc-pilot deps --fail-on-issue high
+oc-pilot deps --ignore lint-staged
+```
+
+Команда сравнивает `package.json` с тем, что код реально импортирует, и с `package-lock.json`:
+
+- **phantom** (high) — пакет импортируется, но не объявлен, поэтому чистая установка или CI упадёт;
+- **unused** (medium) — объявлен, но нигде не импортируется и не упоминается в скриптах;
+- **misplaced** (low) — используется только тестами, но лежит в `dependencies`;
+- **duplicate** (low) — две библиотеки из одной группы решают одну задачу (`moment` и `dayjs`);
+- **unpinned** (medium) — `*`, `latest` или пустая версия;
+- **vcs** (high для git/URL, low для `file:`) — зависимость из git, URL или локального пути;
+- **lockfile** (high) — объявлен, но отсутствует в `package-lock.json`, поэтому `npm ci` упадёт.
+
+`--fail-on-issue <high|medium|low>` превращает аудит в CI-гейт (код 1). `--ignore <names>` принимает список через запятую для ложных срабатываний, например когда пакет загружается динамически. Workspace-пакеты (`packages/*`) и `@types/*` учитываются, peer-зависимости не считаются неиспользуемыми.
+
+JSON-результат — `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`.
+
 ### `commit`
 
 Генерирует commit-сообщение в формате Conventional Commits по staged-изменениям и опционально коммитит. Модель видит последние 10 commit-сообщений проекта и подстраивается под их стиль.
@@ -753,7 +778,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.26.0
+      - uses: MyNameIsNikki/oc-pilot@v0.27.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

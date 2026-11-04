@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.27.0
+
+- Команда `deps`: офлайн-аудит зависимостей npm-проекта без вызова модели — сверяет `package.json` с импортами в коде и с `package-lock.json`.
+- Семь классов проблем: phantom (импорт без объявления), unused, misplaced (только тесты), duplicate (пересекающиеся библиотеки), unpinned, vcs (git/URL/file) и lockfile (пакет не попал в lock, `npm ci` упадёт).
+- `--fail-on-issue <high|medium|low>` — CI-гейт с кодом 1, `--ignore <names>` — список ложных срабатываний; `--json` отдаёт `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`.
+- Учитываются workspace-пакеты, `@types/*` и peer-зависимости; отчёты сортируются по severity.
+- Документация; 384 теста; версия 0.27.0.
+
 ## 0.26.0
 
 - Флаг `test-gen --from-slop`: цели выбирает скан slop, а не diff — исходники без тестов ранжируются по churn, дублированным блокам и нерешённым TODO; `--slop-files <n>` (по умолчанию 3) ограничивает число файлов.

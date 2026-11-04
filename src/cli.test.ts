@@ -973,3 +973,53 @@ test("test-gen --from-slop exits early when every file has a test", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("deps fails the gate on a phantom import", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-deps-phantom-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "demo", dependencies: { "left-pad": "^1.3.0" } }, null, 2),
+      "utf8",
+    );
+    writeFileSync(join(dir, "app.ts"), 'import axios from "axios";\n', "utf8");
+    writeFileSync(
+      join(dir, "package-lock.json"),
+      JSON.stringify({ lockfileVersion: 3, packages: { "": {}, "node_modules/left-pad": {} } }),
+      "utf8",
+    );
+
+    const result = runCli(["deps", "--cwd", dir, "--json", "--fail-on-issue", "high"], dir);
+
+    assert.equal(result.status, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      packageName: string;
+      issues: { kind: string; severity: string; name: string }[];
+    };
+    assert.equal(payload.packageName, "demo");
+    const phantom = payload.issues.find((issue) => issue.kind === "phantom");
+    assert.equal(phantom?.name, "axios");
+    assert.equal(phantom?.severity, "high");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("deps reports a clean project", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-deps-clean-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo" }, null, 2), "utf8");
+    writeFileSync(join(dir, "local.ts"), "export const value = 1;\n", "utf8");
+    writeFileSync(join(dir, "app.ts"), 'import { value } from "./local";\n', "utf8");
+
+    const result = runCli(["deps", "--cwd", dir, "--json"], dir);
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as { issues: unknown[] };
+    assert.deepEqual(payload.issues, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

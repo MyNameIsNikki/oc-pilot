@@ -373,6 +373,31 @@ Exit 1 means critical secrets were found. `--strict` also fails on warnings. `--
 
 `--all` scans the whole tree instead of a diff. It respects `.gitignore` and `.oc-pilot/ignore`, skips binaries, `node_modules`, `dist` and files over 512 KB, and reports how many files were checked (`meta.filesScanned`).
 
+### `deps`
+
+Offline health audit of npm dependencies. No model call, no network.
+
+```bash
+oc-pilot deps
+oc-pilot deps --json
+oc-pilot deps --fail-on-issue high
+oc-pilot deps --ignore lint-staged
+```
+
+It compares `package.json` with what the code actually imports and with `package-lock.json`:
+
+- **phantom** (high) — a package is imported but not declared, so a clean install or CI fails;
+- **unused** (medium) — declared but never imported or mentioned in scripts;
+- **misplaced** (low) — used only by tests but listed in `dependencies`;
+- **duplicate** (low) — two libraries from the same group solve one job (`moment` and `dayjs`);
+- **unpinned** (medium) — `*`, `latest` or an empty spec;
+- **vcs** (high for git/URL, low for `file:`) — a dependency from git, a URL or a local path;
+- **lockfile** (high) — declared but missing from `package-lock.json`, so `npm ci` will fail.
+
+`--fail-on-issue <high|medium|low>` turns the audit into a CI gate (exit 1). `--ignore <names>` accepts a comma-separated list for false positives, for example when a package is loaded dynamically. Workspace packages (`packages/*`) and `@types/*` are handled; peer dependencies are not reported as unused.
+
+The JSON payload is `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`.
+
 ### `commit`
 
 Generates a Conventional Commits message from staged changes and optionally commits it. The model also sees the last 10 commit subjects, so the message matches the project's existing style.
@@ -927,7 +952,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.26.0
+      - uses: MyNameIsNikki/oc-pilot@v0.27.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -950,7 +975,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.26.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.27.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
