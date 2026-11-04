@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildFlakyReport,
+  buildShuffleCommand,
   classifyRuns,
   parseTestOutput,
   renderFlaky,
+  seededShuffle,
   stripAnsi,
   type FlakyRun,
 } from "./flaky.js";
@@ -85,6 +87,24 @@ test("buildFlakyReport tracks completion and parsed output", () => {
   const unparsed = buildFlakyReport("npm test", [{ exitCode: 0, timedOut: false, durationMs: 1, output: "ok" }]);
   assert.equal(unparsed.parsed, false);
   assert.deepEqual(unparsed.tests, []);
+});
+
+test("seededShuffle is deterministic and reorders", () => {
+  const items = ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"];
+  assert.deepEqual(seededShuffle(items, "seed-1"), seededShuffle(items, "seed-1"));
+  assert.deepEqual([...seededShuffle(items, "seed-1")].sort(), [...items].sort());
+
+  const variants = ["s1", "s2", "s3", "s4"].map((seed) => seededShuffle(items, seed).join(","));
+  assert.ok(variants.some((variant) => variant !== items.join(",")));
+});
+
+test("buildShuffleCommand fills the placeholder and quotes paths", () => {
+  const command = buildShuffleCommand("node --test {files}", ["a.ts", "my tests/b.test.ts"], "seed");
+  assert.match(command, /^node --test /);
+  assert.match(command, /a\.ts/);
+  assert.match(command, /"my tests\/b\.test\.ts"/);
+  assert.equal(command.includes("{files}"), false);
+  assert.equal(command.match(/\.ts/g)?.length, 2);
 });
 
 test("renderFlaky prints the flaky and failing lists", () => {

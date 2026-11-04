@@ -1136,4 +1136,37 @@ test("flaky finds a test that flips between runs", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("flaky --shuffle runs test files in a seeded order", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-flaky-shuffle-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "a.test.js"), "// a\n", "utf8");
+        writeFileSync(join(dir, "b.test.js"), "// b\n", "utf8");
+        writeFileSync(join(dir, "runner.js"), 'for (const file of process.argv.slice(2)) console.log("\\u2714 " + file.replace(/\\.test\\.js$/, ""));\n', "utf8");
+        const result = runCli([
+            "flaky",
+            "--cwd",
+            dir,
+            "--shuffle",
+            "--seed",
+            "demo",
+            "--command",
+            "node runner.js {files}",
+            "--runs",
+            "2",
+            "--json",
+        ], dir);
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.deepEqual(payload.shuffle, { seed: "demo", files: 2 });
+        assert.equal(payload.parsed, true);
+        assert.deepEqual(payload.tests.map((test) => test.name).sort(), ["a", "b"]);
+        const missingPlaceholder = runCli(["flaky", "--cwd", dir, "--shuffle", "--command", "node runner.js a.test.js", "--runs", "1", "--json"], dir);
+        assert.equal(missingPlaceholder.status, 2);
+        assert.match(missingPlaceholder.stderr, /\{files\}/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map

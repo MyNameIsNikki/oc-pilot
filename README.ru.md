@@ -399,15 +399,18 @@ oc-pilot receipt --verify --receipt path/to/receipt.json
 ```bash
 oc-pilot flaky
 oc-pilot flaky --runs 5
+oc-pilot flaky --shuffle --command "node --test {files}"
 oc-pilot flaky --command "go test ./..." --json
 oc-pilot flaky --fail-on-flaky
 ```
 
 `--runs <n>` задаёт число прогонов (по умолчанию 3, максимум 10). `--command` переопределяет `testCommand` и автоопределение. `--fail-on-flaky` возвращает код 1, если найден хотя бы один нестабильный тест, — это готовый CI-гейт.
 
+`--shuffle` превращает прогон в проверку порядка. Команда должна содержать `{files}`: `oc-pilot flaky --shuffle --command "node --test {files}"`. Тестовые файлы собираются из репозитория, перемешиваются seeded-генератором и подставляются в команду; каждый прогон получает новый seed от базового, поэтому тест, падающий только после определённого соседа, проявляется как нестабильный. `--seed <value>` фиксирует базовый seed, когда нужно воспроизвести падение.
+
 Распознаются Node spec (`✔`/`✖`), TAP (`ok`/`not ok`), Go (`--- PASS`/`--- FAIL`), pytest (`PASSED`/`FAILED`) и Jest/Vitest (`✓`/`✕`). Если маркеров нет, `parsed` равен `false`, и команда честно сравнивает только коды возврата.
 
-JSON: `{command, runs, completed, parsed, tests, flaky, failing}`, где каждый тест — `{name, passes, failures, status}` со `status` равным `flaky`, `failing` или `passing`.
+JSON: `{command, runs, completed, parsed, tests, flaky, failing, shuffle}`, где каждый тест — `{name, passes, failures, status}` со `status` равным `flaky`, `failing` или `passing`. С `--shuffle` поле `shuffle` равно `{seed, files}`.
 
 ### `deps`
 
@@ -833,7 +836,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.36.0
+      - uses: MyNameIsNikki/oc-pilot@v0.37.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

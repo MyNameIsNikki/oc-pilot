@@ -1,16 +1,21 @@
+import { randomBytes } from "node:crypto";
 import { runShellCommand } from "../core/command.js";
 import { PilotError } from "../core/errors.js";
-import { buildFlakyReport, renderFlaky, type FlakyRun } from "../core/flaky.js";
+import { buildFlakyReport, buildShuffleCommand, renderFlaky, type FlakyRun } from "../core/flaky.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, type OptionSpec } from "../core/options.js";
 import { asBoolean, asString, parsePositiveInt } from "../core/parse.js";
 import { detectTestCommand } from "../core/project.js";
+import { readRepository } from "../core/slop/collect.js";
+import { isTestFile } from "../core/slop/source.js";
 
 const OPTIONS: OptionSpec = withCommon({
   runs: { type: "string" },
   command: { type: "string" },
   "fail-on-flaky": { type: "boolean" },
+  shuffle: { type: "boolean" },
+  seed: { type: "string" },
 });
 
 const HELP = `Использование:
@@ -24,11 +29,14 @@ const HELP = `Использование:
       --runs <n>        сколько раз запускать тесты (по умолчанию 3, максимум 10)
       --command <cmd>   команда тестов (иначе testCommand или автоопределение)
       --fail-on-flaky   код 1, если найден хотя бы один нестабильный тест
+      --shuffle         перемешать тестовые файлы между прогонами
+      --seed <value>    seed для --shuffle (по умолчанию случайный)
 ${COMMON_HELP}
 
 Примеры:
   oc-pilot flaky
   oc-pilot flaky --runs 5
+  oc-pilot flaky --shuffle --command "node --test {files}"
   oc-pilot flaky --command "go test ./..." --json
   oc-pilot flaky --fail-on-flaky`;
 
@@ -42,6 +50,9 @@ export async function runFlaky(argv: string[]): Promise<number> {
   const ctx = resolveContext(values);
   const runsRaw = asString(values, "runs");
   const runs = runsRaw ? parsePositiveInt(runsRaw, "runs", 10) : 3;
+  const shuffle = asBoolean(values, "shuffle");
+  let files: string[] = [];
+  let seed = "";
   const command =
     asString(values, "command") ?? ctx.config.testCommand ?? detectTestCommand(ctx.cwd)?.command;
 
@@ -52,10 +63,31 @@ export async function runFlaky(argv: string[]): Promise<number> {
     });
   }
 
+  if (shuffle) {
+    files = readRepository(ctx.cwd)
+      .files.map((file) => file.path)
+      .filter(isTestFile)
+      .sort();
+    if (files.length === 0) {
+      throw new PilotError("Не найдено тестовых файлов для --shuffle", {
+        hint: "Проверьте, что тесты лежат в репозитории и не игнорируются git.",
+        exitCode: 2,
+      });
+    }
+    if (!command.includes("{files}")) {
+      throw new PilotError("--shuffle требует {files} в --command", {
+        hint: 'Пример: --command "node --test {files}".',
+        exitCode: 2,
+      });
+    }
+    seed = asString(values, "seed") ?? randomBytes(4).toString("hex");
+  }
+
   const results: FlakyRun[] = [];
   for (let run = 1; run <= runs; run += 1) {
-    log.detail(`Прогон ${String(run)}/${String(runs)}: ${command}`);
-    const result = await runShellCommand(command, ctx.cwd, {
+    const runCommand = shuffle ? buildShuffleCommand(command, files, `${seed}:${String(run)}`) : command;
+    log.detail(`Прогон ${String(run)}/${String(runs)}: ${runCommand}`);
+    const result = await runShellCommand(runCommand, ctx.cwd, {
       timeoutMs: ctx.config.timeoutSeconds * 1000,
       verbose: ctx.flags.verbose,
       maxBufferChars: Math.max(200_000, ctx.config.maxOutputChars * 5),
@@ -69,6 +101,7 @@ export async function runFlaky(argv: string[]): Promise<number> {
   }
 
   const report = buildFlakyReport(command, results);
+  if (shuffle) report.shuffle = { seed, files: files.length };
   const failed = asBoolean(values, "fail-on-flaky") && report.flaky.length > 0;
 
   if (ctx.flags.json) {

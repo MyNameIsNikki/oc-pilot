@@ -98,4 +98,40 @@ export function renderFlaky(report) {
     }
     return `${lines.join("\n")}\n`;
 }
+/** Deterministic PRNG so the same seed always reproduces the same order. */
+function mulberry32(seed) {
+    let state = seed >>> 0;
+    return () => {
+        state = (state + 0x6d2b79f5) >>> 0;
+        let value = state;
+        value = Math.imul(value ^ (value >>> 15), value | 1);
+        value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+        return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+    };
+}
+function hashSeed(seed) {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < seed.length; index += 1) {
+        hash ^= seed.charCodeAt(index);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return hash >>> 0;
+}
+export function seededShuffle(items, seed) {
+    const random = mulberry32(hashSeed(seed));
+    const result = [...items];
+    for (let index = result.length - 1; index > 0; index -= 1) {
+        const swap = Math.floor(random() * (index + 1));
+        const current = result[index];
+        result[index] = result[swap];
+        result[swap] = current;
+    }
+    return result;
+}
+function shellQuote(value) {
+    return /[\s"'$`\\]/.test(value) ? `"${value.replace(/["\\$`]/g, "\\$&")}"` : value;
+}
+export function buildShuffleCommand(command, files, seed) {
+    return command.replaceAll("{files}", seededShuffle(files, seed).map(shellQuote).join(" "));
+}
 //# sourceMappingURL=flaky.js.map
