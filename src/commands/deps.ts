@@ -1,3 +1,4 @@
+import { applyDependencyFixPlan, planDependencyFixes, type DependencyFixPlan } from "../core/deps-fix.js";
 import { auditDependencies, issueFailsGate, type DepSeverity, type DepIssue } from "../core/deps-health.js";
 import { PilotError } from "../core/errors.js";
 import { writeOutput } from "../core/io.js";
@@ -8,6 +9,7 @@ import { asBoolean, asString } from "../core/parse.js";
 const OPTIONS: OptionSpec = withCommon({
   "fail-on-issue": { type: "string" },
   ignore: { type: "string" },
+  fix: { type: "boolean" },
 });
 
 const HELP = `Использование:
@@ -22,13 +24,17 @@ const HELP = `Использование:
 Опции:
       --fail-on-issue <level>  код 1 при проблеме уровня high, medium или low
       --ignore <names>         не проверять пакеты (через запятую)
+      --fix                    исправить безопасное: тестовые пакеты в devDependencies,
+                               фантомные импорты и плавающие версии — по lockfile
 ${COMMON_HELP}
 
 Примеры:
   oc-pilot deps
   oc-pilot deps --json
   oc-pilot deps --fail-on-issue high
-  oc-pilot deps --ignore lint-staged`;
+  oc-pilot deps --ignore lint-staged
+  oc-pilot deps --fix --dry-run
+  oc-pilot deps --fix --fail-on-issue high`;
 
 const SEVERITIES = new Set<DepSeverity>(["high", "medium", "low"]);
 
@@ -65,12 +71,26 @@ export async function runDeps(argv: string[]): Promise<number> {
     : [];
   const gateRaw = asString(values, "fail-on-issue");
   const gate = gateRaw ? parseSeverity(gateRaw) : undefined;
+  const fix = asBoolean(values, "fix");
 
-  const report = auditDependencies(ctx.cwd, { ignore });
+  let report = auditDependencies(ctx.cwd, { ignore });
+  let plan: DependencyFixPlan | undefined;
+  let applied = false;
+  if (fix) {
+    plan = planDependencyFixes(ctx.cwd, report);
+    if (plan.fixes.length > 0 && !ctx.flags.dryRun) {
+      applied = applyDependencyFixPlan(ctx.cwd, plan);
+      if (applied) report = auditDependencies(ctx.cwd, { ignore });
+    }
+  }
   const failed = gate !== undefined && issueFailsGate(report.issues, gate);
 
   if (ctx.flags.json) {
-    writeOutput(JSON.stringify(report, null, 2), ctx.flags.output);
+    const payload =
+      fix && plan
+        ? { ...report, fix: { applied, dryRun: ctx.flags.dryRun, fixes: plan.fixes, skipped: plan.skipped } }
+        : report;
+    writeOutput(JSON.stringify(payload, null, 2), ctx.flags.output);
     return failed ? 1 : 0;
   }
 
@@ -79,14 +99,24 @@ export async function runDeps(argv: string[]): Promise<number> {
   );
   if (report.truncated) log.warn("Список файлов обрезан: проверены не все исходники.");
 
+  const fixLines =
+    plan?.fixes.map(
+      (item) =>
+        `${ctx.flags.dryRun ? "PLAN " : "FIXED"} ${item.action.padEnd(11)} ${item.name} — ${item.reason}`,
+    ) ?? [];
+  if (plan && ctx.flags.dryRun && plan.fixes.length > 0) {
+    log.warn("Режим --dry-run: package.json не изменён.");
+  }
+
   if (report.issues.length === 0) {
-    const wrote = writeOutput("Проблем не найдено.\n", ctx.flags.output);
+    const body = fixLines.length > 0 ? `${fixLines.join("\n")}\nПроблем не найдено.\n` : "Проблем не найдено.\n";
+    const wrote = writeOutput(body, ctx.flags.output);
     if (wrote) log.success(`Отчёт сохранён: ${wrote}`);
     else log.success("Проблем не найдено.");
     return 0;
   }
 
-  const lines = report.issues.map(renderIssue);
+  const lines = [...fixLines, ...report.issues.map(renderIssue)];
   const counts = {
     high: report.issues.filter((issue) => issue.severity === "high").length,
     medium: report.issues.filter((issue) => issue.severity === "medium").length,

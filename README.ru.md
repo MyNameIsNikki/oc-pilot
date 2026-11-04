@@ -371,6 +371,8 @@ oc-pilot deps
 oc-pilot deps --json
 oc-pilot deps --fail-on-issue high
 oc-pilot deps --ignore lint-staged
+oc-pilot deps --fix --dry-run
+oc-pilot deps --fix
 ```
 
 Команда сравнивает `package.json` с тем, что код реально импортирует, и с `package-lock.json`:
@@ -385,7 +387,9 @@ oc-pilot deps --ignore lint-staged
 
 `--fail-on-issue <high|medium|low>` превращает аудит в CI-гейт (код 1). `--ignore <names>` принимает список через запятую для ложных срабатываний, например когда пакет загружается динамически. Workspace-пакеты (`packages/*`) и `@types/*` учитываются, peer-зависимости не считаются неиспользуемыми.
 
-JSON-результат — `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`.
+`--fix` исправляет то, что можно решить офлайн: пакет, используемый только тестами, переезжает в `devDependencies`; импортируемый, но не объявленный пакет добавляется с версией из `package-lock.json` (в `devDependencies`, если все импортёры — тесты); плавающая версия `*`/`latest` прибивается к версии из lockfile. Ничего не выдумывается: фантомный импорт без записи в lockfile, неиспользуемый пакет, дубликат и vcs-зависимость попадают в `skipped` с причиной. `--dry-run` печатает план, не трогая `package.json`. После записи аудит запускается заново, поэтому код возврата отражает уже исправленное состояние.
+
+JSON-результат — `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; с `--fix` добавляется `fix: {applied, dryRun, fixes, skipped}`.
 
 ### `commit`
 
@@ -778,7 +782,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.27.0
+      - uses: MyNameIsNikki/oc-pilot@v0.28.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

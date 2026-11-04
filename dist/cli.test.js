@@ -827,4 +827,50 @@ test("deps reports a clean project", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("deps --fix writes a phantom import from the lockfile", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-deps-fix-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", dependencies: { "left-pad": "^1.3.0" } }, null, 2), "utf8");
+        writeFileSync(join(dir, "app.ts"), 'import axios from "axios";\n', "utf8");
+        writeFileSync(join(dir, "package-lock.json"), JSON.stringify({
+            lockfileVersion: 3,
+            packages: {
+                "": {},
+                "node_modules/left-pad": { version: "1.3.0" },
+                "node_modules/axios": { version: "1.7.2" },
+            },
+        }), "utf8");
+        const result = runCli(["deps", "--cwd", dir, "--fix", "--json", "--fail-on-issue", "high"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.fix.applied, true);
+        assert.deepEqual(payload.fix.fixes.map((item) => [item.name, item.action]), [["axios", "add-prod"]]);
+        assert.equal(payload.issues.some((issue) => issue.kind === "phantom"), false);
+        const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+        assert.equal(manifest.dependencies.axios, "^1.7.2");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("deps --fix --dry-run leaves package.json untouched", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-deps-plan-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        const original = JSON.stringify({ name: "demo", dependencies: { zod: "^3.23.0" } }, null, 2);
+        writeFileSync(join(dir, "package.json"), original, "utf8");
+        writeFileSync(join(dir, "app.test.ts"), 'import { z } from "zod";\n', "utf8");
+        const result = runCli(["deps", "--cwd", dir, "--fix", "--dry-run", "--json"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.fix.applied, false);
+        assert.equal(payload.fix.dryRun, true);
+        assert.deepEqual(payload.fix.fixes.map((item) => item.action), ["move-to-dev"]);
+        assert.equal(readFileSync(join(dir, "package.json"), "utf8"), original);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map

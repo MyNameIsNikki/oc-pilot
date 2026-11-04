@@ -382,6 +382,8 @@ oc-pilot deps
 oc-pilot deps --json
 oc-pilot deps --fail-on-issue high
 oc-pilot deps --ignore lint-staged
+oc-pilot deps --fix --dry-run
+oc-pilot deps --fix
 ```
 
 It compares `package.json` with what the code actually imports and with `package-lock.json`:
@@ -396,7 +398,9 @@ It compares `package.json` with what the code actually imports and with `package
 
 `--fail-on-issue <high|medium|low>` turns the audit into a CI gate (exit 1). `--ignore <names>` accepts a comma-separated list for false positives, for example when a package is loaded dynamically. Workspace packages (`packages/*`) and `@types/*` are handled; peer dependencies are not reported as unused.
 
-The JSON payload is `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`.
+`--fix` repairs what can be decided offline: a package used only by tests moves to `devDependencies`, an imported-but-undeclared package is added with the version already in `package-lock.json` (to `devDependencies` when every importer is a test), and a floating `*`/`latest` spec is pinned to the lockfile version. Nothing is invented: a phantom import without a lockfile entry, an unused package, a duplicate or a vcs dependency is listed as skipped with the reason. `--dry-run` prints the plan without touching `package.json`. After writing, the audit re-runs, so the exit code reflects the fixed state.
+
+The JSON payload is `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; with `--fix` it gains `fix: {applied, dryRun, fixes, skipped}`.
 
 ### `commit`
 
@@ -952,7 +956,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.27.0
+      - uses: MyNameIsNikki/oc-pilot@v0.28.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -975,7 +979,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.27.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.28.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
