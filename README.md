@@ -708,7 +708,7 @@ Environment variables: `OC_PILOT_ENGINE`, `OC_PILOT_BASE_URL`, `OC_PILOT_API_KEY
 
 Besides tools, the server exposes read-only MCP resources: `oc-pilot://config` (resolved configuration), `oc-pilot://rules` (project rules with secrets redacted), `oc-pilot://prompt/en` and `oc-pilot://prompt/ru` (the built-in system prompts), and `oc-pilot://version`. `oc-pilot://slop` returns the Slop Index as JSON without calling a model. Resource templates cover live data: `oc-pilot://diff/{mode}` (staged/unstaged/head diff, secrets redacted), `oc-pilot://scan/{mode}` (offline secret scan as JSON) and `oc-pilot://file/{+path}` (any project file up to 2 MB with detected secrets redacted). Hosts can list them with `resources/list` and `resources/templates/list`.
 
-Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`. `scan` accepts `all: true` to sweep the whole repository instead of the diff. `slop` runs the offline Slop Index and accepts `since`, `since_days`, `limit`, `exclude` and `no_blame`. The server is read-only by default; start it with `--allow-write` to permit `fix` with `apply: true`, `commit` with `apply: true`, `test_fix` with a command and `stats` with `clear: true`.
+Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`. `scan` accepts `all: true` to sweep the whole repository instead of the diff. `slop` runs the offline Slop Index and accepts `since`, `since_days`, `limit`, `exclude` and `no_blame`. The server is read-only by default; start it with `--allow-write` to permit `fix` with `apply: true`, `commit` with `apply: true`, `test_fix` with a command and `stats` with `clear: true`. The `fix` result carries the unified `patch`, its `files` and `patchStats` (`additions`, `deletions`, `hunks`, `bytes`); patches over 200 000 characters are cut and marked with `patchTruncated` and `patchBytes`, so a host can show or apply the change without parsing the diff again.
 
 Every tool accepts `max_findings` (default 50; a capped result also carries `truncated` and `totalFindings`) and `verbosity` (`full` returns the JSON payload, `compact` returns a one-line summary and keeps the same data in `structuredContent`). When a client sends `_meta.progressToken`, the server emits `notifications/progress`; after `logging/setLevel` it also emits `notifications/message` per call. `--max-calls <n>` (or `OC_PILOT_MCP_MAX_CALLS`) caps model-backed calls per session, `0` disables the cap, and the offline tools `scan`, `stats` and `slop` keep working after the budget is exhausted.
 
@@ -906,7 +906,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.22.0
+      - uses: MyNameIsNikki/oc-pilot@v0.23.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -929,7 +929,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.22.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.23.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

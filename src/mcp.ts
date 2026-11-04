@@ -12,6 +12,7 @@ import { runGit } from "./core/git.js";
 import { SYSTEM_PROMPT_EN, SYSTEM_PROMPT_RU } from "./core/prompt.js";
 import { loadRules } from "./core/rules.js";
 import { loadSecretIgnore, scanDiff, scanText } from "./core/secrets.js";
+import { patchTargets } from "./core/patch.js";
 import { VERSION } from "./version.js";
 
 const SERVER_NAME = "oc-pilot";
@@ -894,6 +895,36 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
   }
 }
 
+/** Patches larger than this are cut down before they reach an agent's context. */
+const MAX_PATCH_CHARS = 200_000;
+
+/** Metadata a host needs to render or apply a patch without parsing it again. */
+export function patchSummary(patch: string): {
+  files: string[];
+  additions: number;
+  deletions: number;
+  hunks: number;
+  bytes: number;
+} {
+  let files: string[] = [];
+  try {
+    files = patchTargets(patch);
+  } catch {
+    files = [];
+  }
+
+  let additions = 0;
+  let deletions = 0;
+  let hunks = 0;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@")) hunks += 1;
+    else if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
+    else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+  }
+
+  return { files, additions, deletions, hunks, bytes: patch.length };
+}
+
 /** Applies the cross-tool result options: finding caps and compact text. */
 export function applyResultOptions(result: ToolResult, input: JsonObject): ToolResult {
   const structured = result.structuredContent;
@@ -906,6 +937,15 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
     payload = { ...structured, findings: findings.slice(0, cap), truncated: true, totalFindings: findings.length };
   }
 
+  const patch = payload.patch;
+  if (typeof patch === "string" && patch.trim()) {
+    const meta = patchSummary(patch);
+    payload = { ...payload, patchStats: meta, files: meta.files };
+    if (patch.length > MAX_PATCH_CHARS) {
+      payload = { ...payload, patch: patch.slice(0, MAX_PATCH_CHARS), patchTruncated: true, patchBytes: patch.length };
+    }
+  }
+
   const text = stringArg(input, "verbosity") === "compact" ? summarizeResult(payload) : JSON.stringify(payload, null, 2);
   return { ...result, structuredContent: payload, content: [{ type: "text", text }] };
 }
@@ -914,6 +954,15 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 function summarizeResult(value: JsonObject): string {
   if (typeof value.index === "number") {
     return `oc-pilot: Slop Index ${value.index}/100 (${String(value.grade ?? "unknown")})`;
+  }
+  if (typeof value.patch === "string") {
+    const stats = asObject(value.patchStats);
+    const files = Array.isArray(value.files) ? value.files.length : 0;
+    const additions = typeof stats?.additions === "number" ? stats.additions : 0;
+    const deletions = typeof stats?.deletions === "number" ? stats.deletions : 0;
+    const state = value.applied === true ? "applied" : "not applied";
+    const truncated = value.patchTruncated === true ? ", patch truncated" : "";
+    return `oc-pilot: fix ${files} file${files === 1 ? "" : "s"}, +${additions}/-${deletions} (${state})${truncated}`;
   }
   const findings = value.findings;
   if (Array.isArray(findings)) {

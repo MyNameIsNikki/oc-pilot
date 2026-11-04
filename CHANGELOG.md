@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.23.0
+
+- MCP-инструмент `fix` отдаёт в `structuredContent` не только готовый unified-патч, но и его метаданные: список файлов `files` и `patchStats` (`additions`, `deletions`, `hunks`, `bytes`). Хосту не нужно разбирать diff, чтобы показать, сколько файлов и строк затронуто.
+- Патчи длиннее 200 000 символов обрезаются перед отправкой: результат получает `patchTruncated: true` и `patchBytes` с исходной длиной, чтобы один ответ не забил контекст агента.
+- При `verbosity: "compact"` результат `fix` описывается одной строкой `oc-pilot: fix N files, +A/-D (applied/not applied)`.
+- Тесты на `patchSummary` и обрезку патча; версия 0.23.0, 348 тестов.
+
 ## 0.22.0
 
 - MCP-сервер получил офлайн-инструмент `slop`: Slop Index без вызова модели, с параметрами `since`, `since_days`, `limit`, `exclude` и `no_blame`. Ресурс `oc-pilot://slop` отдаёт тот же отчёт как JSON, промпт `slop-check` формулирует вопрос про накопленную энтропию.

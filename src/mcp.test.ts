@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { applyResultOptions } from "./mcp.js";
+import { applyResultOptions, patchSummary } from "./mcp.js";
 
 const MCP = resolve("dist/mcp.js");
 const AWS_KEY = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
@@ -397,4 +397,46 @@ test("MCP stops model-backed tools after the call budget", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("patchSummary describes a patch and applyResultOptions caps its size", () => {
+  const patch = [
+    "diff --git a/src/a.ts b/src/a.ts",
+    "--- a/src/a.ts",
+    "+++ b/src/a.ts",
+    "@@ -1,3 +1,4 @@",
+    " const a = 1;",
+    "-const b = 2;",
+    "+const b = 3;",
+    "+const c = 4;",
+    "diff --git a/src/b.ts b/src/b.ts",
+    "--- a/src/b.ts",
+    "+++ b/src/b.ts",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n");
+
+  const summary = patchSummary(patch);
+  assert.equal(summary.files.length, 2);
+  assert.equal(summary.additions, 3);
+  assert.equal(summary.deletions, 2);
+  assert.equal(summary.hunks, 2);
+  assert.equal(summary.bytes, patch.length);
+
+  const result = applyResultOptions({ content: [], structuredContent: { applied: false, patch } }, { verbosity: "compact" });
+  const structured = result.structuredContent as { files: string[]; patchStats: { additions: number } };
+  assert.equal(structured.files.length, 2);
+  assert.equal(structured.patchStats.additions, 3);
+  const text = result.content[0]?.text ?? "";
+  assert.match(text, /fix 2 files/);
+  assert.match(text, /not applied/);
+
+  const huge = "x".repeat(200_001);
+  const capped = applyResultOptions({ content: [], structuredContent: { applied: true, patch: huge } }, {});
+  const payload = capped.structuredContent as { patch: string; patchTruncated: boolean; patchBytes: number };
+  assert.equal(payload.patchTruncated, true);
+  assert.equal(payload.patchBytes, 200_001);
+  assert.equal(payload.patch.length, 200_000);
 });
