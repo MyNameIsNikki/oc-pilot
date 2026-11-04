@@ -8,6 +8,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { PilotError } from "./errors.js";
+import { detectLockfile, lockfileHint, readLockfile } from "./lockfile.js";
 import { readRepository } from "./slop/collect.js";
 import { isTestFile } from "./slop/source.js";
 const NODE_BUILTINS = new Set([
@@ -288,33 +289,20 @@ export function auditDependencies(cwd, options = {}) {
         }
     }
     let lockfile = null;
-    const lockPath = join(cwd, "package-lock.json");
-    if (existsSync(lockPath)) {
-        lockfile = "package-lock.json";
-        const lock = readJsonFile(lockPath);
-        if (!lock || typeof lock !== "object") {
+    const lockInfo = detectLockfile(cwd);
+    if (lockInfo) {
+        lockfile = lockInfo.file;
+        const lock = readLockfile(cwd);
+        if (!lock || lock.packages.length === 0) {
             issues.push({
                 kind: "lockfile",
                 severity: "low",
-                name: "package-lock.json",
-                message: "не удалось прочитать lockfile — проверьте JSON",
+                name: lockInfo.file,
+                message: "не удалось прочитать lockfile — проверьте формат",
             });
         }
         else {
-            const installed = new Set();
-            const packages = lock.packages;
-            if (packages && typeof packages === "object") {
-                for (const key of Object.keys(packages)) {
-                    const match = /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)$/.exec(key);
-                    if (match?.[1])
-                        installed.add(match[1]);
-                }
-            }
-            else {
-                const dependencies = lock.dependencies;
-                for (const name of Object.keys(dependencies ?? {}))
-                    installed.add(name);
-            }
+            const installed = new Set(lock.packages.map((entry) => entry.name));
             for (const [name, info] of declared) {
                 if (skip(name) || info.field === "peer")
                     continue;
@@ -326,7 +314,7 @@ export function auditDependencies(cwd, options = {}) {
                     kind: "lockfile",
                     severity: "high",
                     name,
-                    message: "объявлен в package.json, но отсутствует в package-lock.json — npm ci упадёт",
+                    message: `объявлен в package.json, но отсутствует в ${lockInfo.file} — ${lockfileHint(lockInfo.kind)}`,
                 });
             }
         }

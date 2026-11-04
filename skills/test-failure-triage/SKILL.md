@@ -13,7 +13,7 @@ before any patch, and a verification step after it.
 ## Setup
 
 ```bash
-npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.33.0.tar.gz
+npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.34.0.tar.gz
 ```
 
 ## Workflow

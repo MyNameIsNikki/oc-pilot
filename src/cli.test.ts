@@ -1348,3 +1348,58 @@ test("receipt reports failing tests", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("deps reads a pnpm lockfile and fixes a phantom import", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-pnpm-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "demo", dependencies: { "left-pad": "^1.3.0" } }, null, 2),
+      "utf8",
+    );
+    writeFileSync(join(dir, "app.ts"), 'import axios from "axios";\n', "utf8");
+    writeFileSync(
+      join(dir, "pnpm-lock.yaml"),
+      [
+        "lockfileVersion: '6.0'",
+        "",
+        "packages:",
+        "",
+        "  /axios@1.7.2:",
+        "    resolution: {integrity: sha512-x}",
+        "",
+        "  /left-pad@1.3.0:",
+        "    resolution: {integrity: sha512-y}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const audit = runCli(["deps", "--cwd", dir, "--json", "--fail-on-issue", "high"], dir);
+    assert.equal(audit.status, 1, audit.stderr);
+    const report = JSON.parse(audit.stdout) as {
+      lockfile: string | null;
+      issues: { kind: string; name: string }[];
+    };
+    assert.equal(report.lockfile, "pnpm-lock.yaml");
+    assert.ok(report.issues.some((issue) => issue.kind === "phantom" && issue.name === "axios"));
+
+    const fixed = runCli(["deps", "--cwd", dir, "--fix", "--json"], dir);
+    assert.equal(fixed.status, 0, fixed.stderr);
+    const payload = JSON.parse(fixed.stdout) as {
+      fix: { applied: boolean; fixes: { name: string; action: string }[] };
+    };
+    assert.equal(payload.fix.applied, true);
+    assert.deepEqual(
+      payload.fix.fixes.map((fix) => [fix.name, fix.action]),
+      [["axios", "add-prod"]],
+    );
+    const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+      dependencies: Record<string, string>;
+    };
+    assert.equal(manifest.dependencies.axios, "^1.7.2");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -1,6 +1,6 @@
 /**
  * Dependency provenance: answers "why is this package here?" from local data only.
- * Combines the manifest, the imports in the code and the package-lock graph, so an
+ * Combines the manifest, the imports in the code and the lockfile graph, so an
  * agent can see direct imports, every dependent package and the chains that pull
  * a transitive dependency in. Offline and deterministic.
  */
@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { packageNameOf } from "./deps-health.js";
 import { PilotError } from "./errors.js";
+import { readLockfile } from "./lockfile.js";
 import { readRepository } from "./slop/collect.js";
 const IMPORT_PATTERNS = [
     /\bfrom\s+["']([^"']+)["']/g,
@@ -93,8 +94,21 @@ function lockNodes(lock) {
     loadV1(lock.dependencies, "", nodes);
     return nodes;
 }
+/** pnpm and yarn lockfiles list every resolved package by name, without nesting. */
+function flatNodes(packages) {
+    const nodes = new Map();
+    for (const entry of packages) {
+        if (!nodes.has(entry.name)) {
+            nodes.set(entry.name, { name: entry.name, version: entry.version, deps: entry.deps });
+        }
+    }
+    return nodes;
+}
 /** npm resolution: nested copy first, then walk up to the root node_modules. */
 function resolveKey(nodes, fromKey, dep) {
+    // Flat lockfiles (pnpm, yarn) are keyed by package name.
+    if (nodes.has(dep))
+        return dep;
     let current = fromKey;
     while (current) {
         const candidate = `${current}/node_modules/${dep}`;
@@ -178,13 +192,18 @@ export function explainDependency(cwd, name, options = {}) {
     const declaredEntry = manifestFields(manifest)
         .map(([field, record]) => ({ field, spec: record[packageName] }))
         .find((entry) => entry.spec !== undefined);
-    const lockPath = join(cwd, "package-lock.json");
-    const nodes = existsSync(lockPath) ? lockNodes(readJsonFile(lockPath)) : new Map();
-    const installed = [...nodes.entries()].filter(([, node]) => node.name === packageName);
+    const lock = readLockfile(cwd);
+    const npmNodes = lock?.kind === "npm" ? lockNodes(readJsonFile(join(cwd, lock.file))) : undefined;
+    const nodes = npmNodes ?? flatNodes(lock?.packages ?? []);
+    const installed = npmNodes
+        ? [...npmNodes.values()].filter((node) => node.name === packageName)
+        : (lock?.packages ?? [])
+            .filter((entry) => entry.name === packageName)
+            .map((entry) => ({ name: entry.name, version: entry.version, deps: entry.deps }));
     const imports = importedBy(cwd, packageName);
     if (!declaredEntry && installed.length === 0 && imports.length === 0)
         return undefined;
-    const versions = [...new Set(installed.map(([, node]) => node.version).filter((value) => Boolean(value)))].sort();
+    const versions = [...new Set(installed.map((node) => node.version).filter((value) => Boolean(value)))].sort();
     const dependents = new Set();
     for (const [, node] of nodes) {
         if (node.name === packageName)

@@ -12,7 +12,7 @@ derived from the actual diff, in the repository's own style.
 ## Setup
 
 ```bash
-npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.33.0.tar.gz
+npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.34.0.tar.gz
 ```
 
 ## Workflow

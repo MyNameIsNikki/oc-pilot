@@ -6,9 +6,10 @@
  * human decision (removing a package, picking between duplicates, replacing a
  * git dependency) is reported as skipped instead of guessed.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DependencyAudit } from "./deps-health.js";
+import { readLockfile } from "./lockfile.js";
 import { isTestFile } from "./slop/source.js";
 
 export type DepFixAction = "move-to-dev" | "add-prod" | "add-dev" | "pin";
@@ -52,29 +53,9 @@ function readJson(path: string): unknown {
   }
 }
 
-/** Versions npm already resolved: the only versions safe to write back offline. */
+/** Versions the package manager already resolved: the only versions safe to write back offline. */
 function lockVersions(cwd: string): Map<string, string> {
-  const versions = new Map<string, string>();
-  const path = join(cwd, "package-lock.json");
-  if (!existsSync(path)) return versions;
-  const lock = readJson(path);
-  if (!lock || typeof lock !== "object") return versions;
-
-  const packages = (lock as { packages?: Record<string, { version?: string }> }).packages;
-  if (packages && typeof packages === "object") {
-    for (const [key, value] of Object.entries(packages)) {
-      const match = /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)$/.exec(key);
-      const version = value?.version;
-      if (match?.[1] && typeof version === "string" && version) versions.set(match[1], version);
-    }
-    return versions;
-  }
-
-  const dependencies = (lock as { dependencies?: Record<string, { version?: string }> }).dependencies;
-  for (const [name, value] of Object.entries(dependencies ?? {})) {
-    if (typeof value?.version === "string" && value.version) versions.set(name, value.version);
-  }
-  return versions;
+  return readLockfile(cwd)?.versions ?? new Map<string, string>();
 }
 
 function take(record: Record<string, string> | undefined, name: string): string | undefined {
@@ -130,7 +111,7 @@ export function planDependencyFixes(cwd: string, audit: DependencyAudit): Depend
         skipped.push({
           name: issue.name,
           kind: issue.kind,
-          reason: "нет версии в package-lock.json — добавьте зависимость вручную",
+          reason: "нет версии в lockfile — добавьте зависимость вручную",
         });
         continue;
       }
@@ -154,7 +135,7 @@ export function planDependencyFixes(cwd: string, audit: DependencyAudit): Depend
         skipped.push({
           name: issue.name,
           kind: issue.kind,
-          reason: "нет версии в package-lock.json — зафиксируйте диапазон вручную",
+          reason: "нет версии в lockfile — зафиксируйте диапазон вручную",
         });
         continue;
       }

@@ -109,7 +109,7 @@ test("skips a phantom import without a lockfile version", () => {
     assert.deepEqual(plan.fixes, []);
     assert.equal(plan.skipped.length, 1);
     assert.equal(plan.skipped[0]?.name, "axios");
-    assert.match(plan.skipped[0]?.reason ?? "", /package-lock/);
+    assert.match(plan.skipped[0]?.reason ?? "", /lockfile/);
     assert.equal(plan.after, before);
     assert.equal(applyDependencyFixPlan(dir, plan), false);
   } finally {
