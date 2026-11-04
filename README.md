@@ -403,6 +403,21 @@ The file is sealed with a SHA-256 hash of its body. `--verify` recomputes the ha
 
 A receipt carries `{version, tool, toolVersion, createdAt, commit, branch, dirty, diff, files, tests, preflight, hash}`. `tests` is `{command, exitCode, timedOut, durationMs, passed, outputTail}` or `null` with `--no-run`; `preflight` is the same report `preflight` prints. Outside a repository the receipt can only be written to an explicit path with `--out`.
 
+### `ready`
+
+Scores how ready a repository is for an AI agent. One offline number from 0 to 100 across eight checks: tests (20), lockfile (15), git hooks (15), Slop Index (15), a fresh receipt (15), agent instructions (10), CI (5) and config (5). Each check is `pass`, `warn` or `fail` and earns 100%, 50% or 0% of its weight. No model call, no network, but it does require a git repository.
+
+```bash
+oc-pilot ready
+oc-pilot ready --json
+oc-pilot ready --badge
+oc-pilot ready --fail-under 85
+```
+
+The score maps to a grade: 85 and above is `agent-ready`, 65 and above `almost`, 40 and above `risky`, anything lower `not-ready`. `--badge` prints a shields.io markdown badge for the README, and `--fail-under <n>` exits with code 1 below the threshold, so the score can gate a pull request.
+
+The JSON payload is `{score, grade, checks, commit}`; each check is `{id, label, status, points, max, detail}`, where `detail` names the file that earned or lost the points and the command that fixes it.
+
 ### `flaky`
 
 Runs the test command several times and compares per-test results. A test that passes in some runs and fails in others is flaky; one that fails every time is simply broken. The command never calls a model: it only runs the suite and parses the output.
@@ -1010,7 +1025,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.37.0
+      - uses: MyNameIsNikki/oc-pilot@v0.38.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1033,7 +1048,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.37.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.38.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

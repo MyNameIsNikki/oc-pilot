@@ -392,6 +392,21 @@ oc-pilot receipt --verify --receipt path/to/receipt.json
 
 Квитанция содержит `{version, tool, toolVersion, createdAt, commit, branch, dirty, diff, files, tests, preflight, hash}`. `tests` — `{command, exitCode, timedOut, durationMs, passed, outputTail}` или `null` при `--no-run`; `preflight` — тот же отчёт, что печатает `preflight`. Вне репозитория квитанцию можно записать только в явный путь через `--out`.
 
+### `ready`
+
+Оценивает готовность репозитория к работе с ИИ-агентом. Одно офлайн-число от 0 до 100 по восьми проверкам: тесты (20), lockfile (15), git-хуки (15), Slop Index (15), свежая квитанция (15), инструкции для агента (10), CI (5) и конфиг (5). Каждая проверка даёт `pass`, `warn` или `fail` и приносит 100%, 50% или 0% своего веса. Модель не вызывается, сеть не используется, но нужен git-репозиторий.
+
+```bash
+oc-pilot ready
+oc-pilot ready --json
+oc-pilot ready --badge
+oc-pilot ready --fail-under 85
+```
+
+Оценка переводится в грейд: 85 и выше — `agent-ready`, 65 и выше — `almost`, 40 и выше — `risky`, ниже — `not-ready`. `--badge` печатает shields.io-бейдж в markdown для README, а `--fail-under <n>` возвращает код 1 ниже порога, поэтому оценкой можно гейтить pull request.
+
+JSON-результат — `{score, grade, checks, commit}`; каждая проверка — `{id, label, status, points, max, detail}`, где `detail` называет файл, который принёс или потерял очки, и команду, которая это исправляет.
+
 ### `flaky`
 
 Запускает тестовую команду несколько раз и сравнивает результаты отдельных тестов. Тест, который прошёл в одном прогоне и упал в другом, помечается нестабильным; тест, падающий каждый раз, — просто сломанным. Модель не вызывается, команда работает только с выводом раннера.
@@ -836,7 +851,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.37.0
+      - uses: MyNameIsNikki/oc-pilot@v0.38.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

@@ -11,6 +11,7 @@ import { runDoctor } from "./commands/doctor.js";
 import { runInstallHook } from "./commands/install-hook.js";
 import { runPreflight } from "./commands/preflight.js";
 import { runReceipt } from "./commands/receipt.js";
+import { runReady } from "./commands/ready.js";
 import { runRestore } from "./commands/restore.js";
 import { runDocgen } from "./commands/docgen.js";
 import { runFix } from "./commands/fix.js";
@@ -45,6 +46,7 @@ const HANDLERS: Record<string, Handler> = {
   deps: runDeps,
   preflight: runPreflight,
   receipt: runReceipt,
+  ready: runReady,
   commit: runCommit,
   "install-hook": runInstallHook,
   restore: runRestore,
@@ -78,6 +80,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   deps        Аудит зависимостей: фантомные импорты, лишние пакеты, lockfile
   preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
+  ready       Оценить готовность репозитория к работе с ИИ-агентом
   commit      Сгенерировать commit-сообщение по staged (--apply — закоммитить)
 
   install-hook  Установить git-хуки pre-commit/pre-push (preflight/review)
@@ -157,7 +160,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, flaky, fix, docgen, custom, scan, deps, preflight, receipt, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, flaky, fix, docgen, custom, scan, deps, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }

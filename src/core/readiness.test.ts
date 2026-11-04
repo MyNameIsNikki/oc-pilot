@@ -1,0 +1,138 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { assessReadiness, renderBadge, renderReadiness } from "./readiness.js";
+import { RECEIPT_VERSION, buildReceipt, saveReceipt } from "./receipt.js";
+import type { PreflightReport } from "./preflight.js";
+
+const PREFLIGHT: PreflightReport = {
+  status: "pass",
+  checks: [],
+  diff: { source: "git diff HEAD", files: 0, additions: 0, deletions: 0 },
+};
+
+function makeRepo(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-ready-"));
+  spawnSync("git", ["init", "-q"], { cwd: dir });
+  for (const [path, content] of Object.entries(files)) {
+    const full = join(dir, path);
+    mkdirSync(join(full, ".."), { recursive: true });
+    writeFileSync(full, content, "utf8");
+  }
+  return dir;
+}
+
+function commit(dir: string): string {
+  spawnSync("git", ["add", "-A"], { cwd: dir });
+  spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], {
+    cwd: dir,
+  });
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" });
+  return head.stdout.trim();
+}
+
+function saveReadyReceipt(dir: string, sha: string): void {
+  saveReceipt(
+    dir,
+    buildReceipt({
+      version: RECEIPT_VERSION,
+      tool: "oc-pilot",
+      toolVersion: "0.38.0",
+      createdAt: "2026-11-05T00:00:00.000Z",
+      commit: sha,
+      branch: "main",
+      dirty: false,
+      diff: { files: 0, additions: 0, deletions: 0 },
+      files: [],
+      tests: null,
+      preflight: PREFLIGHT,
+    }),
+  );
+}
+
+test("assessReadiness scores a prepared repository as agent-ready", () => {
+  const dir = makeRepo({
+    "package.json": JSON.stringify({ name: "demo", scripts: { test: "node -e \"process.exit(0)\"" } }, null, 2),
+    "package-lock.json": JSON.stringify({ lockfileVersion: 3, packages: { "": {} } }),
+    "src/app.ts": "export const value = 1;\n",
+    "AGENTS.md": "# Agent instructions\n",
+    ".oc-pilot.json": "{}\n",
+    ".github/workflows/ci.yml": "name: ci\n",
+    ".git/hooks/pre-commit": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot preflight --staged\n",
+  });
+  try {
+    const sha = commit(dir);
+    saveReadyReceipt(dir, sha);
+    const report = assessReadiness(dir);
+    assert.ok(report.score >= 85, `score ${String(report.score)}`);
+    assert.equal(report.grade, "agent-ready");
+    assert.equal(report.commit, sha);
+    assert.deepEqual(
+      report.checks.filter((check) => check.status !== "pass").map((check) => check.id),
+      [],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("assessReadiness scores an empty repository as not ready", () => {
+  const dir = makeRepo({});
+  try {
+    const report = assessReadiness(dir);
+    assert.ok(report.score < 40, `score ${String(report.score)}`);
+    assert.equal(report.grade, "not-ready");
+    assert.equal(report.checks.find((check) => check.id === "tests")?.status, "fail");
+    assert.equal(report.checks.find((check) => check.id === "hooks")?.status, "fail");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("assessReadiness reports a corrupt lockfile", () => {
+  const dir = makeRepo({
+    "package.json": JSON.stringify({ name: "demo", dependencies: { "left-pad": "^1.3.0" } }, null, 2),
+    "package-lock.json": "{not json",
+  });
+  try {
+    const report = assessReadiness(dir);
+    const lockfile = report.checks.find((check) => check.id === "lockfile");
+    assert.ok(lockfile);
+    assert.notEqual(lockfile.status, "pass");
+    assert.ok(lockfile.points < lockfile.max);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("assessReadiness warns about a stale receipt", () => {
+  const dir = makeRepo({ "src/app.ts": "export const value = 1;\n" });
+  try {
+    commit(dir);
+    saveReadyReceipt(dir, "0".repeat(40));
+    const report = assessReadiness(dir);
+    const receipt = report.checks.find((check) => check.id === "receipt");
+    assert.ok(receipt);
+    assert.notEqual(receipt.status, "pass");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("renderBadge and renderReadiness describe the score", () => {
+  const dir = makeRepo({});
+  try {
+    const report = assessReadiness(dir);
+    assert.match(renderBadge(report), /img\.shields\.io\/badge\/agent/);
+    assert.match(renderBadge(report), new RegExp(`${String(report.score)}%2F100`));
+    const text = renderReadiness(report);
+    assert.match(text, /Готовность к агенту:/);
+    assert.match(text, new RegExp(`${String(report.score)}/100`));
+    assert.ok(text.endsWith("\n"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
