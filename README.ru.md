@@ -362,6 +362,21 @@ oc-pilot scan --staged --format sarif -o oc-pilot.sarif
 
 `--all` сканирует всё дерево, а не diff: учитываются `.gitignore` и `.oc-pilot/ignore`, пропускаются бинарники, `node_modules`, `dist` и файлы больше 512 КБ, в отчёте есть число проверенных файлов (`meta.filesScanned`).
 
+### `preflight`
+
+Один офлайн-вердикт перед коммитом. Четыре проверки идут без модели и без сети: секреты в диффе, здоровье зависимостей в границах изменённых файлов, ослабление тестов (`it.skip`, удалённые проверки, поднятые таймауты) и дельта Slop Index относительно базовой ссылки.
+
+```bash
+oc-pilot preflight
+oc-pilot preflight --staged
+oc-pilot preflight --base main --max-delta 0
+oc-pilot preflight --no-slop --fail-on-issue medium
+```
+
+Проблемы зависимостей ограничены скоупом: preflight сообщает только о файлах, которые меняет дифф, и о пакетах, названных в добавленных строках, поэтому старый репозиторий не падает на первом же запуске. `--fail-on-issue` (по умолчанию `high`) и `--max-delta` (по умолчанию 10 пунктов) задают пороги; каждую проверку можно отключить через `--no-secret-scan`, `--no-deps`, `--no-tests` или `--no-slop`. Код возврата 1, если хоть одна проверка упала, иначе 0 — один шаг CI заменяет четыре.
+
+JSON-отчёт — `{status, checks, diff}`, где каждая проверка содержит `{id, label, status, summary, details}`, а `status` равен `pass`, `fail` или `skip`.
+
 ### `deps`
 
 Офлайн-аудит здоровья npm-зависимостей. Модель не вызывается, сеть не используется.
@@ -785,7 +800,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.29.0
+      - uses: MyNameIsNikki/oc-pilot@v0.30.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

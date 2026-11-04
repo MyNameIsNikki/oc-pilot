@@ -373,6 +373,21 @@ Exit 1 means critical secrets were found. `--strict` also fails on warnings. `--
 
 `--all` scans the whole tree instead of a diff. It respects `.gitignore` and `.oc-pilot/ignore`, skips binaries, `node_modules`, `dist` and files over 512 KB, and reports how many files were checked (`meta.filesScanned`).
 
+### `preflight`
+
+One offline verdict before a commit. Four checks run without a model and without network: secrets in the diff, dependency health scoped to the files the diff touches, weakened tests (`it.skip`, removed assertions, raised timeouts), and the Slop Index delta against a base ref.
+
+```bash
+oc-pilot preflight
+oc-pilot preflight --staged
+oc-pilot preflight --base main --max-delta 0
+oc-pilot preflight --no-slop --fail-on-issue medium
+```
+
+Dependency issues are scoped: preflight reports only problems in files the diff changes or packages named in added lines, so a legacy repository does not fail on the first run. `--fail-on-issue` (default `high`) and `--max-delta` (default 10 points) set the gates; each check can be disabled with `--no-secret-scan`, `--no-deps`, `--no-tests` or `--no-slop`. The exit code is 1 if any check fails and 0 otherwise, so one CI step replaces four.
+
+The JSON report is `{status, checks, diff}`, where each check carries `{id, label, status, summary, details}` with `status` equal to `pass`, `fail` or `skip`.
+
 ### `deps`
 
 Offline health audit of npm dependencies. No model call, no network.
@@ -959,7 +974,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.29.0
+      - uses: MyNameIsNikki/oc-pilot@v0.30.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -982,7 +997,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.29.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.30.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

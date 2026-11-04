@@ -1146,3 +1146,132 @@ test("deps --why fails cleanly for an unknown package", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("preflight fails on a critical secret in the diff", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-preflight-secret-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    const diff = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/app.ts",
+      "@@ -0,0 +1,2 @@",
+      '+const key = "AKIAIOSFODNN7EXAMPLE";',
+      "+",
+      "",
+    ].join("\n");
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, diff);
+
+    const result = runCli(
+      ["preflight", "--diff", diffPath, "--no-deps", "--no-slop", "--cwd", dir, "--json"],
+      dir,
+    );
+
+    assert.equal(result.status, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      status: string;
+      checks: { id: string; status: string }[];
+    };
+    assert.equal(payload.status, "fail");
+    assert.equal(payload.checks.find((check) => check.id === "secrets")?.status, "fail");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("preflight passes on an empty diff", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-preflight-clean-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "app.ts"), "export const value = 1;\n", "utf8");
+    spawnSync("git", ["add", "app.ts"], { cwd: dir });
+    spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], {
+      cwd: dir,
+    });
+
+    const result = runCli(["preflight", "--cwd", dir, "--json", "--no-deps", "--no-slop"], dir);
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as { status: string };
+    assert.equal(payload.status, "pass");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("preflight fails when the diff weakens tests", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-preflight-tests-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    const diff = [
+      "diff --git a/src/app.test.ts b/src/app.test.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/app.test.ts",
+      "@@ -0,0 +1,2 @@",
+      '+it.skip("works", () => {});',
+      "+",
+      "",
+    ].join("\n");
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, diff);
+
+    const result = runCli(
+      ["preflight", "--diff", diffPath, "--no-deps", "--no-slop", "--cwd", dir, "--json"],
+      dir,
+    );
+
+    assert.equal(result.status, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as { checks: { id: string; status: string }[] };
+    assert.equal(payload.checks.find((check) => check.id === "tests")?.status, "fail");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("preflight can skip every check", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-preflight-skip-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    const diff = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/app.ts",
+      "@@ -0,0 +1,2 @@",
+      '+const key = "AKIAIOSFODNN7EXAMPLE";',
+      "+",
+      "",
+    ].join("\n");
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, diff);
+
+    const result = runCli(
+      [
+        "preflight",
+        "--diff",
+        diffPath,
+        "--no-secret-scan",
+        "--no-deps",
+        "--no-tests",
+        "--no-slop",
+        "--cwd",
+        dir,
+        "--json",
+      ],
+      dir,
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as { status: string; checks: { status: string }[] };
+    assert.equal(payload.status, "pass");
+    assert.deepEqual(
+      payload.checks.map((check) => check.status),
+      ["skip", "skip", "skip", "skip"],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

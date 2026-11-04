@@ -9,6 +9,7 @@ import { runCommit } from "./commands/commit.js";
 import { runCustom } from "./commands/custom.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runInstallHook } from "./commands/install-hook.js";
+import { runPreflight } from "./commands/preflight.js";
 import { runRestore } from "./commands/restore.js";
 import { runDocgen } from "./commands/docgen.js";
 import { runFix } from "./commands/fix.js";
@@ -36,6 +37,7 @@ const HANDLERS = {
     custom: runCustom,
     scan: runScan,
     deps: runDeps,
+    preflight: runPreflight,
     commit: runCommit,
     "install-hook": runInstallHook,
     restore: runRestore,
@@ -65,6 +67,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   custom      Свободный запрос к oc-pilot
   scan        Офлайн-поиск секретов в diff (без LLM)
   deps        Аудит зависимостей: фантомные импорты, лишние пакеты, lockfile
+  preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   commit      Сгенерировать commit-сообщение по staged (--apply — закоммитить)
 
   install-hook  Установить git-хуки pre-commit/pre-push (scan/review)
@@ -96,6 +99,7 @@ ${COMMON_HELP}
   oc-pilot test-fix --command "go test ./..."
   oc-pilot test-gen --staged --apply
   oc-pilot deps --json
+  oc-pilot preflight --staged
   oc-pilot docgen "src/**/*.ts" --symbol buildPrompt
   git diff | oc-pilot scan --stdin
   oc-pilot commit --apply
@@ -137,7 +141,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, fix, docgen, custom, scan, deps, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, fix, docgen, custom, scan, deps, preflight, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }
