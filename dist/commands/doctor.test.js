@@ -42,7 +42,7 @@ test("doctor --fix refreshes an outdated oc-pilot hook", async () => {
         assert.equal(fixed, 0);
         const content = readFileSync(hookPath, "utf8");
         assert.ok(content.includes(HOOK_MARKER));
-        assert.ok(content.includes("scan --staged"));
+        assert.ok(content.includes("preflight --staged"));
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

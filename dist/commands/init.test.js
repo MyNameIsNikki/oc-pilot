@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { runInit } from "./init.js";
+import { HOOK_MARKER } from "./install-hook.js";
 import { runGit } from "../core/git.js";
 import { PilotError } from "../core/errors.js";
 test("init --preset writes rules.md next to the config", () => {
@@ -26,8 +27,9 @@ test("init --hooks installs pre-commit and pre-push hooks", () => {
         runGit(["init"], dir);
         assert.equal(runInit(["--cwd", dir, "--hooks"]), 0);
         const hooks = join(dir, ".git", "hooks");
-        assert.match(readFileSync(join(hooks, "pre-commit"), "utf8"), /oc-pilot hook v1/);
-        assert.match(readFileSync(join(hooks, "pre-push"), "utf8"), /oc-pilot hook v1/);
+        assert.ok(readFileSync(join(hooks, "pre-commit"), "utf8").includes(HOOK_MARKER));
+        assert.match(readFileSync(join(hooks, "pre-commit"), "utf8"), /preflight --staged/);
+        assert.ok(readFileSync(join(hooks, "pre-push"), "utf8").includes(HOOK_MARKER));
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

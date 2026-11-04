@@ -24,7 +24,7 @@ const HELP = `Использование:
 Опции:
   -C, --cwd <dir>       Директория проекта
       --force           Перезаписать существующие файлы
-      --hooks           Установить git-хуки: scan --staged на commit, review на push
+      --hooks           Установить git-хуки: preflight --staged на commit, review на push
       --preset <a,b>    Пресет правил, можно несколько через запятую:
                           ${presetIds().join(", ")}
       --json            Вывести пути в JSON

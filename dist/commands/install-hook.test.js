@@ -17,13 +17,23 @@ test("installHook writes a managed pre-commit hook", () => {
         assert.ok(existsSync(result.path));
         const script = readFileSync(result.path, "utf8");
         assert.ok(script.includes(HOOK_MARKER));
-        assert.ok(script.includes("oc-pilot scan --staged"));
+        assert.ok(script.includes("oc-pilot preflight --staged"));
         assert.ok(script.includes("OC_PILOT_SKIP"));
         assert.ok(!script.includes("\r"), "hook script must use LF endings");
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+test("hookScript can fall back to scan-only pre-commit", () => {
+    const script = hookScript("pre-commit", "scan");
+    assert.ok(script.includes("oc-pilot scan --staged"));
+    assert.ok(!script.includes("preflight"));
+});
+test("hookScript pre-commit runs preflight by default", () => {
+    const script = hookScript("pre-commit");
+    assert.ok(script.includes("oc-pilot preflight --staged"));
+    assert.ok(!script.includes("scan --staged"));
 });
 test("hookScript pre-push runs review", () => {
     const script = hookScript("pre-push");

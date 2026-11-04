@@ -74,7 +74,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   commit      Сгенерировать commit-сообщение по staged (--apply — закоммитить)
 
-  install-hook  Установить git-хуки pre-commit/pre-push (scan/review)
+  install-hook  Установить git-хуки pre-commit/pre-push (preflight/review)
 
   restore     Восстановить рабочее дерево из снимка fix --apply
   cache       Кеш ответов движка: --stats, --prune, --clear

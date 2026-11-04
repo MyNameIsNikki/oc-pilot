@@ -423,15 +423,16 @@ oc-pilot commit --json        # машиночитаемый вывод
 
 ### `install-hook`
 
-Ставит нативные git-хуки без husky и зависимостей. Хук `pre-commit` запускает `oc-pilot scan --staged`; с `--pre-push` дополнительно ставится `pre-push` с `oc-pilot review --fail-on critical --fail-on-secrets`.
+Ставит нативные git-хуки без husky и зависимостей. Хук `pre-commit` запускает `oc-pilot preflight --staged`: секреты, здоровье зависимостей в границах изменения, ослабление тестов и дельта Slop Index. С `--pre-push` дополнительно ставится `pre-push` с `oc-pilot review --fail-on critical --fail-on-secrets`. Флаг `--scan` оставляет лёгкий pre-commit только с `oc-pilot scan --staged`.
 
 ```bash
 oc-pilot install-hook
+oc-pilot install-hook --scan
 oc-pilot install-hook --pre-push
 oc-pilot install-hook --uninstall
 ```
 
-Хуки опциональны и обратимы. Чужой хук не перезаписывается без `--force`, а при замене сохраняется как `<hook>.oc-pilot.bak`. Обход на одну команду — `OC_PILOT_SKIP=1`. Поддерживаются `core.hooksPath` и worktrees.
+Хуки опциональны и обратимы. Чужой хук не перезаписывается без `--force`, а при замене сохраняется как `<hook>.oc-pilot.bak`. Каждый управляемый хук помечен маркером; хуки старых версий `oc-pilot doctor` показывает как устаревшие и обновляет через `oc-pilot doctor --fix`. Обход на одну команду — `OC_PILOT_SKIP=1`. Поддерживаются `core.hooksPath` и worktrees.
 
 ### `restore`
 
@@ -591,7 +592,7 @@ oc-pilot init --hooks
 
 Это обычный файл правил — дополняйте его свободно.
 
-`--hooks` ставит те же git-хуки, что и `install-hook`: `scan --staged` на коммит и `review` на пуш. Существующие хуки сохраняются в бэкап, а отсутствие каталога хуков даёт только предупреждение, поэтому `init` из-за этого не падает.
+`--hooks` ставит те же git-хуки, что и `install-hook`: `preflight --staged` на коммит и `review` на пуш. Существующие хуки сохраняются в бэкап, а отсутствие каталога хуков даёт только предупреждение, поэтому `init` из-за этого не падает.
 
 ## Конфигурация
 
@@ -800,7 +801,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.30.0
+      - uses: MyNameIsNikki/oc-pilot@v0.31.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

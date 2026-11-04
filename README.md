@@ -434,15 +434,16 @@ oc-pilot commit --json        # machine-readable output
 
 ### `install-hook`
 
-Installs native git hooks without husky or any dependency. The managed `pre-commit` hook runs `oc-pilot scan --staged`; `--pre-push` also installs a `pre-push` hook that runs `oc-pilot review --fail-on critical --fail-on-secrets`.
+Installs native git hooks without husky or any dependency. The managed `pre-commit` hook runs `oc-pilot preflight --staged`: secrets, dependency health scoped to the change, test weakening and the Slop Index delta. `--pre-push` also installs a `pre-push` hook that runs `oc-pilot review --fail-on critical --fail-on-secrets`. Pass `--scan` to keep a lighter pre-commit that only runs `oc-pilot scan --staged`.
 
 ```bash
 oc-pilot install-hook
+oc-pilot install-hook --scan
 oc-pilot install-hook --pre-push
 oc-pilot install-hook --uninstall
 ```
 
-Hooks are opt-in and reversible. A hook that does not belong to oc-pilot is never overwritten unless `--force` is passed, and then the old file is kept as `<hook>.oc-pilot.bak`. Set `OC_PILOT_SKIP=1` to bypass the hooks for a single command. `core.hooksPath` and worktrees are respected.
+Hooks are opt-in and reversible. A hook that does not belong to oc-pilot is never overwritten unless `--force` is passed, and then the old file is kept as `<hook>.oc-pilot.bak`. Every managed hook is stamped with a marker; hooks written by older versions are reported as outdated by `oc-pilot doctor` and upgraded in place with `oc-pilot doctor --fix`. Set `OC_PILOT_SKIP=1` to bypass the hooks for a single command. `core.hooksPath` and worktrees are respected.
 
 ### `restore`
 
@@ -624,7 +625,7 @@ Creates `.oc-pilot.json`. It does not overwrite an existing config unless `--for
 
 The rules file is a normal project rules file - edit it freely.
 
-`--hooks` installs the git hooks from `install-hook`: `scan --staged` on commit and `review` on push. Existing hooks are backed up, and a missing hook directory is only a warning, so `init` never fails because of it.
+`--hooks` installs the git hooks from `install-hook`: `preflight --staged` on commit and `review` on push. Existing hooks are backed up, and a missing hook directory is only a warning, so `init` never fails because of it.
 
 ## Common options
 
@@ -974,7 +975,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.30.0
+      - uses: MyNameIsNikki/oc-pilot@v0.31.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -997,7 +998,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.30.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.31.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

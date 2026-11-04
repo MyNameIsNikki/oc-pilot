@@ -478,7 +478,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.30.0
+- uses: MyNameIsNikki/oc-pilot@v0.31.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -501,7 +501,8 @@ when tests fail. Restore a snapshot with `oc-pilot restore` (or
 `oc-pilot install-hook` installs native POSIX sh hooks without husky:
 
 ```sh
-oc-pilot install-hook              # pre-commit: oc-pilot scan --staged
+oc-pilot install-hook              # pre-commit: oc-pilot preflight --staged
+oc-pilot install-hook --scan       # lighter pre-commit: oc-pilot scan --staged
 oc-pilot install-hook --pre-push   # also pre-push: oc-pilot review --fail-on critical
 oc-pilot install-hook --uninstall  # remove managed hooks, restore backups
 ```
@@ -521,7 +522,7 @@ The repository ships `.pre-commit-hooks.yaml`, so the standard
 ```yaml
 repos:
   - repo: https://github.com/MyNameIsNikki/oc-pilot
-    rev: v0.30.0
+    rev: v0.31.0
     hooks:
       - id: oc-pilot-secrets  # oc-pilot scan --staged
       - id: oc-pilot-review   # oc-pilot review --staged --fail-on critical --fail-on-secrets

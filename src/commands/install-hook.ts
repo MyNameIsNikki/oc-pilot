@@ -7,17 +7,26 @@ import { COMMON_HELP, parseCommandArgs, withCommon, type OptionSpec } from "../c
 import { asBoolean, asString } from "../core/parse.js";
 
 export type HookKind = "pre-commit" | "pre-push";
+export type HookMode = "preflight" | "scan";
 
-export const HOOK_MARKER = "# oc-pilot hook v1";
+export const HOOK_MARKER = "# oc-pilot hook v2";
+
+const LEGACY_MARKERS = ["# oc-pilot hook v1"];
 
 const OPTIONS: OptionSpec = withCommon({
   uninstall: { type: "boolean" },
   force: { type: "boolean" },
   "pre-push": { type: "boolean" },
+  scan: { type: "boolean" },
 });
 
-export function hookScript(kind: HookKind): string {
-  const command = kind === "pre-commit" ? "scan --staged" : "review --fail-on critical --fail-on-secrets";
+export function hookScript(kind: HookKind, mode: HookMode = "preflight"): string {
+  const command =
+    kind === "pre-commit"
+      ? mode === "scan"
+        ? "scan --staged"
+        : "preflight --staged"
+      : "review --fail-on critical --fail-on-secrets";
   return [
     "#!/bin/sh",
     HOOK_MARKER,
@@ -52,10 +61,17 @@ export interface HookActionResult {
 }
 
 function isOurs(content: string): boolean {
-  return content.split("\n").some((line) => line.trim() === HOOK_MARKER);
+  return content
+    .split("\n")
+    .some((line) => line.trim() === HOOK_MARKER || LEGACY_MARKERS.includes(line.trim()));
 }
 
-export function installHook(cwd: string, kind: HookKind, force: boolean): HookActionResult {
+export function installHook(
+  cwd: string,
+  kind: HookKind,
+  force: boolean,
+  mode: HookMode = "preflight",
+): HookActionResult {
   const dir = resolveHooksDir(cwd);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, kind);
@@ -78,7 +94,7 @@ export function installHook(cwd: string, kind: HookKind, force: boolean): HookAc
     }
   }
 
-  writeFileSync(path, hookScript(kind), "utf8");
+  writeFileSync(path, hookScript(kind, mode), "utf8");
   try {
     chmodSync(path, 0o755);
   } catch {
@@ -113,7 +129,7 @@ const HELP = `Использование:
   oc-pilot install-hook [опции]
 
 Устанавливает нативные git-хуки (POSIX sh, без husky):
-  pre-commit  -> oc-pilot scan --staged      (секреты в staged-изменениях)
+  pre-commit  -> oc-pilot preflight --staged (секреты, зависимости, тесты, slop)
   pre-push    -> oc-pilot review --fail-on critical --fail-on-secrets
 
 Хуки опциональны и полностью обратимы; чужие хуки не перезаписываются
@@ -123,6 +139,7 @@ OC_PILOT_SKIP=1 git commit ...
 Опции:
       --uninstall            удалить хуки oc-pilot (вернуть .bak при наличии)
       --force                перезаписать чужой хук (с бэкапом)
+      --scan                 лёгкий pre-commit: только scan --staged, без зависимостей и slop
       --pre-push             дополнительно установить pre-push (вызывает модель)
 ${COMMON_HELP}
 
@@ -144,6 +161,7 @@ export async function runInstallHook(argv: string[]): Promise<number> {
   const uninstall = asBoolean(values, "uninstall");
   const force = asBoolean(values, "force");
   const withPrePush = asBoolean(values, "pre-push");
+  const mode: HookMode = asBoolean(values, "scan") ? "scan" : "preflight";
   const kinds: HookKind[] = withPrePush ? ["pre-commit", "pre-push"] : ["pre-commit"];
 
   for (const kind of kinds) {
@@ -157,7 +175,7 @@ export async function runInstallHook(argv: string[]): Promise<number> {
         log.info(`Хук ${kind} не найден — нечего удалять.`);
       }
     } else {
-      const result = installHook(cwd, kind, force);
+      const result = installHook(cwd, kind, force, mode);
       log.success(`Хук ${kind} установлен: ${result.path}`);
     }
   }

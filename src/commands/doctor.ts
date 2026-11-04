@@ -352,7 +352,7 @@ function checkHooks(cwd: string, fix: boolean): Check[] {
       id: "hooks",
       status: "info",
       title: "oc-pilot hooks are not installed",
-      detail: "Optional: a pre-commit secret gate and a pre-push review.",
+      detail: "Optional: a pre-commit preflight gate and a pre-push review.",
       fix: "oc-pilot install-hook",
     });
   }

@@ -13,7 +13,7 @@ skill checks all four before the change leaves the machine.
 ## Setup
 
 ```bash
-npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.30.0.tar.gz
+npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.31.0.tar.gz
 oc-pilot init --preset security,devops
 ```
 
@@ -76,7 +76,8 @@ example `security,node` or `security,python,devops`.
    oc-pilot install-hook --pre-push
    ```
 
-   Installs `pre-commit` (`scan --staged`) and `pre-push` (`review`) hooks,
+   Installs `pre-commit` (`preflight --staged`; pass `--scan` for
+   `scan --staged` only) and `pre-push` (`review`) hooks,
    backing up any existing hook. Bypass for a single command with
    `OC_PILOT_SKIP=1`; uninstall with `oc-pilot install-hook --uninstall`.
 
