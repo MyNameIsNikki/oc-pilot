@@ -782,3 +782,115 @@ test("test-gen refuses a patch that changes production code", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("test-gen coverage narrows the request to uncovered lines", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-test-gen-cov-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "a.ts"), "one\ntwo\n", "utf8");
+    spawnSync("git", ["add", "a.ts"], { cwd: dir });
+    spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+
+    const patch = [
+      "diff --git a/a.ts b/a.ts",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1,2 +1,3 @@",
+      " one",
+      "+added",
+      " two",
+      "",
+    ].join("\n");
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, patch);
+    const lcovPath = join(dir, "lcov.info");
+    writeFileSync(lcovPath, ["SF:a.ts", "DA:2,0", "end_of_record", ""].join("\n"));
+
+    const testPatch = [
+      "diff --git a/a.test.ts b/a.test.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/a.test.ts",
+      "@@ -0,0 +1 @@",
+      "+test(\"added\", () => {});",
+      "",
+    ].join("\n");
+    const fake = installFakeOpenCode(dir);
+    const result = runCli(
+      [
+        "test-gen",
+        "--diff",
+        diffPath,
+        "--coverage-file",
+        lcovPath,
+        "--apply",
+        "--no-run",
+        "--rounds",
+        "1",
+        "--cwd",
+        dir,
+        "--json",
+      ],
+      dir,
+      { ...fake, FAKE_PATCH_TEXT: testPatch },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      applied: boolean;
+      files: string[];
+      coverage: { format: string; uncoveredLines: number; gaps: { file: string; uncovered: number[] }[] };
+    };
+    assert.equal(payload.applied, true);
+    assert.deepEqual(payload.files, ["a.test.ts"]);
+    assert.equal(payload.coverage.format, "lcov");
+    assert.equal(payload.coverage.uncoveredLines, 1);
+    assert.deepEqual(payload.coverage.gaps, [{ file: "a.ts", uncovered: [2] }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("test-gen coverage skips generation when changed lines are covered", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-test-gen-covered-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "a.ts"), "one\ntwo\n", "utf8");
+    spawnSync("git", ["add", "a.ts"], { cwd: dir });
+    spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+
+    const patch = [
+      "diff --git a/a.ts b/a.ts",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1,2 +1,3 @@",
+      " one",
+      "+added",
+      " two",
+      "",
+    ].join("\n");
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, patch);
+    const lcovPath = join(dir, "lcov.info");
+    writeFileSync(lcovPath, ["SF:a.ts", "DA:2,1", "end_of_record", ""].join("\n"));
+
+    const fake = installFakeOpenCode(dir);
+    const result = runCli(
+      ["test-gen", "--diff", diffPath, "--coverage-file", lcovPath, "--json"],
+      dir,
+      fake,
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      applied: boolean;
+      status: string;
+      coverage: { uncoveredLines: number };
+    };
+    assert.equal(payload.applied, false);
+    assert.equal(payload.status, "not-run");
+    assert.equal(payload.coverage.uncoveredLines, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

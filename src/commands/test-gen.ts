@@ -1,6 +1,14 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { runShellCommand } from "../core/command.js";
+import {
+  changedLines,
+  coverageGaps,
+  describeCoverage,
+  formatCoverageGaps,
+  loadCoverage,
+  type CoverageSummary,
+} from "../core/coverage.js";
 import { describeDiffSource, loadDiff } from "../core/diff-source.js";
 import { PilotError } from "../core/errors.js";
 import { writeOutput } from "../core/io.js";
@@ -19,6 +27,8 @@ const OPTIONS: OptionSpec = withCommon({
   "keep-failing": { type: "boolean" },
   force: { type: "boolean" },
   rounds: { type: "string" },
+  coverage: { type: "boolean" },
+  "coverage-file": { type: "string" },
   command: { type: "string" },
   diff: { type: "string" },
   staged: { type: "boolean" },
@@ -42,6 +52,8 @@ const HELP = `Использование:
       --keep-failing    оставить падающие тесты в рабочем дереве
       --force           разрешить менять существующие тестовые файлы
       --rounds <n>      сколько раз пробовать починить падающий тест (по умолчанию 2)
+      --coverage        писать тесты только на непокрытые изменённые строки
+      --coverage-file <path>  отчёт покрытия (lcov, istanbul, cobertura, Go coverprofile)
       --command <cmd>   команда тестов (иначе testCommand или автоопределение)
       --diff <file>     готовый unified diff вместо git-состояния
       --staged          взять staged-изменения
@@ -56,7 +68,8 @@ ${COMMON_HELP}
   oc-pilot test-gen --staged --apply
   oc-pilot test-gen src/billing.ts --apply --rounds 1
   oc-pilot test-gen --base main --json
-  oc-pilot test-gen --diff changes.diff --no-run`;
+  oc-pilot test-gen --diff changes.diff --no-run
+  oc-pilot test-gen --staged --coverage --apply`;
 
 interface TestRun {
   command: string;
@@ -67,15 +80,22 @@ interface TestRun {
 }
 
 /** Context lines that turn the generic custom recipe into a test generator. */
-function baseContext(data: Awaited<ReturnType<typeof loadDiff>>, context: string | undefined): string[] {
+function baseContext(
+  data: Awaited<ReturnType<typeof loadDiff>>,
+  context: string | undefined,
+  coverageText?: string,
+): string[] {
   const parts = [
-    "TEST_GEN_MODE: write tests that cover the behavior changed in GIT_DIFF.",
+    coverageText
+      ? "TEST_GEN_MODE: write tests for the uncovered changed lines listed in COVERAGE_GAPS. Lines that are already covered need no new test."
+      : "TEST_GEN_MODE: write tests that cover the behavior changed in GIT_DIFF.",
     "Return the normal output schema. Put exactly one ```diff fenced patch under `#### Solution`.",
     "The patch must only add or modify test files (*.test.ts, *.spec.ts, *_test.go, test_*.py). Do not change production code.",
     "Match the test framework and conventions already used in the repository; keep tests deterministic and offline.",
     `DIFF_SOURCE: ${describeDiffSource(data.source)}`,
     `DIFF_STATS: ${data.stats.files} файл(ов), +${data.stats.additions} / -${data.stats.deletions}`,
   ];
+  if (coverageText) parts.push(coverageText);
   if (data.untracked.length > 0) parts.push(`UNTRACKED_FILES: ${data.untracked.join(", ")}`);
   if (context?.trim()) parts.push(`USER_CONTEXT: ${context.trim()}`);
   return parts;
@@ -86,6 +106,17 @@ function describeStatus(status: string): string {
   if (status === "fail") return "тесты упали";
   if (status === "not-run") return "тесты не запускались";
   return status;
+}
+
+/** Compact coverage block for the JSON payload. */
+function coveragePayload(summary: CoverageSummary, cwd: string) {
+  return {
+    report: relative(cwd, summary.report.path).replace(/\\/g, "/"),
+    format: summary.report.format,
+    uncoveredLines: summary.uncoveredLines,
+    gaps: summary.gaps,
+    missing: summary.missing,
+  };
 }
 
 export async function runTestGen(argv: string[]): Promise<number> {
@@ -101,7 +132,8 @@ export async function runTestGen(argv: string[]): Promise<number> {
   const keepFailing = asBoolean(values, "keep-failing");
   const force = asBoolean(values, "force");
   const noSecretScan = asBoolean(values, "no-secret-scan");
-  const rounds = parsePositiveInt(asString(values, "rounds") ?? "", "rounds", 5);
+  const roundsRaw = asString(values, "rounds");
+  const rounds = roundsRaw ? parsePositiveInt(roundsRaw, "rounds", 5) : 2;
   const commandOverride = asString(values, "command");
 
   if (apply && !runTests && !asBoolean(values, "no-run")) {
@@ -124,7 +156,55 @@ export async function runTestGen(argv: string[]): Promise<number> {
 
   const captureCtx = { ...ctx, flags: { ...ctx.flags, json: false, output: undefined } };
   const projectType = detectProjectType(ctx.cwd, data.changedFiles);
-  const contextParts = baseContext(data, asString(values, "context"));
+
+  const coverageRequested = asBoolean(values, "coverage") || Boolean(asString(values, "coverage-file"));
+  let coverage: CoverageSummary | undefined;
+  if (coverageRequested) {
+    const report = loadCoverage(ctx.cwd, asString(values, "coverage-file"));
+    if (!report) {
+      throw new PilotError("Отчёт покрытия не найден", {
+        hint: "Соберите покрытие или укажите файл: --coverage-file coverage/lcov.info.",
+        exitCode: 2,
+      });
+    }
+    coverage = coverageGaps(report, changedLines(data.payloadDiff));
+    if (coverage.gaps.length === 0) {
+      if (coverage.missing.length === 0) {
+        log.success(`Все изменённые строки уже покрыты тестами (${describeCoverage(coverage)}).`);
+        if (ctx.flags.json) {
+          writeOutput(
+            JSON.stringify(
+              {
+                applied: false,
+                patch: null,
+                files: [],
+                status: "not-run",
+                tests: null,
+                rounds: 0,
+                analysis: null,
+                meta: { source: data.source },
+                coverage: coveragePayload(coverage, ctx.cwd),
+              },
+              null,
+              2,
+            ),
+            ctx.flags.output,
+          );
+        }
+        return 0;
+      }
+      log.warn(`Нет данных покрытия для: ${coverage.missing.join(", ")} — пишу тесты по всему диффу.`);
+      coverage = undefined;
+    } else {
+      log.info(`Покрытие: ${describeCoverage(coverage)}.`);
+    }
+  }
+
+  const contextParts = baseContext(
+    data,
+    asString(values, "context"),
+    coverage ? formatCoverageGaps(coverage) : undefined,
+  );
 
   let patch: string | undefined;
   let analysis: string | undefined;
@@ -234,6 +314,7 @@ export async function runTestGen(argv: string[]): Promise<number> {
     rounds: roundsUsed,
     analysis: analysis ?? null,
     meta: { source: data.source },
+    coverage: coverage ? coveragePayload(coverage, ctx.cwd) : null,
   };
 
   if (ctx.flags.json) {

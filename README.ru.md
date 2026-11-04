@@ -271,6 +271,7 @@ oc-pilot test-fix --log - --exit-code 1
 
 ```bash
 oc-pilot test-gen --staged --apply
+oc-pilot test-gen --staged --coverage --apply
 oc-pilot test-gen src/billing.ts --apply --rounds 1
 oc-pilot test-gen --base main --json
 oc-pilot test-gen --diff changes.diff
@@ -278,7 +279,9 @@ oc-pilot test-gen --diff changes.diff
 
 Без `--apply` команда только печатает патч. Патч может менять только тестовые файлы (`*.test.ts`, `*.spec.ts`, `*_test.go`, `test_*.py` или пути внутри `test/`); производственный файл в патче отклоняет весь раунд. Существующие тесты защищены, пока не передан `--force`, поэтому сгенерированные тесты не перезаписывают написанные вручную. `--no-run` применяет патч без запуска набора, `--keep-failing` оставляет красный тест для отладки, а `--rounds <n>` (по умолчанию 2) задаёт, сколько раз падение отправляется модели.
 
-JSON-результат — `{applied, patch, files, status, tests, rounds, analysis, meta}`, где `status` равен `pass`, `fail` или `not-run`; код возврата 1, пока тесты остаются красными.
+`--coverage` сужает запрос до изменённых строк, которые ещё не выполнил ни один тест. Команда читает отчёт lcov, Istanbul JSON, Cobertura XML или Go cover profile (`--coverage-file <path>` переопределяет автоопределение `coverage/lcov.info`, `coverage/coverage-final.json`, `cobertura.xml`, `coverage.out` и похожих файлов), пересекает его со строками, добавленными в диффе, и отправляет модели только эти пробелы. Если все изменённые строки уже покрыты, команда выходит с кодом 0, не вызывая модель.
+
+JSON-результат — `{applied, patch, files, status, tests, rounds, analysis, meta, coverage}`, где `status` равен `pass`, `fail` или `not-run`, а `coverage` содержит `{report, format, uncoveredLines, gaps, missing}` (или `null` без `--coverage`); код возврата 1, пока тесты остаются красными.
 
 ### `fix`
 
@@ -747,7 +750,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.24.0
+      - uses: MyNameIsNikki/oc-pilot@v0.25.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
