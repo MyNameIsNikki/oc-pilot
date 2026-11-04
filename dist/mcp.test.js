@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { applyResultOptions } from "./mcp.js";
 const MCP = resolve("dist/mcp.js");
 const AWS_KEY = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
 function runServer(dir, requests, args = []) {
@@ -191,6 +192,137 @@ test("MCP exposes resources and resource templates", () => {
         assert.equal(byId.get(9)?.error?.code, -32002);
         assert.match(byId.get(9)?.error?.message ?? "", /inside the project/);
         assert.equal(byId.get(10)?.error?.code, -32002);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP advertises slop and result caps in tools/list", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-tools-"));
+    try {
+        const { responses } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            { jsonrpc: "2.0", id: 2, method: "tools/list" },
+        ]);
+        const tools = responses.find((response) => response.id === 2)?.result?.tools ?? [];
+        const slop = tools.find((tool) => tool.name === "slop");
+        assert.ok(slop, "slop tool missing");
+        assert.ok(slop.inputSchema.properties.max_findings, "max_findings missing on slop");
+        assert.ok(slop.inputSchema.properties.verbosity, "verbosity missing on slop");
+        const review = tools.find((tool) => tool.name === "review");
+        assert.ok(review?.inputSchema.properties.max_findings, "max_findings missing on review");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP slop tool returns the Slop Index offline", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-slop-"));
+    try {
+        const git = (args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+        git(["init"]);
+        git(["config", "user.email", "test@example.com"]);
+        git(["config", "user.name", "Test"]);
+        git(["config", "core.autocrlf", "false"]);
+        writeFileSync(join(dir, "wallet.go"), "package main\n\nfunc main() {}\n", "utf8");
+        git(["add", "."]);
+        git(["commit", "-m", "init"]);
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: { name: "slop", arguments: { verbosity: "compact", no_blame: true } },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.match(result?.content?.[0]?.text ?? "", /Slop Index/);
+        assert.equal(typeof result?.structuredContent?.index, "number");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("applyResultOptions caps findings and summarizes compactly", () => {
+    const findings = [1, 2, 3, 4, 5].map((n) => ({
+        severity: n === 1 ? "critical" : "warning",
+        location: `src/a.ts:${n}`,
+        text: `issue ${n}`,
+    }));
+    const base = {
+        content: [{ type: "text", text: "payload" }],
+        structuredContent: { findings },
+    };
+    const capped = applyResultOptions(base, { max_findings: 2 });
+    const payload = capped.structuredContent;
+    assert.equal(payload.findings.length, 2);
+    assert.equal(payload.truncated, true);
+    assert.equal(payload.totalFindings, 5);
+    assert.match(capped.content[0].text, /totalFindings/);
+    const compact = applyResultOptions(base, { verbosity: "compact" });
+    assert.match(compact.content[0].text, /5 findings/);
+    assert.equal(compact.structuredContent.findings.length, 5);
+});
+test("MCP handles logging/setLevel and advertises the capability", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-logging-"));
+    try {
+        const { responses } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            { jsonrpc: "2.0", id: 2, method: "logging/setLevel", params: { level: "info" } },
+        ]);
+        const init = responses.find((response) => response.id === 1)?.result;
+        assert.deepEqual(init?.capabilities?.logging, {});
+        assert.deepEqual(responses.find((response) => response.id === 2)?.result, {});
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP stops model-backed tools after the call budget", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-budget-"));
+    try {
+        const git = (args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+        git(["init"]);
+        git(["config", "user.email", "test@example.com"]);
+        git(["config", "user.name", "Test"]);
+        git(["config", "core.autocrlf", "false"]);
+        writeFileSync(join(dir, ".oc-pilot.json"), JSON.stringify({ engine: "openai", baseUrl: "http://127.0.0.1:9/v1", model: "test-model" }), "utf8");
+        writeFileSync(join(dir, "wallet.go"), "package main\n\nfunc main() {}\n", "utf8");
+        git(["add", "."]);
+        git(["commit", "-m", "init"]);
+        const { responses } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "review", arguments: {} } },
+            { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "review", arguments: {} } },
+            { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "stats", arguments: {} } },
+        ], ["--max-calls", "1"]);
+        const blocked = responses.find((response) => response.id === 3)?.result;
+        assert.equal(blocked?.isError, true);
+        assert.match(blocked?.content?.[0]?.text ?? "", /budget/i);
+        const offline = responses.find((response) => response.id === 4)?.result;
+        assert.doesNotMatch(offline?.content?.[0]?.text ?? "", /budget/i);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

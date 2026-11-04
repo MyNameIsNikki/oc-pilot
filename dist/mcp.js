@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -16,6 +16,30 @@ import { VERSION } from "./version.js";
 const SERVER_NAME = "oc-pilot";
 const PROTOCOL_VERSION = "2025-06-18";
 const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
+/** Model-backed calls allowed per process; 0 disables the limit. */
+let maxToolCalls = 50;
+let toolCallsUsed = 0;
+/** Offline tools never spend the budget and always work. */
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop"]);
+/** Set only over stdio, where a notification channel exists. */
+let emitNotification;
+let logLevel;
+/**
+ * Shared output knobs. Every tool can cap the findings array and ask for a
+ * compact summary instead of the full JSON echo.
+ */
+const RESULT_PROPERTIES = {
+    max_findings: {
+        type: "integer",
+        minimum: 1,
+        description: "Cap the findings array (default 50); a capped result also carries truncated and totalFindings",
+    },
+    verbosity: {
+        type: "string",
+        enum: ["full", "compact"],
+        description: "full returns the JSON payload, compact returns a one-line summary and keeps structuredContent",
+    },
+};
 const TOOLS = [
     {
         name: "review",
@@ -26,6 +50,7 @@ const TOOLS = [
             additionalProperties: false,
             properties: {
                 paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs, e.g. src/ or wallet.go" },
+                ...RESULT_PROPERTIES,
                 diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
                 base: { type: "string", description: "Review base...HEAD, e.g. main" },
                 staged: { type: "boolean", description: "Only staged changes" },
@@ -58,6 +83,7 @@ const TOOLS = [
                 staged: { type: "boolean" },
                 base: { type: "string" },
                 include_untracked: { type: "boolean" },
+                ...RESULT_PROPERTIES,
                 context: { type: "string" },
                 fail_on: { type: "string", enum: ["none", "critical", "warning", "style"] },
                 lang: { type: "string", enum: ["en", "ru"] },
@@ -128,6 +154,7 @@ const TOOLS = [
             additionalProperties: false,
             properties: {
                 paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+                ...RESULT_PROPERTIES,
                 diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
                 base: { type: "string" },
                 staged: { type: "boolean" },
@@ -155,6 +182,7 @@ const TOOLS = [
             additionalProperties: false,
             properties: {
                 paths: { type: "array", items: { type: "string" } },
+                ...RESULT_PROPERTIES,
                 diff: { type: "string", description: "Unified diff text. Omit to use git diff." },
                 base: { type: "string" },
                 staged: { type: "boolean" },
@@ -183,6 +211,23 @@ const TOOLS = [
                 model: { type: "string" },
                 timeout: { type: "integer", minimum: 1 },
                 lang: { type: "string", enum: ["en", "ru"] },
+            },
+        },
+    },
+    {
+        name: "slop",
+        description: "Offline Slop Index 0-100: duplicated blocks, dead exports, churn without tests and the TODO graveyard. Uses git only and never calls a model, so it is free and safe in read-only mode.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                since: { type: "string", description: "Compare against a git ref, e.g. origin/main" },
+                since_days: { type: "integer", minimum: 1, maximum: 3650, description: "Churn window in days (default 30)" },
+                limit: { type: "integer", minimum: 1, maximum: 50, description: "Items per category in the output (default 10)" },
+                exclude: { type: "array", items: { type: "string" }, description: "Glob or substring patterns to skip" },
+                no_blame: { type: "boolean", description: "Skip git blame and report TODO age as unknown" },
+                ...RESULT_PROPERTIES,
             },
         },
     },
@@ -230,6 +275,14 @@ const PROMPTS = [
             { name: "context", description: "Attack surface touched by the change", required: false },
         ],
     },
+    {
+        name: "slop-check",
+        title: "Check for vibe-coding slop",
+        description: "Run the Slop Index, then explain which category grew the most and propose the three cheapest fixes with the biggest score drop.",
+        arguments: [
+            { name: "context", description: "What the recent change was supposed to add", required: false },
+        ],
+    },
 ];
 class ToolInputError extends Error {
 }
@@ -266,6 +319,12 @@ const RESOURCES = [
         name: "Review system prompt (Russian)",
         description: "The built-in Russian system prompt used for model calls.",
         mimeType: "text/markdown",
+    },
+    {
+        uri: "oc-pilot://slop",
+        name: "Slop Index",
+        description: "Offline Slop Index report as JSON: duplicated blocks, dead exports, churn and TODO graveyard.",
+        mimeType: "application/json",
     },
 ];
 const RESOURCE_TEMPLATES = [
@@ -431,6 +490,22 @@ function readResourceText(uri, cwd) {
         if (rest === "ru")
             return { mimeType: "text/markdown", text: SYSTEM_PROMPT_RU };
         throw new ResourceError("Unknown prompt language; use oc-pilot://prompt/en or oc-pilot://prompt/ru");
+    }
+    if (kind === "slop") {
+        // The report is cheap and offline, but the module is sync-only here.
+        const result = spawnSync(process.execPath, [CLI_PATH, "slop", "--json"], {
+            cwd,
+            encoding: "utf8",
+            windowsHide: true,
+            timeout: 120_000,
+            maxBuffer: 16 * 1024 * 1024,
+            env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+        });
+        const text = (result.stdout ?? "").trim();
+        if (!text.startsWith("{")) {
+            throw new ResourceError(`slop failed: ${(result.stderr ?? "").trim() || `exit ${result.status}`}`);
+        }
+        return { mimeType: "application/json", text };
     }
     if (kind === "diff") {
         if (!DIFF_MODES.has(rest)) {
@@ -777,7 +852,24 @@ async function callStats(input, cwd) {
         args.push("--clear");
     return toToolResult(await runCli(args, cwd));
 }
-async function callTool(name, input, cwd, readOnly) {
+async function callSlop(input, cwd) {
+    const args = ["slop", "--json"];
+    const since = stringArg(input, "since");
+    if (since)
+        args.push("--since", since);
+    const days = integerArg(input, "since_days");
+    if (days !== undefined)
+        args.push("--since-days", String(days));
+    const limit = integerArg(input, "limit");
+    if (limit !== undefined)
+        args.push("--limit", String(limit));
+    if (booleanArg(input, "no_blame"))
+        args.push("--no-blame");
+    for (const pattern of stringArrayArg(input, "exclude"))
+        args.push("--exclude", pattern);
+    return toToolResult(await runCli(args, cwd));
+}
+async function dispatchTool(name, input, cwd, readOnly) {
     if (readOnly) {
         if (name === "fix" && booleanArg(input, "apply")) {
             throw new ToolInputError("fix apply is disabled in read-only mode; start the MCP server with --allow-write");
@@ -809,9 +901,51 @@ async function callTool(name, input, cwd, readOnly) {
             return callCommit(input, cwd);
         case "stats":
             return callStats(input, cwd);
+        case "slop":
+            return callSlop(input, cwd);
         default:
             throw new ToolInputError(`Unknown tool: ${name}`);
     }
+}
+/** Applies the cross-tool result options: finding caps and compact text. */
+export function applyResultOptions(result, input) {
+    const structured = result.structuredContent;
+    if (!structured)
+        return result;
+    let payload = structured;
+    const cap = integerArg(input, "max_findings") ?? 50;
+    const findings = structured.findings;
+    if (Array.isArray(findings) && findings.length > cap) {
+        payload = { ...structured, findings: findings.slice(0, cap), truncated: true, totalFindings: findings.length };
+    }
+    const text = stringArg(input, "verbosity") === "compact" ? summarizeResult(payload) : JSON.stringify(payload, null, 2);
+    return { ...result, structuredContent: payload, content: [{ type: "text", text }] };
+}
+/** One-line summary used by verbosity=compact. */
+function summarizeResult(value) {
+    if (typeof value.index === "number") {
+        return `oc-pilot: Slop Index ${value.index}/100 (${String(value.grade ?? "unknown")})`;
+    }
+    const findings = value.findings;
+    if (Array.isArray(findings)) {
+        const counts = new Map();
+        for (const item of findings) {
+            const severity = asObject(item)?.severity;
+            if (typeof severity === "string")
+                counts.set(severity, (counts.get(severity) ?? 0) + 1);
+        }
+        const total = typeof value.totalFindings === "number" ? value.totalFindings : findings.length;
+        const breakdown = [...counts].map(([severity, count]) => `${count} ${severity}`).join(", ");
+        const shown = value.truncated === true ? `, showing ${findings.length}` : "";
+        return `oc-pilot: ${total} finding${total === 1 ? "" : "s"}${breakdown ? ` (${breakdown})` : ""}${shown}`;
+    }
+    const message = value.summary ?? value.message;
+    if (typeof message === "string")
+        return message;
+    return `oc-pilot: ${JSON.stringify(value).slice(0, 200)}`;
+}
+async function callTool(name, input, cwd, readOnly) {
+    return applyResultOptions(await dispatchTool(name, input, cwd, readOnly), input);
 }
 function asObject(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
@@ -857,18 +991,27 @@ async function processMessage(message, cwd, readOnly) {
     }
     if (method.startsWith("notifications/"))
         return undefined;
+    if (method === "logging/setLevel") {
+        const level = params?.level;
+        if (typeof level !== "string") {
+            return rpcError(id, -32602, "Invalid params: logging/setLevel requires a level");
+        }
+        logLevel = level;
+        return rpcResult(id, {});
+    }
     if (method === "initialize") {
         const requested = params?.protocolVersion;
         return rpcResult(id, {
             protocolVersion: typeof requested === "string" ? requested : PROTOCOL_VERSION,
             capabilities: {
+                logging: {},
                 tools: { listChanged: false },
                 prompts: { listChanged: false },
                 resources: { listChanged: false },
                 resourceTemplates: { listChanged: false },
             },
             serverInfo: { name: SERVER_NAME, version: VERSION },
-            instructions: `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Prompts (prompts/list) wrap the common flows: review my diff, fix failing tests, pre-commit gate, security review. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}).${readOnly ? " This server is read-only: fix apply, commit apply, running new tests and clearing stats are disabled." : ""}`,
+            instructions: `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Prompts (prompts/list) wrap the common flows: review my diff, fix failing tests, pre-commit gate, security review. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}). Offline tools (scan, stats, slop) never call a model and keep working even after the call budget is exhausted; oc-pilot://slop exposes the Slop Index report and the slop-check prompt frames the entropy question.${readOnly ? " This server is read-only: fix apply, commit apply, running new tests and clearing stats are disabled." : ""}`,
         });
     }
     if (method === "ping")
@@ -924,9 +1067,51 @@ async function processMessage(message, cwd, readOnly) {
         if (typeof name !== "string") {
             return rpcError(id, -32602, "Invalid params: tools/call requires a tool name");
         }
+        if (!OFFLINE_TOOLS.has(name) && maxToolCalls > 0 && toolCallsUsed >= maxToolCalls) {
+            return rpcResult(id, {
+                content: [
+                    {
+                        type: "text",
+                        text: `Tool budget exhausted (${maxToolCalls} model-backed calls per session). Restart the server to reset, raise --max-calls, or use the offline tools: scan, stats, slop.`,
+                    },
+                ],
+                isError: true,
+            });
+        }
         const input = asObject(params?.arguments) ?? {};
+        const token = asObject(params?._meta)?.progressToken;
+        const notify = typeof token === "number" || typeof token === "string";
+        const startedAt = Date.now();
+        if (emitNotification && notify) {
+            emitNotification({
+                jsonrpc: "2.0",
+                method: "notifications/progress",
+                params: { progressToken: token, progress: 0, total: 1, message: `Running ${name}` },
+            });
+        }
+        if (!OFFLINE_TOOLS.has(name))
+            toolCallsUsed += 1;
         try {
-            return rpcResult(id, await callTool(name, input, cwd, readOnly));
+            const result = await callTool(name, input, cwd, readOnly);
+            if (emitNotification && notify) {
+                emitNotification({
+                    jsonrpc: "2.0",
+                    method: "notifications/progress",
+                    params: { progressToken: token, progress: 1, total: 1, message: `${name} finished` },
+                });
+            }
+            if (emitNotification && logLevel) {
+                emitNotification({
+                    jsonrpc: "2.0",
+                    method: "notifications/message",
+                    params: {
+                        level: "info",
+                        logger: "oc-pilot",
+                        data: { tool: name, exitCode: result._meta?.exitCode ?? 0, durationMs: Date.now() - startedAt },
+                    },
+                });
+            }
+            return rpcResult(id, result);
         }
         catch (error) {
             if (error instanceof ToolInputError) {
@@ -962,6 +1147,7 @@ async function processPayload(message, cwd, readOnly) {
     return processMessage(message, cwd, readOnly);
 }
 async function serveStdio(cwd, readOnly) {
+    emitNotification = (message) => writeMessage(message);
     const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
     for await (const line of lines) {
         const trimmed = line.trim();
@@ -979,6 +1165,7 @@ async function serveStdio(cwd, readOnly) {
         if (response)
             writeMessage(response);
     }
+    emitNotification = undefined;
 }
 function corsHeaders(config) {
     if (!config.cors)
@@ -1120,6 +1307,7 @@ Options:
       --path <path>   HTTP endpoint path (default: /mcp)
       --token <token> Require Authorization: Bearer <token>
       --cors <origin> Add CORS headers for an origin, or *
+      --max-calls <n> Model-backed tool calls per session, 0 disables the limit (default: 50)
       --read-only     Disable fix --apply and running new tests (default)
       --allow-write   Enable fix --apply and running new tests
   -h, --help          Show this help
@@ -1127,7 +1315,11 @@ Options:
 
 Environment:
   OC_PILOT_MCP_HOST, OC_PILOT_MCP_PORT, OC_PILOT_MCP_PATH,
-  OC_PILOT_MCP_TOKEN, OC_PILOT_MCP_CORS, OC_PILOT_MCP_READ_ONLY
+  OC_PILOT_MCP_TOKEN, OC_PILOT_MCP_CORS, OC_PILOT_MCP_READ_ONLY,
+  OC_PILOT_MCP_MAX_CALLS
+
+The offline tools (scan, stats, slop) never call a model and keep working
+after the call budget is exhausted. oc-pilot://slop exposes the Slop Index.
 
 Examples:
   oc-pilot-mcp --cwd /path/to/project
@@ -1147,12 +1339,13 @@ function parseServerArgs(argv) {
     const envReadOnly = process.env.OC_PILOT_MCP_READ_ONLY;
     let readOnly = envReadOnly === "1" || envReadOnly === "true" ? true : envReadOnly === "0" || envReadOnly === "false" ? false : undefined;
     let allowWrite = false;
+    let maxCalls = Number(process.env.OC_PILOT_MCP_MAX_CALLS ?? "50");
     for (let index = 0; index < argv.length; index += 1) {
         const arg = argv[index];
         if (arg === "--help" || arg === "-h")
-            return { cwd, action: "help", readOnly: false };
+            return { cwd, action: "help", readOnly: false, maxCalls };
         if (arg === "--version" || arg === "-V")
-            return { cwd, action: "version", readOnly: false };
+            return { cwd, action: "version", readOnly: false, maxCalls };
         if (arg === "--http") {
             http = true;
             continue;
@@ -1196,6 +1389,10 @@ function parseServerArgs(argv) {
             cors = next();
             continue;
         }
+        if (arg === "--max-calls") {
+            maxCalls = Number(next());
+            continue;
+        }
         throw new Error(`Unknown option: ${arg}`);
     }
     if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
@@ -1210,10 +1407,14 @@ function parseServerArgs(argv) {
     if (readOnly === true && allowWrite) {
         throw new Error("--read-only and --allow-write are mutually exclusive");
     }
+    if (!Number.isInteger(maxCalls) || maxCalls < 0) {
+        throw new Error(`Invalid max calls: ${process.env.OC_PILOT_MCP_MAX_CALLS ?? "not a number"}`);
+    }
     const effectiveReadOnly = readOnly ?? !allowWrite;
     return {
         cwd,
         readOnly: effectiveReadOnly,
+        maxCalls,
         ...(http ? { http: { host, port, path, token, cors, readOnly: effectiveReadOnly } } : {}),
     };
 }
@@ -1221,6 +1422,7 @@ export async function runMcp(argv = process.argv.slice(2)) {
     let parsed;
     try {
         parsed = parseServerArgs(argv);
+        maxToolCalls = parsed.maxCalls;
     }
     catch (error) {
         process.stderr.write(`oc-pilot-mcp: ${error instanceof Error ? error.message : String(error)}\n\n${usage()}`);
