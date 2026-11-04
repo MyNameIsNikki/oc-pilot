@@ -23,6 +23,7 @@ import { runScan } from "./commands/scan.js";
 import { runSetup } from "./commands/setup.js";
 import { runTestFix } from "./commands/test-fix.js";
 import { runTestGen } from "./commands/test-gen.js";
+import { runFlaky } from "./commands/flaky.js";
 import { PilotError, toPilotError } from "./core/errors.js";
 import { log } from "./core/log.js";
 import { COMMON_HELP } from "./core/options.js";
@@ -33,6 +34,7 @@ const HANDLERS = {
     reviewers: runReviewers,
     "test-fix": runTestFix,
     "test-gen": runTestGen,
+    flaky: runFlaky,
     fix: runFix,
     docgen: runDocgen,
     custom: runCustom,
@@ -64,6 +66,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   review      Ревью git-diff: баги, уязвимости, идиомы языка
   test-fix    Разбор падения тестов и минимальный фикс
   test-gen    Сгенерировать тесты на изменённый код и оставить только зелёные
+  flaky       Найти нестабильные тесты: несколько прогонов и сравнение
   fix         Патч от модели, git apply и цикл тестов с откатом
   docgen      Генерация GoDoc/RustDoc/JSDoc/docstrings
   custom      Свободный запрос к oc-pilot
@@ -101,6 +104,7 @@ ${COMMON_HELP}
   oc-pilot fix --apply --command "go test ./..."
   oc-pilot test-fix --command "go test ./..."
   oc-pilot test-gen --staged --apply
+  oc-pilot flaky --runs 5
   oc-pilot deps --json
   oc-pilot preflight --staged
   oc-pilot receipt --staged
@@ -145,7 +149,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, fix, docgen, custom, scan, deps, preflight, receipt, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, flaky, fix, docgen, custom, scan, deps, preflight, receipt, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

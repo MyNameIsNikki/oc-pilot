@@ -403,6 +403,23 @@ The file is sealed with a SHA-256 hash of its body. `--verify` recomputes the ha
 
 A receipt carries `{version, tool, toolVersion, createdAt, commit, branch, dirty, diff, files, tests, preflight, hash}`. `tests` is `{command, exitCode, timedOut, durationMs, passed, outputTail}` or `null` with `--no-run`; `preflight` is the same report `preflight` prints. Outside a repository the receipt can only be written to an explicit path with `--out`.
 
+### `flaky`
+
+Runs the test command several times and compares per-test results. A test that passes in some runs and fails in others is flaky; one that fails every time is simply broken. The command never calls a model: it only runs the suite and parses the output.
+
+```bash
+oc-pilot flaky
+oc-pilot flaky --runs 5
+oc-pilot flaky --command "go test ./..." --json
+oc-pilot flaky --fail-on-flaky
+```
+
+`--runs <n>` defaults to 3 and caps at 10. `--command` overrides `testCommand` from `.oc-pilot.json` and the detected test command. `--fail-on-flaky` exits with code 1 when at least one test flipped, which makes it usable as a CI gate.
+
+Per-test results are parsed from the Node test runner spec reporter, TAP, Go (`--- PASS`/`--- FAIL`), pytest (`PASSED`/`FAILED`) and Jest/Vitest (`✓`/`✕`). If the output carries no recognizable markers, `parsed` is false and the report only tells you that the exit codes were compared.
+
+The JSON payload is `{command, runs, completed, parsed, tests, flaky, failing}`; each test is `{name, passes, failures, status}` with `status` equal to `flaky`, `failing` or `passing`.
+
 ### `deps`
 
 Offline health audit of npm, pnpm and yarn dependencies. No model call, no network.
@@ -990,7 +1007,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.35.0
+      - uses: MyNameIsNikki/oc-pilot@v0.36.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1013,7 +1030,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.35.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.36.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

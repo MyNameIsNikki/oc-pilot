@@ -1111,4 +1111,29 @@ test("deps reads a pnpm lockfile and fixes a phantom import", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("flaky finds a test that flips between runs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-flaky-"));
+    try {
+        writeFileSync(join(dir, "check.js"), [
+            'const fs = require("node:fs");',
+            'const count = fs.existsSync("count.txt") ? Number(fs.readFileSync("count.txt", "utf8")) : 0;',
+            'fs.writeFileSync("count.txt", String(count + 1));',
+            'if (count % 2 === 0) { console.log("\\u2714 flaky test"); process.exit(0); }',
+            'console.log("\\u2716 flaky test"); process.exit(1);',
+            "",
+        ].join("\n"), "utf8");
+        const result = runCli(["flaky", "--cwd", dir, "--command", "node check.js", "--runs", "3", "--json"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.runs, 3);
+        assert.equal(payload.parsed, true);
+        assert.equal(payload.flaky[0]?.name, "flaky test");
+        assert.equal(payload.flaky[0]?.status, "flaky");
+        const gated = runCli(["flaky", "--cwd", dir, "--command", "node check.js", "--runs", "3", "--json", "--fail-on-flaky"], dir);
+        assert.equal(gated.status, 1, gated.stderr);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map
