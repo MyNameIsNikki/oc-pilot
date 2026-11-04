@@ -388,6 +388,21 @@ Dependency issues are scoped: preflight reports only problems in files the diff 
 
 The JSON report is `{status, checks, diff}`, where each check carries `{id, label, status, summary, details}` with `status` equal to `pass`, `fail` or `skip`.
 
+### `receipt`
+
+Turns "it works on my machine" into a checked claim. A receipt runs the tests and the preflight, then records the result together with the commit SHA, branch, dirty state, diff stats, and the exact commands. It is written to `.git/oc-pilot/receipt.json`, so it never ends up in the working tree.
+
+```bash
+oc-pilot receipt --staged
+oc-pilot receipt --json
+oc-pilot receipt --verify
+oc-pilot receipt --verify --receipt path/to/receipt.json
+```
+
+The file is sealed with a SHA-256 hash of its body. `--verify` recomputes the hash and compares the commit with the current `HEAD`, so an edited file or a receipt from an older commit is reported as invalid: `{path, ok, hashOk, stale, commit, head, reason?}`. The exit code is 1 when the tests fail, the preflight fails or the receipt does not verify.
+
+A receipt carries `{version, tool, toolVersion, createdAt, commit, branch, dirty, diff, files, tests, preflight, hash}`. `tests` is `{command, exitCode, timedOut, durationMs, passed, outputTail}` or `null` with `--no-run`; `preflight` is the same report `preflight` prints. Outside a repository the receipt can only be written to an explicit path with `--out`.
+
 ### `deps`
 
 Offline health audit of npm dependencies. No model call, no network.
@@ -975,7 +990,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.32.0
+      - uses: MyNameIsNikki/oc-pilot@v0.33.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -998,7 +1013,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.32.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.33.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

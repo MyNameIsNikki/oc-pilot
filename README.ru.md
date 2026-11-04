@@ -377,6 +377,21 @@ oc-pilot preflight --no-slop --fail-on-issue medium
 
 JSON-отчёт — `{status, checks, diff}`, где каждая проверка содержит `{id, label, status, summary, details}`, а `status` равен `pass`, `fail` или `skip`.
 
+### `receipt`
+
+Превращает «у меня работает» в проверяемое утверждение. Квитанция прогоняет тесты и preflight, а затем записывает результат вместе с SHA коммита, веткой, состоянием рабочего дерева, статистикой диффа и точными командами. Файл пишется в `.git/oc-pilot/receipt.json`, поэтому никогда не попадает в рабочее дерево.
+
+```bash
+oc-pilot receipt --staged
+oc-pilot receipt --json
+oc-pilot receipt --verify
+oc-pilot receipt --verify --receipt path/to/receipt.json
+```
+
+Файл запечатан SHA-256 хешем тела. `--verify` пересчитывает хеш и сравнивает коммит с текущим `HEAD`, поэтому изменённый файл или квитанция от старого коммита считаются недействительными: `{path, ok, hashOk, stale, commit, head, reason?}`. Код возврата 1, если тесты упали, preflight не прошёл или квитанция не проверяется.
+
+Квитанция содержит `{version, tool, toolVersion, createdAt, commit, branch, dirty, diff, files, tests, preflight, hash}`. `tests` — `{command, exitCode, timedOut, durationMs, passed, outputTail}` или `null` при `--no-run`; `preflight` — тот же отчёт, что печатает `preflight`. Вне репозитория квитанцию можно записать только в явный путь через `--out`.
+
 ### `deps`
 
 Офлайн-аудит здоровья npm-зависимостей. Модель не вызывается, сеть не используется.
@@ -801,7 +816,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.32.0
+      - uses: MyNameIsNikki/oc-pilot@v0.33.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

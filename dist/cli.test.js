@@ -1020,4 +1020,60 @@ test("preflight can skip every check", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("receipt records a run and verifies against HEAD", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", scripts: { test: 'node -e "process.exit(0)"' } }, null, 2), "utf8");
+        writeFileSync(join(dir, "app.ts"), "export const a = 1;\n", "utf8");
+        spawnSync("git", ["add", "-A"], { cwd: dir });
+        spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], {
+            cwd: dir,
+        });
+        const created = runCli(["receipt", "--cwd", dir, "--json", "--no-slop"], dir);
+        assert.equal(created.status, 0, created.stderr);
+        const receipt = JSON.parse(created.stdout);
+        assert.equal(receipt.tests?.passed, true);
+        assert.equal(receipt.preflight.status, "pass");
+        assert.match(receipt.hash, /^[a-f0-9]{64}$/);
+        const saved = join(dir, ".git", "oc-pilot", "receipt.json");
+        assert.equal(existsSync(saved), true);
+        const verified = runCli(["receipt", "--verify", "--cwd", dir, "--json"], dir);
+        assert.equal(verified.status, 0, verified.stderr);
+        const verification = JSON.parse(verified.stdout);
+        assert.equal(verification.ok, true);
+        assert.equal(verification.hashOk, true);
+        assert.equal(verification.stale, false);
+        const tampered = { ...receipt, tests: { ...receipt.tests, passed: false } };
+        writeFileSync(saved, JSON.stringify(tampered, null, 2), "utf8");
+        const rejected = runCli(["receipt", "--verify", "--cwd", dir, "--json"], dir);
+        assert.equal(rejected.status, 1, rejected.stderr);
+        const rejection = JSON.parse(rejected.stdout);
+        assert.equal(rejection.ok, false);
+        assert.equal(rejection.hashOk, false);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("receipt reports failing tests", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-fail-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", scripts: { test: 'node -e "process.exit(1)"' } }, null, 2), "utf8");
+        writeFileSync(join(dir, "app.ts"), "export const a = 1;\n", "utf8");
+        spawnSync("git", ["add", "-A"], { cwd: dir });
+        spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], {
+            cwd: dir,
+        });
+        const result = runCli(["receipt", "--cwd", dir, "--json", "--no-slop"], dir);
+        assert.equal(result.status, 1, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.tests?.passed, false);
+        assert.equal(payload.tests?.exitCode, 1);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map

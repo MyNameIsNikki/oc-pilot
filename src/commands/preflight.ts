@@ -1,20 +1,12 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { auditDependencies, type DepSeverity } from "../core/deps-health.js";
+import type { DepSeverity } from "../core/deps-health.js";
 import { loadDiff } from "../core/diff-source.js";
 import { PilotError } from "../core/errors.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, type OptionSpec } from "../core/options.js";
 import { asBoolean, asString, type ArgsValues } from "../core/parse.js";
-import {
-  buildPreflightReport,
-  renderPreflight,
-  scopeDependencyIssues,
-  type PreflightCheckId,
-} from "../core/preflight.js";
-import { analyzeAgainst } from "../core/slop/index.js";
-import { analyzeTestWeakness } from "../core/test-weakening.js";
+import { renderPreflight, type PreflightCheckId } from "../core/preflight.js";
+import { collectPreflight } from "../core/preflight-run.js";
 
 const OPTIONS: OptionSpec = withCommon({
   diff: { type: "string" },
@@ -99,46 +91,11 @@ export async function runPreflight(argv: string[]): Promise<number> {
 
   const data = await loadDiff(values, ctx, positionals, { optionalGit: true });
 
-  let deps: { audit: ReturnType<typeof auditDependencies>; issues: ReturnType<typeof scopeDependencyIssues> } | null = null;
-  let depsSkip: string | undefined;
-  if (!disabled.includes("deps")) {
-    if (!existsSync(join(ctx.cwd, "package.json"))) {
-      depsSkip = "package.json не найден";
-    } else {
-      const audit = auditDependencies(ctx.cwd);
-      deps = {
-        audit,
-        issues: scopeDependencyIssues(audit.issues, data.changedFiles, data.diff),
-      };
-    }
-  }
-
-  const since = asString(values, "since");
-  let slop: { report: ReturnType<typeof analyzeAgainst>["current"]; delta: ReturnType<typeof analyzeAgainst>["delta"] } | null = null;
-  let slopSkip: string | undefined;
-  if (!disabled.includes("slop")) {
-    const ref = since ?? "HEAD";
-    try {
-      const result = analyzeAgainst(ctx.cwd, ref, { blame: false, limit: 10 });
-      slop = { report: result.current, delta: result.delta };
-    } catch (error) {
-      if (since !== undefined) throw error;
-      slopSkip = `нет базы для сравнения (${ref})`;
-      log.detail(`Дельта slop недоступна: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  const report = buildPreflightReport({
-    diff: { source: data.source, stats: data.stats },
-    secrets: disabled.includes("secrets") ? null : data.findings,
-    deps,
-    depsSkip,
-    weaknesses: disabled.includes("tests") ? null : analyzeTestWeakness(data.diff),
-    slop,
-    slopSkip,
+  const report = collectPreflight(ctx.cwd, data, {
     disabled,
     depsGate: parseGate(asString(values, "fail-on-issue")),
     maxSlopDelta: optionalNumber(values, "max-delta"),
+    since: asString(values, "since"),
   });
 
   const text = ctx.flags.json
