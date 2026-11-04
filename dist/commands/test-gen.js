@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { runShellCommand } from "../core/command.js";
+import { collectDiffStats } from "../core/diff.js";
 import { changedLines, coverageGaps, describeCoverage, formatCoverageGaps, loadCoverage, } from "../core/coverage.js";
 import { describeDiffSource, loadDiff } from "../core/diff-source.js";
 import { PilotError } from "../core/errors.js";
@@ -13,6 +14,7 @@ import { detectProjectType, detectTestCommand } from "../core/project.js";
 import { executeRecipeDetailed } from "../core/run.js";
 import { loadSecretIgnore, scanDiff } from "../core/secrets.js";
 import { isTestFile } from "../core/slop/source.js";
+import { describeTarget, formatTestTargets, selectTestTargets, } from "../core/slop/test-debt.js";
 const OPTIONS = withCommon({
     apply: { type: "boolean" },
     "no-run": { type: "boolean" },
@@ -21,6 +23,8 @@ const OPTIONS = withCommon({
     rounds: { type: "string" },
     coverage: { type: "boolean" },
     "coverage-file": { type: "string" },
+    "from-slop": { type: "boolean" },
+    "slop-files": { type: "string" },
     command: { type: "string" },
     diff: { type: "string" },
     staged: { type: "boolean" },
@@ -45,6 +49,8 @@ const HELP = `Использование:
       --rounds <n>      сколько раз пробовать починить падающий тест (по умолчанию 2)
       --coverage        писать тесты только на непокрытые изменённые строки
       --coverage-file <path>  отчёт покрытия (lcov, istanbul, cobertura, Go coverprofile)
+      --from-slop       выбрать цели сканом slop (файлы без тестов), а не из diff
+      --slop-files <n>  сколько файлов выбирать в --from-slop (по умолчанию 3)
       --command <cmd>   команда тестов (иначе testCommand или автоопределение)
       --diff <file>     готовый unified diff вместо git-состояния
       --staged          взять staged-изменения
@@ -60,23 +66,30 @@ ${COMMON_HELP}
   oc-pilot test-gen src/billing.ts --apply --rounds 1
   oc-pilot test-gen --base main --json
   oc-pilot test-gen --diff changes.diff --no-run
-  oc-pilot test-gen --staged --coverage --apply`;
+  oc-pilot test-gen --staged --coverage --apply
+  oc-pilot test-gen --from-slop --apply`;
 /** Context lines that turn the generic custom recipe into a test generator. */
-function baseContext(data, context, coverageText) {
+function baseContext(input, context, coverageText, slopText) {
     const parts = [
-        coverageText
-            ? "TEST_GEN_MODE: write tests for the uncovered changed lines listed in COVERAGE_GAPS. Lines that are already covered need no new test."
-            : "TEST_GEN_MODE: write tests that cover the behavior changed in GIT_DIFF.",
+        slopText
+            ? "TEST_GEN_MODE: the files in GIT_DIFF are untested source files selected by the slop scan (see TEST_DEBT_TARGETS). Write tests that cover their public behavior. Do not modify the files in GIT_DIFF."
+            : coverageText
+                ? "TEST_GEN_MODE: write tests for the uncovered changed lines listed in COVERAGE_GAPS. Lines that are already covered need no new test."
+                : "TEST_GEN_MODE: write tests that cover the behavior changed in GIT_DIFF.",
         "Return the normal output schema. Put exactly one ```diff fenced patch under `#### Solution`.",
         "The patch must only add or modify test files (*.test.ts, *.spec.ts, *_test.go, test_*.py). Do not change production code.",
         "Match the test framework and conventions already used in the repository; keep tests deterministic and offline.",
-        `DIFF_SOURCE: ${describeDiffSource(data.source)}`,
-        `DIFF_STATS: ${data.stats.files} файл(ов), +${data.stats.additions} / -${data.stats.deletions}`,
+        slopText
+            ? "DIFF_SOURCE: скан slop (содержимое уже включено в GIT_DIFF)"
+            : `DIFF_SOURCE: ${describeDiffSource(input.source)}`,
+        `DIFF_STATS: ${input.stats.files} файл(ов), +${input.stats.additions} / -${input.stats.deletions}`,
     ];
+    if (slopText)
+        parts.push(slopText);
     if (coverageText)
         parts.push(coverageText);
-    if (data.untracked.length > 0)
-        parts.push(`UNTRACKED_FILES: ${data.untracked.join(", ")}`);
+    if (input.untracked.length > 0)
+        parts.push(`UNTRACKED_FILES: ${input.untracked.join(", ")}`);
     if (context?.trim())
         parts.push(`USER_CONTEXT: ${context.trim()}`);
     return parts;
@@ -100,6 +113,21 @@ function coveragePayload(summary, cwd) {
         missing: summary.missing,
     };
 }
+/** Compact slop-target block for the JSON payload. */
+function targetPayload(targets) {
+    return targets.map((target) => ({
+        file: target.file,
+        score: target.score,
+        lines: target.lines,
+        reasons: target.reasons,
+        commits: target.commits ?? null,
+        testCommits: target.testCommits ?? null,
+        days: target.days ?? null,
+        duplicateBlocks: target.duplicateBlocks ?? null,
+        duplicateTokens: target.duplicateTokens ?? null,
+        todos: target.todos ?? null,
+    }));
+}
 export async function runTestGen(argv) {
     const { values, positionals } = parseCommandArgs(argv, OPTIONS);
     if (asBoolean(values, "help")) {
@@ -115,14 +143,69 @@ export async function runTestGen(argv) {
     const roundsRaw = asString(values, "rounds");
     const rounds = roundsRaw ? parsePositiveInt(roundsRaw, "rounds", 5) : 2;
     const commandOverride = asString(values, "command");
+    const fromSlop = asBoolean(values, "from-slop");
+    const slopFilesRaw = asString(values, "slop-files");
+    const slopFiles = slopFilesRaw ? parsePositiveInt(slopFilesRaw, "slop-files", 50) : 3;
     if (apply && !runTests && !asBoolean(values, "no-run")) {
         throw new PilotError("--apply требует запуска тестов", { hint: "Добавьте --no-run, если тесты запускать не нужно.", exitCode: 2 });
     }
-    const data = await loadDiff(values, ctx, positionals, { optionalGit: true });
-    if (data.changedFiles.length === 0) {
-        log.info("Изменённых файлов нет — генерировать тесты не для чего.");
-        return 0;
+    if (fromSlop) {
+        const conflicts = [];
+        if (asString(values, "diff") !== undefined)
+            conflicts.push("--diff");
+        if (asBoolean(values, "stdin"))
+            conflicts.push("--stdin");
+        for (const flag of ["staged", "unstaged", "base", "include-untracked"]) {
+            if (asBoolean(values, flag))
+                conflicts.push(`--${flag}`);
+        }
+        if (asBoolean(values, "coverage") || asString(values, "coverage-file") !== undefined)
+            conflicts.push("--coverage");
+        if (positionals.length > 0)
+            conflicts.push("пути");
+        if (conflicts.length > 0) {
+            throw new PilotError(`--from-slop не сочетается с: ${conflicts.join(", ")}`, {
+                hint: "--from-slop сам выбирает файлы для тестов по скану slop.",
+                exitCode: 2,
+            });
+        }
     }
+    let data;
+    let selection;
+    if (fromSlop) {
+        selection = selectTestTargets(ctx.cwd, { limit: slopFiles });
+        if (selection.targets.length === 0) {
+            log.success("Файлов без тестов не найдено — генерировать тесты не для чего.");
+            if (ctx.flags.json) {
+                writeOutput(JSON.stringify({
+                    applied: false,
+                    patch: null,
+                    files: [],
+                    status: "not-run",
+                    tests: null,
+                    rounds: 0,
+                    analysis: null,
+                    meta: { source: "slop" },
+                    coverage: null,
+                    targets: [],
+                }, null, 2), ctx.flags.output);
+            }
+            return 0;
+        }
+        log.info(`Цели по slop (без тестов ${String(selection.untested)} из ${String(selection.filesScanned)} файлов): ` +
+            `${selection.targets.map((target) => `${target.file} — ${describeTarget(target)}`).join("; ")}.`);
+    }
+    else {
+        data = await loadDiff(values, ctx, positionals, { optionalGit: true });
+        if (data.changedFiles.length === 0) {
+            log.info("Изменённых файлов нет — генерировать тесты не для чего.");
+            return 0;
+        }
+    }
+    const payloadDiff = data ? data.payloadDiff : selection.payloadDiff;
+    const changedFiles = data ? data.changedFiles : selection.targets.map((target) => target.file);
+    const source = data ? data.source : "slop";
+    const stats = data ? data.stats : collectDiffStats(payloadDiff);
     const testCommand = commandOverride ?? ctx.config.testCommand ?? detectTestCommand(ctx.cwd)?.command;
     if (runTests && !testCommand) {
         throw new PilotError("Не найдена команда тестов", {
@@ -131,7 +214,7 @@ export async function runTestGen(argv) {
         });
     }
     const captureCtx = { ...ctx, flags: { ...ctx.flags, json: false, output: undefined } };
-    const projectType = detectProjectType(ctx.cwd, data.changedFiles);
+    const projectType = detectProjectType(ctx.cwd, changedFiles);
     const coverageRequested = asBoolean(values, "coverage") || Boolean(asString(values, "coverage-file"));
     let coverage;
     if (coverageRequested) {
@@ -142,7 +225,7 @@ export async function runTestGen(argv) {
                 exitCode: 2,
             });
         }
-        coverage = coverageGaps(report, changedLines(data.payloadDiff));
+        coverage = coverageGaps(report, changedLines(payloadDiff));
         if (coverage.gaps.length === 0) {
             if (coverage.missing.length === 0) {
                 log.success(`Все изменённые строки уже покрыты тестами (${describeCoverage(coverage)}).`);
@@ -155,8 +238,9 @@ export async function runTestGen(argv) {
                         tests: null,
                         rounds: 0,
                         analysis: null,
-                        meta: { source: data.source },
+                        meta: { source },
                         coverage: coveragePayload(coverage, ctx.cwd),
+                        targets: null,
                     }, null, 2), ctx.flags.output);
                 }
                 return 0;
@@ -168,7 +252,7 @@ export async function runTestGen(argv) {
             log.info(`Покрытие: ${describeCoverage(coverage)}.`);
         }
     }
-    const contextParts = baseContext(data, asString(values, "context"), coverage ? formatCoverageGaps(coverage) : undefined);
+    const contextParts = baseContext({ source, stats, untracked: data?.untracked ?? [] }, asString(values, "context"), coverage ? formatCoverageGaps(coverage) : undefined, selection ? formatTestTargets(selection.targets) : undefined);
     let patch;
     let analysis;
     let test = null;
@@ -179,11 +263,11 @@ export async function runTestGen(argv) {
             recipe: "custom",
             projectType,
             additionalContext: contextParts.join("\n\n"),
-            diff: data.payloadDiff,
-            secretFindings: data.findings,
-            changedFiles: data.changedFiles,
+            diff: payloadDiff,
+            secretFindings: data?.findings ?? [],
+            changedFiles,
             noSecretScan,
-            meta: { source: data.source, testGenRound: round },
+            meta: { source, testGenRound: round },
         }, captureCtx, { capture: true, slicing: false });
         analysis = execution.analysis;
         const candidate = extractPatch(execution.analysis ?? "");
@@ -255,8 +339,9 @@ export async function runTestGen(argv) {
         tests: test,
         rounds: roundsUsed,
         analysis: analysis ?? null,
-        meta: { source: data.source },
+        meta: { source },
         coverage: coverage ? coveragePayload(coverage, ctx.cwd) : null,
+        targets: selection ? targetPayload(selection.targets) : null,
     };
     if (ctx.flags.json) {
         writeOutput(JSON.stringify(payload, null, 2), ctx.flags.output);

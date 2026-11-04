@@ -293,6 +293,7 @@ Turns a diff into tests that actually run. The model writes tests for the behavi
 ```bash
 oc-pilot test-gen --staged --apply
 oc-pilot test-gen --staged --coverage --apply
+oc-pilot test-gen --from-slop --apply
 oc-pilot test-gen src/billing.ts --apply --rounds 1
 oc-pilot test-gen --base main --json
 oc-pilot test-gen --diff changes.diff
@@ -302,7 +303,9 @@ Without `--apply` the command only prints the patch. The patch may touch test fi
 
 `--coverage` narrows the request to changed lines that no test executed yet. The command reads an lcov, Istanbul JSON, Cobertura XML or Go cover profile report (`--coverage-file <path>` overrides the auto-detected `coverage/lcov.info`, `coverage/coverage-final.json`, `cobertura.xml`, `coverage.out` and similar files), intersects it with the lines added by the diff, and sends only those gaps to the model. When every changed line is already covered, it exits 0 without calling the model.
 
-The JSON payload is `{applied, patch, files, status, tests, rounds, analysis, meta, coverage}` with `status` equal to `pass`, `fail` or `not-run` and `coverage` holding `{report, format, uncoveredLines, gaps, missing}` (or `null` without `--coverage`); the exit code is 1 while the tests stay red.
+`--from-slop` ignores the diff and lets the slop scan choose the work: it looks for source files that have no test at all and ranks them by churn, duplicated blocks and unresolved TODOs. `--slop-files <n>` (default 3) caps how many files are sent. The command refuses to mix `--from-slop` with `--diff`, `--staged`, `--base`, `--coverage` or explicit paths, because those already define the input. When every source file has a test, it exits 0 without calling the model.
+
+The JSON payload is `{applied, patch, files, status, tests, rounds, analysis, meta, coverage, targets}` with `status` equal to `pass`, `fail` or `not-run` and `coverage` holding `{report, format, uncoveredLines, gaps, missing}` (or `null` without `--coverage`); `targets` lists the slop-selected files with their scores and reasons (or `null` without `--from-slop`). The exit code is 1 while the tests stay red.
 
 ### `fix`
 
@@ -924,7 +927,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.25.0
+      - uses: MyNameIsNikki/oc-pilot@v0.26.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -947,7 +950,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.25.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.26.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

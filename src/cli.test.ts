@@ -894,3 +894,82 @@ test("test-gen coverage skips generation when changed lines are covered", () => 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("test-gen --from-slop picks an untested file and writes its test", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-test-gen-slop-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    const source = Array.from({ length: 120 }, (_, index) => `export const value${String(index)} = ${String(index)};`);
+    writeFileSync(join(dir, "calc.ts"), `${source.join("\n")}\n`, "utf8");
+    spawnSync("git", ["add", "calc.ts"], { cwd: dir });
+    spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+
+    const patch = [
+      "diff --git a/calc.test.ts b/calc.test.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/calc.test.ts",
+      "@@ -0,0 +1,2 @@",
+      "+test(\"value0\", () => {});",
+      "+",
+      "",
+    ].join("\n");
+
+    const fake = installFakeOpenCode(dir);
+    const result = runCli(
+      ["test-gen", "--from-slop", "--slop-files", "1", "--apply", "--no-run", "--cwd", dir, "--json"],
+      dir,
+      { ...fake, FAKE_PATCH_TEXT: patch },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      applied: boolean;
+      files: string[];
+      targets: Array<{ file: string }>;
+    };
+    assert.equal(payload.applied, true);
+    assert.deepEqual(payload.files, ["calc.test.ts"]);
+    assert.deepEqual(payload.targets.map((target) => target.file), ["calc.ts"]);
+    assert.match(readFileSync(join(dir, "calc.test.ts"), "utf8"), /test\("value0"/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("test-gen --from-slop rejects diff sources", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-test-gen-slop-cx-"));
+  try {
+    const result = runCli(["test-gen", "--from-slop", "--diff", "x.diff", "--cwd", dir, "--json"], dir);
+
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /не сочетается/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("test-gen --from-slop exits early when every file has a test", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-test-gen-slop-none-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "a.ts"), "export const a = 1;\n", "utf8");
+    writeFileSync(join(dir, "a.test.ts"), "test(\"a\", () => {});\n", "utf8");
+    spawnSync("git", ["add", "a.ts", "a.test.ts"], { cwd: dir });
+    spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+
+    const result = runCli(["test-gen", "--from-slop", "--cwd", dir, "--json"], dir);
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      applied: boolean;
+      status: string;
+      targets: unknown[];
+    };
+    assert.equal(payload.applied, false);
+    assert.equal(payload.status, "not-run");
+    assert.deepEqual(payload.targets, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
