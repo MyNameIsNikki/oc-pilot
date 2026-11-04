@@ -578,4 +578,67 @@ test("unknown commands return a usage error", () => {
     assert.equal(result.status, 2);
     assert.match(result.stderr, /Неизвестная команда/);
 });
+test("test-gen applies a generated test file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-test-gen-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "wallet.go"), "package wallet\n", "utf8");
+        spawnSync("git", ["add", "wallet.go"], { cwd: dir });
+        spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+        const patch = [
+            "diff --git a/src/a.test.ts b/src/a.test.ts",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/a.test.ts",
+            "@@ -0,0 +1,2 @@",
+            "+test(\"a\", () => {});",
+            "+",
+            "",
+        ].join("\n");
+        const diffPath = join(dir, "changes.diff");
+        writeFileSync(diffPath, patch);
+        const fake = installFakeOpenCode(dir);
+        const result = runCli(["test-gen", "--diff", diffPath, "--apply", "--no-run", "--rounds", "1", "--cwd", dir, "--json"], dir, { ...fake, FAKE_PATCH_TEXT: patch });
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.applied, true);
+        assert.equal(payload.status, "not-run");
+        assert.deepEqual(payload.files, ["src/a.test.ts"]);
+        assert.match(readFileSync(join(dir, "src", "a.test.ts"), "utf8"), /test\("a"/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("test-gen refuses a patch that changes production code", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-test-gen-skip-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "wallet.go"), "package wallet\n", "utf8");
+        spawnSync("git", ["add", "wallet.go"], { cwd: dir });
+        spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+        const patch = [
+            "diff --git a/wallet.go b/wallet.go",
+            "--- a/wallet.go",
+            "+++ b/wallet.go",
+            "@@ -1 +1,2 @@",
+            " package wallet",
+            "+// sneaky production change",
+            "",
+        ].join("\n");
+        const diffPath = join(dir, "changes.diff");
+        writeFileSync(diffPath, patch);
+        const fake = installFakeOpenCode(dir);
+        const result = runCli(["test-gen", "--diff", diffPath, "--apply", "--no-run", "--rounds", "1", "--cwd", dir, "--json"], dir, { ...fake, FAKE_PATCH_TEXT: patch });
+        assert.equal(result.status, 1, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.applied, false);
+        assert.equal(payload.patch, null);
+        assert.equal(payload.status, "fail");
+        assert.equal(readFileSync(join(dir, "wallet.go"), "utf8").replace(/\r\n/g, "\n"), "package wallet\n");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map

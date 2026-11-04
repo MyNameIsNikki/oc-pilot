@@ -265,6 +265,21 @@ oc-pilot test-fix --log - --exit-code 1
 
 `test-fix` прикладывает diff (если это git-репозиторий), выдержки из файлов, найденных в стеке, и последние строки вывода. Успешный прогон не анализируется, если не передан `--force`.
 
+### `test-gen`
+
+Превращает diff в тесты, которые действительно запускаются. Модель пишет тесты на поведение, изменённое в диффе, патч применяется, `testCommand` выполняется, и остаётся только зелёный результат: неудачная попытка откатывается, а лог падения уходит обратно в модель как обратная связь.
+
+```bash
+oc-pilot test-gen --staged --apply
+oc-pilot test-gen src/billing.ts --apply --rounds 1
+oc-pilot test-gen --base main --json
+oc-pilot test-gen --diff changes.diff
+```
+
+Без `--apply` команда только печатает патч. Патч может менять только тестовые файлы (`*.test.ts`, `*.spec.ts`, `*_test.go`, `test_*.py` или пути внутри `test/`); производственный файл в патче отклоняет весь раунд. Существующие тесты защищены, пока не передан `--force`, поэтому сгенерированные тесты не перезаписывают написанные вручную. `--no-run` применяет патч без запуска набора, `--keep-failing` оставляет красный тест для отладки, а `--rounds <n>` (по умолчанию 2) задаёт, сколько раз падение отправляется модели.
+
+JSON-результат — `{applied, patch, files, status, tests, rounds, analysis, meta}`, где `status` равен `pass`, `fail` или `not-run`; код возврата 1, пока тесты остаются красными.
+
 ### `fix`
 
 Просит модель вернуть unified diff, проверяет его через `git apply --check` и с `--apply` применяет в рабочем дереве. Это единственная команда, которая меняет файлы.
@@ -732,7 +747,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.23.0
+      - uses: MyNameIsNikki/oc-pilot@v0.24.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

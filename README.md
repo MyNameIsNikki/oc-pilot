@@ -286,6 +286,21 @@ npm test 2> failures.log; oc-pilot test-fix --log failures.log
 
 A passing test run is skipped unless `--force` is used.
 
+### `test-gen`
+
+Turns a diff into tests that actually run. The model writes tests for the behavior changed in the diff, the patch is applied, the test command runs, and only the green result stays: a failing attempt is rolled back and the failure log goes back to the model as feedback.
+
+```bash
+oc-pilot test-gen --staged --apply
+oc-pilot test-gen src/billing.ts --apply --rounds 1
+oc-pilot test-gen --base main --json
+oc-pilot test-gen --diff changes.diff
+```
+
+Without `--apply` the command only prints the patch. The patch may touch test files only (`*.test.ts`, `*.spec.ts`, `*_test.go`, `test_*.py`, or paths under `test/`); a production file in the patch rejects the whole round. Existing test files are protected unless `--force` is passed, so generated tests never overwrite hand-written ones. `--no-run` applies without executing the suite, `--keep-failing` keeps a red test file for debugging, and `--rounds <n>` (default 2) controls how many times a failure is sent back to the model.
+
+The JSON payload is `{applied, patch, files, status, tests, rounds, analysis, meta}` with `status` equal to `pass`, `fail` or `not-run`; the exit code is 1 while the tests stay red.
+
 ### `fix`
 
 Asks the model for a unified diff, checks that it applies, and optionally applies it in the project. This is the only command that can modify your working tree, and only with `--apply`.
@@ -906,7 +921,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.23.0
+      - uses: MyNameIsNikki/oc-pilot@v0.24.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -929,7 +944,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.23.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.24.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
