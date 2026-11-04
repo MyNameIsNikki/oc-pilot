@@ -705,7 +705,7 @@ const TOKEN = "sk-proj-..."; // oc-pilot:ignore-secret
 
 ## MCP-сервер
 
-`oc-pilot-mcp` — MCP-сервер для Claude Code, Codex, Cursor, Gemini CLI, OpenCode, ZCode и любых клиентов с `.agents/mcp.json`. Он даёт агенту инструменты `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`, а модель и доступ к репозиторию остаются в вашем CLI.
+`oc-pilot-mcp` — MCP-сервер для Claude Code, Codex, Cursor, Gemini CLI, OpenCode, ZCode и любых клиентов с `.agents/mcp.json`. Он даёт агенту инструменты `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`, `preflight`, а модель и доступ к репозиторию остаются в вашем CLI.
 
 Помимо инструментов сервер отдаёт read-only MCP-ресурсы: `oc-pilot://config` (итоговый конфиг), `oc-pilot://rules` (правила проекта с маскировкой секретов), `oc-pilot://prompt/en` и `oc-pilot://prompt/ru` (встроенные системные промпты), `oc-pilot://version`. `oc-pilot://slop` отдаёт Slop Index в JSON без вызова модели. Шаблоны ресурсов дают живые данные: `oc-pilot://diff/{mode}` (staged/unstaged/head diff, секреты замаскированы), `oc-pilot://scan/{mode}` (офлайн-поиск секретов в JSON) и `oc-pilot://file/{+path}` (любой файл проекта до 2 МБ с маскировкой найденных секретов). Клиенты получают списки через `resources/list` и `resources/templates/list`.
 
@@ -718,11 +718,11 @@ oc-pilot setup --client cursor --global
 
 ZCode импортирует серверы из Claude Code, Codex, OpenCode и `.agents`, либо пишет нативный конфиг через `oc-pilot setup --client zcode`.
 
-Инструменты: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`. У `scan` есть `all: true` — проверка всего репозитория, а не diff. `slop` запускает офлайн Slop Index и принимает `since`, `since_days`, `limit`, `exclude` и `no_blame`. Сервер по умолчанию read-only: `--allow-write` разрешает `fix` с `apply: true`, `commit` с `apply: true`, `test_fix` с командой и `stats` с `clear: true`. Результат `fix` содержит unified-патч, список `files` и `patchStats` (`additions`, `deletions`, `hunks`, `bytes`); патчи длиннее 200 000 символов обрезаются с флагами `patchTruncated` и `patchBytes`, чтобы хост мог показать или применить изменение, не разбирая diff заново.
+Инструменты: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`, `preflight`. У `scan` есть `all: true` — проверка всего репозитория, а не diff. `slop` запускает офлайн Slop Index и принимает `since`, `since_days`, `limit`, `exclude` и `no_blame`. `preflight` возвращает один офлайн-вердикт по планируемому изменению и принимает те же флаги источника (`diff`, `base`, `staged`, `unstaged`, `include_untracked`), плюс `since`, `max_delta`, `fail_on_issue`, `no_secret_scan`, `no_deps`, `no_tests` и `no_slop`; проваленная проверка — обычный результат со `status: "fail"` и кодом 1, а не ошибка инструмента, чтобы агент видел, какая именно проверка упала. Сервер по умолчанию read-only: `--allow-write` разрешает `fix` с `apply: true`, `commit` с `apply: true`, `test_fix` с командой и `stats` с `clear: true`. Результат `fix` содержит unified-патч, список `files` и `patchStats` (`additions`, `deletions`, `hunks`, `bytes`); патчи длиннее 200 000 символов обрезаются с флагами `patchTruncated` и `patchBytes`, чтобы хост мог показать или применить изменение, не разбирая diff заново.
 
-Каждый инструмент принимает `max_findings` (по умолчанию 50; урезанный результат дополнительно содержит `truncated` и `totalFindings`) и `verbosity` (`full` отдаёт JSON, `compact` — одну строку сводки, а те же данные остаются в `structuredContent`). Если клиент передал `_meta.progressToken`, сервер шлёт `notifications/progress`; после `logging/setLevel` — ещё и `notifications/message` на каждый вызов. `--max-calls <n>` (или `OC_PILOT_MCP_MAX_CALLS`) ограничивает число вызовов с моделью за сессию, `0` снимает лимит, а офлайн-инструменты `scan`, `stats` и `slop` работают и после исчерпания бюджета.
+Каждый инструмент принимает `max_findings` (по умолчанию 50; урезанный результат дополнительно содержит `truncated` и `totalFindings`) и `verbosity` (`full` отдаёт JSON, `compact` — одну строку сводки, а те же данные остаются в `structuredContent`). Если клиент передал `_meta.progressToken`, сервер шлёт `notifications/progress`; после `logging/setLevel` — ещё и `notifications/message` на каждый вызов. `--max-calls <n>` (или `OC_PILOT_MCP_MAX_CALLS`) ограничивает число вызовов с моделью за сессию, `0` снимает лимит, а офлайн-инструменты `scan`, `stats`, `slop` и `preflight` работают и после исчерпания бюджета.
 
-Готовые промпты отдаются через `prompts/list` и рендерятся `prompts/get`, чтобы клиент мог показать их в своём меню: `review-my-diff` (необязательный `context`), `fix-failing-tests` (необязательный `log`), `pre-commit-gate` (scan, review и commit одним проходом), `secure-change` (ревью с фокусом на безопасность) и `slop-check` (проверка энтропии вайб-кода).
+Готовые промпты отдаются через `prompts/list` и рендерятся `prompts/get`, чтобы клиент мог показать их в своём меню: `review-my-diff` (необязательный `context`), `fix-failing-tests` (необязательный `log`), `pre-commit-gate` (scan, review и commit одним проходом), `secure-change` (ревью с фокусом на безопасность), `slop-check` (проверка энтропии вайб-кода) и `preflight-before-commit` (прогнать офлайн-гейт, починить самую дешёвую упавшую проверку и повторять до вердикта pass).
 
 Запуск вручную:
 
@@ -801,7 +801,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.31.0
+      - uses: MyNameIsNikki/oc-pilot@v0.32.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

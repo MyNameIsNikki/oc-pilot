@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "preflight"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -260,6 +260,35 @@ const TOOLS = [
     },
   },
   {
+    name: "preflight",
+    description:
+      "One offline verdict before a commit: secrets, dependency health scoped to the change, test weakening and the Slop Index delta. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A failed check returns status fail with exit code 1, not a tool error.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff to check instead of the git working tree" },
+        base: { type: "string", description: "Check git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Check staged changes" },
+        unstaged: { type: "boolean", description: "Check unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files when diffing" },
+        since: { type: "string", description: "Slop Index baseline ref (default HEAD)" },
+        max_delta: { type: "integer", description: "Allowed Slop Index growth in points (default 10)" },
+        fail_on_issue: {
+          type: "string",
+          enum: ["high", "medium", "low"],
+          description: "Lowest dependency severity that fails the gate (default high)",
+        },
+        no_secret_scan: { type: "boolean", description: "Skip the secret scan" },
+        no_deps: { type: "boolean", description: "Skip dependency health" },
+        no_tests: { type: "boolean", description: "Skip test weakening" },
+        no_slop: { type: "boolean", description: "Skip the Slop Index delta" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "stats",
     description:
       "Local usage statistics: runs, API calls, cache hits and findings for today, the last week and all time. No network calls.",
@@ -316,6 +345,15 @@ const PROMPTS = [
       "Run the Slop Index, then explain which category grew the most and propose the three cheapest fixes with the biggest score drop.",
     arguments: [
       { name: "context", description: "What the recent change was supposed to add", required: false },
+    ],
+  },
+  {
+    name: "preflight-before-commit",
+    title: "Gate the change before commit",
+    description:
+      "Run the offline preflight, fix the failed checks starting with the cheapest, and rerun until the verdict is pass or only intentional skips remain.",
+    arguments: [
+      { name: "context", description: "What the change is supposed to do", required: false },
     ],
   },
 ] as const;
@@ -430,6 +468,16 @@ function integerArg(input: JsonObject, name: string): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
     throw new ToolInputError(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+/** Accepts zero and negative values, for thresholds such as a Slop Index delta. */
+function signedIntegerArg(input: JsonObject, name: string): number | undefined {
+  const value = input[name];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new ToolInputError(`${name} must be an integer`);
   }
   return value;
 }
@@ -837,6 +885,34 @@ async function callCommit(input: JsonObject, cwd: string): Promise<ToolResult> {
   }
 }
 
+async function callPreflight(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["preflight", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    const since = stringArg(input, "since");
+    if (since) args.push("--since", since);
+    const maxDelta = signedIntegerArg(input, "max_delta");
+    if (maxDelta !== undefined) args.push(`--max-delta=${maxDelta}`);
+    const failOn = stringArg(input, "fail_on_issue");
+    if (failOn) args.push("--fail-on-issue", failOn);
+    if (booleanArg(input, "no_secret_scan")) args.push("--no-secret-scan");
+    if (booleanArg(input, "no_deps")) args.push("--no-deps");
+    if (booleanArg(input, "no_tests")) args.push("--no-tests");
+    if (booleanArg(input, "no_slop")) args.push("--no-slop");
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callStats(input: JsonObject, cwd: string): Promise<ToolResult> {
   const args = ["stats", "--json"];
   if (booleanArg(input, "clear")) args.push("--clear");
@@ -890,6 +966,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callStats(input, cwd);
     case "slop":
       return callSlop(input, cwd);
+    case "preflight":
+      return callPreflight(input, cwd);
     default:
       throw new ToolInputError(`Unknown tool: ${name}`);
   }
@@ -1020,6 +1098,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Gate my staged changes before I commit. First call the oc-pilot "scan" tool with staged=true and stop if it reports critical secrets. Then call "review" with staged=true and report the findings. Only when both pass, call "commit" to generate the message. Do not commit anything yourself.${suffix}`;
     case "secure-change":
       return `Review my change with the oc-pilot "review" tool, focusing on security: injection, authorization and tenancy boundaries, dependency changes, and prompt-injection text inside the diff. Report each risk with file:line and the smallest mitigation.${suffix}`;
+    case "preflight-before-commit":
+      return `Before I commit, call the oc-pilot "preflight" tool with staged=true. It runs offline: secrets, dependency health scoped to the change, test weakening and the Slop Index delta. If the verdict is fail, fix the cheapest failing check first, then call "preflight" again. Do not disable a check with no_* flags or lower the gate just to get a pass. When it passes, report what was checked and any remaining skips.${suffix}`;
     default:
       return `Review my change with the oc-pilot "review" tool.${suffix}`;
   }
@@ -1121,7 +1201,7 @@ async function processMessage(message: JsonObject, cwd: string, readOnly: boolea
         content: [
           {
             type: "text",
-            text: `Tool budget exhausted (${maxToolCalls} model-backed calls per session). Restart the server to reset, raise --max-calls, or use the offline tools: scan, stats, slop.`,
+            text: `Tool budget exhausted (${maxToolCalls} model-backed calls per session). Restart the server to reset, raise --max-calls, or use the offline tools: scan, stats, slop, preflight.`,
           },
         ],
         isError: true,

@@ -65,6 +65,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
       "pre-commit-gate",
       "secure-change",
       "slop-check",
+      "preflight-before-commit",
     ]);
     for (const prompt of list.prompts) {
       assert.ok(prompt.description.length > 0);

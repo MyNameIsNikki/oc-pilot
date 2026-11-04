@@ -268,6 +268,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
 
     const review = tools.find((tool) => tool.name === "review");
     assert.ok(review?.inputSchema.properties.max_findings, "max_findings missing on review");
+
+    const preflight = tools.find((tool) => tool.name === "preflight");
+    assert.ok(preflight, "preflight tool missing");
+    assert.ok(preflight.inputSchema.properties.max_delta, "max_delta missing on preflight");
+    assert.ok(preflight.inputSchema.properties.fail_on_issue, "fail_on_issue missing on preflight");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -306,6 +311,62 @@ test("MCP slop tool returns the Slop Index offline", () => {
     assert.notEqual(result?.isError, true, stderr);
     assert.match(result?.content?.[0]?.text ?? "", /Slop Index/);
     assert.equal(typeof result?.structuredContent?.index, "number");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP preflight returns a failing verdict without a tool error", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-preflight-"));
+  try {
+    const git = (args: string[]) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    git(["init"]);
+    git(["config", "user.email", "test@example.com"]);
+    git(["config", "user.name", "Test"]);
+    git(["config", "core.autocrlf", "false"]);
+    writeFileSync(join(dir, "wallet.go"), "package main\n\nfunc main() {}\n", "utf8");
+    git(["add", "."]);
+    git(["commit", "-m", "init"]);
+
+    const diff = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/app.ts",
+      "@@ -0,0 +1 @@",
+      '+const key = "AKIAIOSFODNN7EXAMPLE";',
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "preflight", arguments: { diff, no_slop: true } },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          content?: Array<{ text: string }>;
+          structuredContent?: { status?: string; checks?: Array<{ id: string; status: string }> };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 1);
+    assert.equal(result?.structuredContent?.status, "fail");
+    const secrets = result?.structuredContent?.checks?.find((check) => check.id === "secrets");
+    assert.equal(secrets?.status, "fail");
+    assert.match(result?.content?.[0]?.text ?? "", /"status": "fail"/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

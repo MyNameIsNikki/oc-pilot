@@ -17,6 +17,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `test_fix` — root cause of a failing test plus a minimal fix.
 - `fix` — propose a unified diff; with `apply: true`, apply it and run tests, reverting on failure.
 - `docgen` — GoDoc/RustDoc/JSDoc/docstrings.
+- `preflight` — one offline verdict: secrets, dependency health, test weakening, Slop Index delta.
 - `custom` — any other code question with an optional diff.
 
 Pass `diff` as unified diff **text**. Omit it to let the server use the

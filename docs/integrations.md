@@ -203,7 +203,7 @@ mounted workspace.
 ## Agent skills
 
 `skills/oc-pilot/SKILL.md` is a portable Agent Skill. It tells an agent when to
-call `scan`, `review`, `test_fix`, `fix`, and `docgen`, prefers MCP tools, and
+call `scan`, `review`, `test_fix`, `fix`, `docgen`, and `preflight`, prefers MCP tools, and
 documents safety rules for `fix.apply`. Install it by copying
 `skills/oc-pilot` into the client's skills directory (for Claude Code, usually
 `.claude/skills/oc-pilot`).
@@ -231,8 +231,8 @@ Or register it from the CLI:
 claude mcp add oc-pilot -- oc-pilot-mcp --cwd /absolute/path/to/project
 ```
 
-Claude Code will expose `review`, `test_fix`, `fix`, `docgen`, `custom`, and
-`scan` as MCP tools. A typical instruction:
+Claude Code will expose `review`, `test_fix`, `fix`, `docgen`, `custom`,
+`scan`, `slop`, and `preflight` as MCP tools. A typical instruction:
 
 > Before proposing a fix, call the `oc-pilot` `review` tool with
 > `fail_on: "warning"` and include its critical findings in your answer.
@@ -478,7 +478,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.31.0
+- uses: MyNameIsNikki/oc-pilot@v0.32.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -522,7 +522,7 @@ The repository ships `.pre-commit-hooks.yaml`, so the standard
 ```yaml
 repos:
   - repo: https://github.com/MyNameIsNikki/oc-pilot
-    rev: v0.31.0
+    rev: v0.32.0
     hooks:
       - id: oc-pilot-secrets  # oc-pilot scan --staged
       - id: oc-pilot-review   # oc-pilot review --staged --fail-on critical --fail-on-secrets
