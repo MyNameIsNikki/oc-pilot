@@ -183,6 +183,41 @@ test("ignore skips noisy packages", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("string literals that look like imports are not phantom dependencies", () => {
+    const dir = makeRepo({
+        "package.json": manifest({ dependencies: {} }),
+        "src/gen.test.ts": "const sample = 'import axios from \"axios\";\\n';\n",
+        "src/template.test.ts": "const sample = `\nimport express from \"express\";\n`;\n",
+        "src/require.test.ts": "const sample = 'const chalk = require(\"chalk\");\n';\n",
+        "src/dynamic.test.ts": "const sample = 'await import(\"vitest\");\n';\n",
+    });
+    try {
+        const report = auditDependencies(dir);
+        assert.deepEqual(report.issues.filter((issue) => issue.kind === "phantom").map((issue) => issue.name), []);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("real import forms are still detected", () => {
+    const dir = makeRepo({
+        "package.json": manifest({ dependencies: {} }),
+        "src/single.ts": 'import axios from "axios";\n',
+        "src/multi.ts": 'import {\n  z\n} from "zod";\n',
+        "src/cjs.js": 'const leftPad = require("left-pad");\n',
+        "src/dynamic.ts": 'const mod = await import("chalk");\n',
+    });
+    try {
+        const report = auditDependencies(dir);
+        assert.deepEqual(report.issues
+            .filter((issue) => issue.kind === "phantom")
+            .map((issue) => issue.name)
+            .sort(), ["axios", "chalk", "left-pad", "zod"]);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("missing package.json raises a usage error", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-deps-health-empty-"));
     try {

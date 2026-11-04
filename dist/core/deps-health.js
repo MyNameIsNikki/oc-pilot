@@ -69,10 +69,15 @@ const OVERLAPS = [
     ["pg", "mysql2", "better-sqlite3", "sqlite3", "mongodb", "mongoose", "prisma", "sequelize", "drizzle-orm", "knex"],
 ];
 const IMPORT_PATTERNS = [
-    /\bfrom\s+["']([^"']+)["']/g,
-    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
-    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
-    /\bimport\s+["']([^"']+)["']/g,
+    // import x from "pkg"; import type { T } from "pkg"; import "pkg";
+    /^[ \t]*import\s+(?:type\s+)?(?:[^'"\n;]*?\s+from\s+)?["']([^"']+)["']/gm,
+    // export * from "pkg"; export { a } from "pkg";
+    /^[ \t]*export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+["']([^"']+)["']/gm,
+    // closing line of a multi-line import or export: } from "pkg";
+    /^[ \t]*\}\s+from\s+["']([^"']+)["']/gm,
+    // require("pkg") and dynamic import("pkg") can appear anywhere.
+    /^[ \t]*(?:(?:(?:const|let|var)\s+)?[A-Za-z_$][\w$.\[\]]*\s*=\s*)?require\s*\(\s*["']([^"']+)["']\s*\)/gm,
+    /^[ \t]*(?:(?:(?:const|let|var)\s+)?[A-Za-z_$][\w$.\[\]]*\s*=\s*)?(?:await\s+)?import\s*\(\s*["']([^"']+)["']\s*\)/gm,
 ];
 const SEVERITY_WEIGHT = { high: 3, medium: 2, low: 1 };
 function escapeRegExp(value) {
@@ -93,12 +98,19 @@ export function packageNameOf(specifier) {
     }
     return parts[0] || undefined;
 }
+/** Removes comments and template literals so code samples inside strings are not read as imports. */
+function codeOnly(text) {
+    return text
+        .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, " "))
+        .replace(/`(?:\\[\s\S]|[^`\\])*`/g, (literal) => literal.replace(/[^\n]/g, " "));
+}
 function importedPackages(text) {
     const found = new Set();
+    const source = codeOnly(text);
     for (const pattern of IMPORT_PATTERNS) {
         pattern.lastIndex = 0;
         let match;
-        while ((match = pattern.exec(text)) !== null) {
+        while ((match = pattern.exec(source)) !== null) {
             const name = packageNameOf(match[1] ?? "");
             if (name)
                 found.add(name);

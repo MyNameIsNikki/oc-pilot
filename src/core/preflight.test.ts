@@ -168,6 +168,18 @@ test("skipped checks stay visible without failing", () => {
   assert.match(report.checks[3]!.summary, /--no-slop/);
 });
 
+test("preflight does not claim a zero index for an empty diff", () => {
+  const report = buildPreflightReport(
+    input({
+      diff: { source: "git diff HEAD", stats: { files: 0, additions: 0, deletions: 0 } },
+      slop: { report: slopReport(47), delta: slopDelta(0) },
+    }),
+  );
+  const slop = report.checks.find((check) => check.id === "slop");
+  assert.equal(slop?.status, "pass");
+  assert.match(slop?.summary ?? "", /изменённых файлов нет/);
+});
+
 test("renderPreflight prints one verdict per check", () => {
   const report = buildPreflightReport(input({ secrets: [CRITICAL] }));
   const text = renderPreflight(report);

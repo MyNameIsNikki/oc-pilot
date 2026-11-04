@@ -164,6 +164,10 @@ export function buildPreflightReport(input: PreflightInput): PreflightReport {
     const { report, delta } = input.slop;
     const max = input.maxSlopDelta ?? 10;
     const sign = delta.deltaPoints > 0 ? "+" : "";
+    const scope =
+      input.diff.stats.files === 0
+        ? "изменённых файлов нет"
+        : `индекс изменений ${String(report.index)}/100`;
     const details = delta.categories
       .filter((category) => category.introduced > 0)
       .map((category) => `${category.label}: +${String(category.introduced)}`);
@@ -171,7 +175,7 @@ export function buildPreflightReport(input: PreflightInput): PreflightReport {
       check(
         "slop",
         delta.deltaPoints > max ? "fail" : "pass",
-        `дельта ${sign}${String(delta.deltaPoints)} пунктов (индекс ${String(report.index)}/100)`,
+        `дельта ${sign}${String(delta.deltaPoints)} пунктов (${scope})`,
         details,
       ),
     );

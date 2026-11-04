@@ -816,7 +816,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.34.0
+      - uses: MyNameIsNikki/oc-pilot@v0.35.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
