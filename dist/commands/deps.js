@@ -1,5 +1,6 @@
 import { applyDependencyFixPlan, planDependencyFixes } from "../core/deps-fix.js";
 import { auditDependencies, issueFailsGate } from "../core/deps-health.js";
+import { explainDependency, renderDependencyWhy } from "../core/deps-why.js";
 import { PilotError } from "../core/errors.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
@@ -9,6 +10,7 @@ const OPTIONS = withCommon({
     "fail-on-issue": { type: "string" },
     ignore: { type: "string" },
     fix: { type: "boolean" },
+    why: { type: "string" },
 });
 const HELP = `Использование:
   oc-pilot deps [опции]
@@ -24,6 +26,8 @@ const HELP = `Использование:
       --ignore <names>         не проверять пакеты (через запятую)
       --fix                    исправить безопасное: тестовые пакеты в devDependencies,
                                фантомные импорты и плавающие версии — по lockfile
+      --why <name>             показать, откуда пакет: объявление, импорты,
+                               зависимые пакеты и цепочки от корня
 ${COMMON_HELP}
 
 Примеры:
@@ -31,6 +35,8 @@ ${COMMON_HELP}
   oc-pilot deps --json
   oc-pilot deps --fail-on-issue high
   oc-pilot deps --ignore lint-staged
+  oc-pilot deps --why qs
+  oc-pilot deps --why qs --json
   oc-pilot deps --fix --dry-run
   oc-pilot deps --fix --fail-on-issue high`;
 const SEVERITIES = new Set(["high", "medium", "low"]);
@@ -65,6 +71,28 @@ export async function runDeps(argv) {
     const gateRaw = asString(values, "fail-on-issue");
     const gate = gateRaw ? parseSeverity(gateRaw) : undefined;
     const fix = asBoolean(values, "fix");
+    const whyName = asString(values, "why")?.trim();
+    if (whyName) {
+        if (fix) {
+            throw new PilotError("--why не сочетается с --fix", {
+                hint: "Сначала посмотрите происхождение пакета, затем запускайте --fix отдельно.",
+                exitCode: 2,
+            });
+        }
+        const why = explainDependency(ctx.cwd, whyName);
+        if (!why) {
+            log.warn(`Пакет ${whyName} не найден ни в package.json, ни в package-lock.json, ни в импортах.`);
+            return 1;
+        }
+        if (ctx.flags.json) {
+            writeOutput(JSON.stringify(why, null, 2), ctx.flags.output);
+            return 0;
+        }
+        const wrote = writeOutput(renderDependencyWhy(why), ctx.flags.output);
+        if (wrote)
+            log.success(`Отчёт сохранён: ${wrote}`);
+        return 0;
+    }
     let report = auditDependencies(ctx.cwd, { ignore });
     let plan;
     let applied = false;

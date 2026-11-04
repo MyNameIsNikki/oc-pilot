@@ -384,6 +384,7 @@ oc-pilot deps --fail-on-issue high
 oc-pilot deps --ignore lint-staged
 oc-pilot deps --fix --dry-run
 oc-pilot deps --fix
+oc-pilot deps --why qs
 ```
 
 It compares `package.json` with what the code actually imports and with `package-lock.json`:
@@ -400,7 +401,9 @@ It compares `package.json` with what the code actually imports and with `package
 
 `--fix` repairs what can be decided offline: a package used only by tests moves to `devDependencies`, an imported-but-undeclared package is added with the version already in `package-lock.json` (to `devDependencies` when every importer is a test), and a floating `*`/`latest` spec is pinned to the lockfile version. Nothing is invented: a phantom import without a lockfile entry, an unused package, a duplicate or a vcs dependency is listed as skipped with the reason. `--dry-run` prints the plan without touching `package.json`. After writing, the audit re-runs, so the exit code reflects the fixed state.
 
-The JSON payload is `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; with `--fix` it gains `fix: {applied, dryRun, fixes, skipped}`.
+`--why <name>` answers the question that comes before any cleanup: where does this package actually come from. It reads `package.json` and `package-lock.json` locally and prints the declared field and spec, the files that import it, the packages that depend on it, every installed version and copy count, and the dependency chains from the root. A package that is neither declared, installed nor imported exits with code 1. `--why` cannot be combined with `--fix`.
+
+The JSON payload is `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; with `--fix` it gains `fix: {applied, dryRun, fixes, skipped}`, and with `--why` the command prints a single `DependencyWhy` object: `{name, versions, copies, declared, importedBy, dependents, chains}`.
 
 ### `commit`
 
@@ -956,7 +959,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.28.0
+      - uses: MyNameIsNikki/oc-pilot@v0.29.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -979,7 +982,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.28.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.29.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

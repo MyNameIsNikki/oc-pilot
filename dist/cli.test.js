@@ -873,4 +873,45 @@ test("deps --fix --dry-run leaves package.json untouched", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("deps --why shows the transitive chain from the lockfile", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-deps-why-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", dependencies: { express: "^4.18.0" } }, null, 2), "utf8");
+        writeFileSync(join(dir, "package-lock.json"), JSON.stringify({
+            name: "demo",
+            lockfileVersion: 3,
+            packages: {
+                "": { name: "demo", dependencies: { express: "^4.18.0" } },
+                "node_modules/express": { version: "4.18.2", dependencies: { "body-parser": "1.20.1" } },
+                "node_modules/body-parser": { version: "1.20.1", dependencies: { qs: "6.11.0" } },
+                "node_modules/qs": { version: "6.11.0" },
+            },
+        }), "utf8");
+        writeFileSync(join(dir, "app.ts"), 'import express from "express";\n', "utf8");
+        const result = runCli(["deps", "--cwd", dir, "--why", "qs", "--json"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.name, "qs");
+        assert.deepEqual(payload.versions, ["6.11.0"]);
+        assert.deepEqual(payload.dependents, ["body-parser"]);
+        assert.deepEqual(payload.chains, [["express", "body-parser", "qs"]]);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("deps --why fails cleanly for an unknown package", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-deps-why-missing-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo" }, null, 2), "utf8");
+        const result = runCli(["deps", "--cwd", dir, "--why", "left-pad", "--json"], dir);
+        assert.equal(result.status, 1);
+        assert.match(result.stderr, /не найден/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map

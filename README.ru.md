@@ -373,6 +373,7 @@ oc-pilot deps --fail-on-issue high
 oc-pilot deps --ignore lint-staged
 oc-pilot deps --fix --dry-run
 oc-pilot deps --fix
+oc-pilot deps --why qs
 ```
 
 Команда сравнивает `package.json` с тем, что код реально импортирует, и с `package-lock.json`:
@@ -389,7 +390,9 @@ oc-pilot deps --fix
 
 `--fix` исправляет то, что можно решить офлайн: пакет, используемый только тестами, переезжает в `devDependencies`; импортируемый, но не объявленный пакет добавляется с версией из `package-lock.json` (в `devDependencies`, если все импортёры — тесты); плавающая версия `*`/`latest` прибивается к версии из lockfile. Ничего не выдумывается: фантомный импорт без записи в lockfile, неиспользуемый пакет, дубликат и vcs-зависимость попадают в `skipped` с причиной. `--dry-run` печатает план, не трогая `package.json`. После записи аудит запускается заново, поэтому код возврата отражает уже исправленное состояние.
 
-JSON-результат — `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; с `--fix` добавляется `fix: {applied, dryRun, fixes, skipped}`.
+`--why <name>` отвечает на вопрос, который возникает до любой чистки: откуда этот пакет вообще взялся. Команда локально читает `package.json` и `package-lock.json` и показывает поле и спецификацию объявления, файлы с прямым импортом, пакеты, которые от него зависят, все установленные версии и число копий, а также цепочки зависимостей от корня. Если пакет не объявлен, не установлен и не импортируется, код возврата 1. `--why` не сочетается с `--fix`.
+
+JSON-результат — `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; с `--fix` добавляется `fix: {applied, dryRun, fixes, skipped}`, а с `--why` команда печатает один объект `DependencyWhy`: `{name, versions, copies, declared, importedBy, dependents, chains}`.
 
 ### `commit`
 
@@ -782,7 +785,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.28.0
+      - uses: MyNameIsNikki/oc-pilot@v0.29.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
