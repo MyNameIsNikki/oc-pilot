@@ -1654,3 +1654,69 @@ test("ready --fix --receipt records a verified receipt", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("mutate reports a killed and a surviving mutation", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-mutate-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    const calc = [
+      "function same(a, b) { return a === b; }",
+      "const flag = true;",
+      "module.exports = { same };",
+      "",
+    ].join("\n");
+    writeFileSync(join(dir, "calc.js"), calc, "utf8");
+    writeFileSync(
+      join(dir, "check.js"),
+      ['const { same } = require("./calc.js");', "if (!same(1, 1)) process.exit(1);", ""].join("\n"),
+      "utf8",
+    );
+
+    const patch = [
+      "diff --git a/calc.js b/calc.js",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/calc.js",
+      "@@ -0,0 +1,3 @@",
+      "+function same(a, b) { return a === b; }",
+      "+const flag = true;",
+      "+module.exports = { same };",
+      "",
+    ].join("\n");
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, patch, "utf8");
+
+    const result = runCli(
+      ["mutate", "--diff", diffPath, "--command", "node check.js", "--max-mutants", "5", "--cwd", dir, "--json"],
+      dir,
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      sites: number;
+      killed: number;
+      survived: number;
+      score: number;
+      mutants: Array<{ operator: string; status: string }>;
+    };
+    assert.equal(payload.sites, 2);
+    assert.equal(payload.killed, 1);
+    assert.equal(payload.survived, 1);
+    assert.equal(payload.score, 50);
+    assert.deepEqual(
+      payload.mutants.map((mutant) => [mutant.operator, mutant.status]),
+      [
+        ["===", "killed"],
+        ["true", "survived"],
+      ],
+    );
+    assert.equal(readFileSync(join(dir, "calc.js"), "utf8"), calc);
+
+    const gated = runCli(
+      ["mutate", "--diff", diffPath, "--command", "node check.js", "--max-mutants", "5", "--min-score", "100", "--cwd", dir, "--json"],
+      dir,
+    );
+    assert.equal(gated.status, 1, gated.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -25,6 +25,7 @@ import { runSetup } from "./commands/setup.js";
 import { runTestFix } from "./commands/test-fix.js";
 import { runTestGen } from "./commands/test-gen.js";
 import { runFlaky } from "./commands/flaky.js";
+import { runMutate } from "./commands/mutate.js";
 import { PilotError, toPilotError } from "./core/errors.js";
 import { log } from "./core/log.js";
 import { COMMON_HELP } from "./core/options.js";
@@ -36,6 +37,7 @@ const HANDLERS = {
     "test-fix": runTestFix,
     "test-gen": runTestGen,
     flaky: runFlaky,
+    mutate: runMutate,
     fix: runFix,
     docgen: runDocgen,
     custom: runCustom,
@@ -69,6 +71,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   test-fix    Разбор падения тестов и минимальный фикс
   test-gen    Сгенерировать тесты на изменённый код и оставить только зелёные
   flaky       Найти нестабильные тесты: несколько прогонов и сравнение
+  mutate      Мутационное тестирование: проверить, что тесты ловят баги
   fix         Патч от модели, git apply и цикл тестов с откатом
   docgen      Генерация GoDoc/RustDoc/JSDoc/docstrings
   custom      Свободный запрос к oc-pilot
@@ -108,6 +111,7 @@ ${COMMON_HELP}
   oc-pilot test-fix --command "go test ./..."
   oc-pilot test-gen --staged --apply
   oc-pilot flaky --runs 5
+  oc-pilot mutate --staged --min-score 80
   oc-pilot deps --json
   oc-pilot preflight --staged
   oc-pilot receipt --staged
@@ -152,7 +156,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, flaky, fix, docgen, custom, scan, deps, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, flaky, mutate, fix, docgen, custom, scan, deps, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

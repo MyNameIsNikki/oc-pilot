@@ -419,6 +419,21 @@ oc-pilot ready --fix --receipt
 
 JSON-результат — `{score, grade, checks, commit}`; каждая проверка — `{id, label, status, points, max, detail}`, где `detail` называет файл, который принёс или потерял очки, и команду, которая это исправляет. С `--fix` в payload добавляется `fix: {applied, dryRun, fixes, skipped, receipt}`, где `receipt` — `{path, testsPassed, preflight}` или отсутствует.
 
+### `mutate`
+
+Мутационное тестирование отвечает на вопрос сложнее покрытия: тесты действительно ловят баги? Команда переворачивает операторы сравнения и булевы операторы в изменённых исходниках, прогоняет набор тестов на каждой мутации и считает, сколько мутантов тесты убили. Выживший мутант — это строка, которую набор исполняет, но по-настоящему не проверяет.
+
+```bash
+oc-pilot mutate --staged
+oc-pilot mutate --base main --max-mutants 10
+oc-pilot mutate src/billing.ts --min-score 80
+oc-pilot mutate --diff changes.diff --json
+```
+
+Операторы: `===`/`!==`, `==`/`!=`, `>=`/`<`, `<=`/`>`, `&&`/`||` и `true`/`false`; строки и комментарии маскируются, поэтому мутируется только реальный код. `--max-mutants <n>` ограничивает прогон (по умолчанию 20, максимум 500), потому что каждый мутант запускает весь набор. `--min-score <n>` возвращает код 1, если mutation score ниже порога, — это CI-гейт. Таймаут считается убийством: мутант изменил наблюдаемое поведение.
+
+JSON: `{command, files, sites, mutants, killed, survived, timedOut, score, truncated, durationMs}`; каждый мутант — `{file, line, column, operator, original, replacement, status, durationMs}` со `status` равным `killed`, `survived` или `timeout`.
+
 ### `flaky`
 
 Запускает тестовую команду несколько раз и сравнивает результаты отдельных тестов. Тест, который прошёл в одном прогоне и упал в другом, помечается нестабильным; тест, падающий каждый раз, — просто сломанным. Модель не вызывается, команда работает только с выводом раннера.
@@ -863,7 +878,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.43.0
+      - uses: MyNameIsNikki/oc-pilot@v0.44.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
