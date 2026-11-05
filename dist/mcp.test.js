@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { applyResultOptions, patchSummary } from "./mcp.js";
 const MCP = resolve("dist/mcp.js");
+const CLI = resolve("dist/cli.js");
 const AWS_KEY = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
 function runServer(dir, requests, args = []) {
     const input = `${requests.map((request) => JSON.stringify(request)).join("\n")}\n`;
@@ -223,6 +224,9 @@ test("MCP advertises slop and result caps in tools/list", () => {
         const ready = tools.find((tool) => tool.name === "ready");
         assert.ok(ready, "ready tool missing");
         assert.ok(ready.inputSchema.properties.fail_under, "fail_under missing on ready");
+        const receiptVerify = tools.find((tool) => tool.name === "receipt_verify");
+        assert.ok(receiptVerify, "receipt_verify tool missing");
+        assert.ok(receiptVerify.inputSchema.properties.receipt, "receipt missing on receipt_verify");
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
@@ -341,6 +345,64 @@ test("MCP ready returns the readiness score without a tool error", () => {
         assert.equal(typeof result?.structuredContent?.score, "number");
         assert.equal(result?.structuredContent?.checks?.find((check) => check.id === "tests")?.status, "pass");
         assert.match(result?.content?.[0]?.text ?? "", /"grade"/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP receipt_verify rejects a missing and a tampered receipt", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-receipt-"));
+    try {
+        const git = (args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+        git(["init"]);
+        git(["config", "user.email", "test@example.com"]);
+        git(["config", "user.name", "Test"]);
+        git(["config", "core.autocrlf", "false"]);
+        writeFileSync(join(dir, "app.ts"), "export const value = 1;\n", "utf8");
+        git(["add", "."]);
+        git(["commit", "-m", "init"]);
+        const call = () => {
+            const { responses, stderr } = runServer(dir, [
+                {
+                    jsonrpc: "2.0",
+                    id: 1,
+                    method: "initialize",
+                    params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+                },
+                {
+                    jsonrpc: "2.0",
+                    id: 2,
+                    method: "tools/call",
+                    params: { name: "receipt_verify", arguments: {} },
+                },
+            ]);
+            const result = responses.find((response) => response.id === 2)?.result;
+            return { result, stderr };
+        };
+        const missing = call();
+        assert.notEqual(missing.result?.isError, true, missing.stderr);
+        assert.equal(missing.result?._meta?.exitCode, 1);
+        assert.equal(missing.result?.structuredContent?.ok, false);
+        const created = spawnSync(process.execPath, [CLI, "receipt", "--cwd", dir, "--no-run", "--json"], {
+            cwd: dir,
+            encoding: "utf8",
+            timeout: 60_000,
+        });
+        assert.equal(created.status, 0, created.stderr);
+        const valid = call();
+        assert.notEqual(valid.result?.isError, true, valid.stderr);
+        assert.equal(valid.result?._meta?.exitCode, 0);
+        assert.equal(valid.result?.structuredContent?.ok, true);
+        assert.equal(valid.result?.structuredContent?.hashOk, true);
+        assert.equal(valid.result?.structuredContent?.stale, false);
+        const path = join(dir, ".git", "oc-pilot", "receipt.json");
+        const receipt = JSON.parse(readFileSync(path, "utf8"));
+        receipt.createdAt = "2020-01-01T00:00:00.000Z";
+        writeFileSync(path, JSON.stringify(receipt, null, 2), "utf8");
+        const tampered = call();
+        assert.equal(tampered.result?._meta?.exitCode, 1);
+        assert.equal(tampered.result?.structuredContent?.ok, false);
+        assert.equal(tampered.result?.structuredContent?.hashOk, false);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

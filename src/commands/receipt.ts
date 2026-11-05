@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { runShellCommand } from "../core/command.js";
 import { loadDiff } from "../core/diff-source.js";
 import { PilotError } from "../core/errors.js";
@@ -110,6 +111,23 @@ function runVerify(values: ArgsValues, ctx: ReturnType<typeof resolveContext>): 
       hint: "Укажите --receipt <file> или запустите команду в git-репозитории.",
       exitCode: 2,
     });
+  }
+
+  if (!existsSync(path)) {
+    const verification = {
+      ok: false,
+      hashOk: false,
+      stale: false,
+      commit: null,
+      head: null,
+      reason: `квитанция не найдена: ${path}`,
+    };
+    const text = ctx.flags.json
+      ? `${JSON.stringify({ path, ...verification }, null, 2)}\n`
+      : `Проверка: недействительна — квитанция не найдена: ${path}.\n`;
+    const wrote = writeOutput(text, ctx.flags.output);
+    if (wrote) log.success(`Отчёт сохранён: ${wrote}`);
+    return 1;
   }
 
   const receipt = readReceipt(path);

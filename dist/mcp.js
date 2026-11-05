@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "preflight", "ready"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -279,6 +279,22 @@ const TOOLS = [
         },
     },
     {
+        name: "receipt_verify",
+        description: "Verify the oc-pilot receipt for the current HEAD: recompute its SHA-256 hash, compare the recorded commit with HEAD and report whether the recorded tests passed. Read-only and offline, so it is free and safe in read-only mode. A missing, edited or stale receipt returns exit code 1 with ok=false, not a tool error.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                receipt: {
+                    type: "string",
+                    description: "Path to a receipt file; defaults to .git/oc-pilot/receipt.json",
+                },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "stats",
         description: "Local usage statistics: runs, API calls, cache hits and findings for today, the last week and all time. No network calls.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -344,6 +360,14 @@ const PROMPTS = [
         description: "Score the repository, fix the safe gaps (hook, config, AGENTS.md), prove the result with a receipt, and rerun until the score is at least 85 or only human checks remain.",
         arguments: [
             { name: "context", description: "What the agent is about to work on", required: false },
+        ],
+    },
+    {
+        name: "prove-done",
+        title: "Prove the work is done",
+        description: "Verify the receipt for HEAD, create a fresh one when it is missing or stale, and refuse to claim completion until the receipt is valid and its tests passed.",
+        arguments: [
+            { name: "context", description: "What was changed and what should be proven", required: false },
         ],
     },
 ];
@@ -966,6 +990,13 @@ async function callReady(input, cwd) {
         args.push(`--fail-under=${String(failUnder)}`);
     return toToolResult(await runCli(args, cwd));
 }
+async function callReceiptVerify(input, cwd) {
+    const args = ["receipt", "--verify", "--json"];
+    const receipt = stringArg(input, "receipt");
+    if (receipt)
+        args.push("--receipt", receipt);
+    return toToolResult(await runCli(args, cwd));
+}
 async function callStats(input, cwd) {
     const args = ["stats", "--json"];
     if (booleanArg(input, "clear"))
@@ -1027,6 +1058,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callPreflight(input, cwd);
         case "ready":
             return callReady(input, cwd);
+        case "receipt_verify":
+            return callReceiptVerify(input, cwd);
         default:
             throw new ToolInputError(`Unknown tool: ${name}`);
     }
@@ -1147,6 +1180,8 @@ function promptBody(name, args) {
             return `Before I commit, call the oc-pilot "preflight" tool with staged=true. It runs offline: secrets, dependency health scoped to the change, test weakening and the Slop Index delta. If the verdict is fail, fix the cheapest failing check first, then call "preflight" again. Do not disable a check with no_* flags or lower the gate just to get a pass. When it passes, report what was checked and any remaining skips.${suffix}`;
         case "get-ready":
             return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
+        case "prove-done":
+            return `Do not say the work is done yet. Call the oc-pilot "receipt_verify" tool. A valid proof has ok=true, hashOk=true, stale=false and tests.passed=true for the current HEAD. If the receipt is missing, stale or reports failing tests, run the suite and create a fresh receipt with oc-pilot receipt, then call "receipt_verify" again. Use oc-pilot receipt --no-run only when tests cannot run here, and say so explicitly. Never edit a receipt by hand and never claim completion while ok is false or tests.passed is false. Report the receipt path, the commit and what was verified.${suffix}`;
         default:
             return `Review my change with the oc-pilot "review" tool.${suffix}`;
     }
@@ -1180,7 +1215,7 @@ async function processMessage(message, cwd, readOnly) {
                 resourceTemplates: { listChanged: false },
             },
             serverInfo: { name: SERVER_NAME, version: VERSION },
-            instructions: `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Prompts (prompts/list) wrap the common flows: review my diff, fix failing tests, pre-commit gate, security review, agent readiness. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}). Offline tools (scan, stats, slop, preflight, ready) never call a model and keep working even after the call budget is exhausted; oc-pilot://slop exposes the Slop Index report and the slop-check prompt frames the entropy question.${readOnly ? " This server is read-only: fix apply, commit apply, running new tests and clearing stats are disabled." : ""}`,
+            instructions: `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Prompts (prompts/list) wrap the common flows: review my diff, fix failing tests, pre-commit gate, security review, agent readiness, prove done. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}). Offline tools (scan, stats, slop, preflight, ready, receipt_verify) never call a model and keep working even after the call budget is exhausted; oc-pilot://slop exposes the Slop Index report and the slop-check prompt frames the entropy question.${readOnly ? " This server is read-only: fix apply, commit apply, running new tests and clearing stats are disabled." : ""}`,
         });
     }
     if (method === "ping")
@@ -1241,7 +1276,7 @@ async function processMessage(message, cwd, readOnly) {
                 content: [
                     {
                         type: "text",
-                        text: `Tool budget exhausted (${maxToolCalls} model-backed calls per session). Restart the server to reset, raise --max-calls, or use the offline tools: scan, stats, slop, preflight, ready.`,
+                        text: `Tool budget exhausted (${maxToolCalls} model-backed calls per session). Restart the server to reset, raise --max-calls, or use the offline tools: scan, stats, slop, preflight, ready, receipt_verify.`,
                     },
                 ],
                 isError: true,
@@ -1487,7 +1522,7 @@ Environment:
   OC_PILOT_MCP_TOKEN, OC_PILOT_MCP_CORS, OC_PILOT_MCP_READ_ONLY,
   OC_PILOT_MCP_MAX_CALLS
 
-The offline tools (scan, stats, slop, preflight, ready) never call a model and keep working
+The offline tools (scan, stats, slop, preflight, ready, receipt_verify) never call a model and keep working
 after the call budget is exhausted. oc-pilot://slop exposes the Slop Index.
 
 Examples:
