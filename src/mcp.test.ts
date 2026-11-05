@@ -331,6 +331,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(deps.inputSchema.properties.fix, "fix missing on deps");
     assert.ok(deps.inputSchema.properties.sbom, "sbom missing on deps");
 
+    const coverage = tools.find((tool) => tool.name === "coverage");
+    assert.ok(coverage, "coverage tool missing");
+    assert.ok(coverage.inputSchema.properties.coverage_file, "coverage_file missing on coverage");
+    assert.ok(coverage.inputSchema.properties.fail_under, "fail_under missing on coverage");
+    assert.ok(coverage.inputSchema.properties.max_uncovered, "max_uncovered missing on coverage");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -809,6 +815,77 @@ test("MCP deps --why explains the lockfile chain", () => {
     assert.deepEqual(result?.structuredContent?.versions, ["6.11.0"]);
     assert.deepEqual(result?.structuredContent?.dependents, ["body-parser"]);
     assert.deepEqual(result?.structuredContent?.chains, [["express", "body-parser", "qs"]]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP coverage gates uncovered changed lines", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-coverage-"));
+  try {
+    mkdirSync(join(dir, "coverage"), { recursive: true });
+    writeFileSync(
+      join(dir, "coverage", "lcov.info"),
+      ["SF:src/app.ts", "DA:1,1", "DA:2,0", "end_of_record", ""].join("\n"),
+      "utf8",
+    );
+    const diff = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/app.ts",
+      "@@ -0,0 +1,3 @@",
+      "+export function add(a: number, b: number) {",
+      "+  return a + b;",
+      "+}",
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "coverage",
+          arguments: {
+            diff,
+            coverage_file: "coverage/lcov.info",
+            fail_under: 80,
+            verbosity: "compact",
+          },
+        },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: {
+            coveragePercent?: number | null;
+            uncoveredLines?: number;
+            gaps?: Array<{ file: string; uncovered: number[] }>;
+            gate?: { passed: boolean };
+          };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 1);
+    assert.equal(result?.structuredContent?.coveragePercent, 50);
+    assert.equal(result?.structuredContent?.uncoveredLines, 1);
+    assert.deepEqual(result?.structuredContent?.gaps, [{ file: "src/app.ts", uncovered: [2] }]);
+    assert.equal(result?.structuredContent?.gate?.passed, false);
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /1 uncovered changed line in 1 file \(50%\)/,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

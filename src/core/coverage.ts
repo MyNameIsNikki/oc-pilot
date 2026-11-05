@@ -340,6 +340,30 @@ export function coverageGaps(
   };
 }
 
+export function changedCoverage(
+  report: CoverageReport,
+  changed: Map<string, Set<number>>,
+): { executable: number; covered: number; uncovered: number; percent: number | null } {
+  let executable = 0;
+  let covered = 0;
+  for (const [file, lines] of [...changed].sort(([left], [right]) => left.localeCompare(right))) {
+    const entry = lookupCoverage(report.files, file);
+    if (!entry) continue;
+    for (const line of lines) {
+      if (!entry.executable.has(line)) continue;
+      executable += 1;
+      if (entry.covered.has(line)) covered += 1;
+    }
+  }
+  const uncovered = executable - covered;
+  return {
+    executable,
+    covered,
+    uncovered,
+    percent: executable === 0 ? null : Math.round((covered / executable) * 100),
+  };
+}
+
 /** Prompt fragment: the exact lines the model should cover. */
 export function formatCoverageGaps(summary: CoverageSummary): string {
   const lines = ["COVERAGE_GAPS: changed lines that no test executed. Cover these lines first:"];

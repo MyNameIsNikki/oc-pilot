@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { changedLines, coverageGaps, describeCoverage, formatCoverageGaps, loadCoverage, parseCobertura, parseGoCover, parseIstanbul, parseLcov, sniffFormat, } from "./coverage.js";
+import { changedCoverage, changedLines, coverageGaps, describeCoverage, formatCoverageGaps, loadCoverage, parseCobertura, parseGoCover, parseIstanbul, parseLcov, sniffFormat, } from "./coverage.js";
 const LCOV = [
     "TN:",
     "SF:/work/app/src/a.ts",
@@ -145,5 +145,46 @@ test("loadCoverage finds a default report and rejects unknown formats", () => {
     finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+test("changedCoverage counts executable and covered changed lines", () => {
+    const report = {
+        path: "lcov.info",
+        format: "lcov",
+        files: new Map([
+            ["src/a.ts", { executable: new Set([1, 2, 3]), covered: new Set([1]) }],
+        ]),
+    };
+    const counts = changedCoverage(report, new Map([["src/a.ts", new Set([1, 2, 4])]]));
+    assert.equal(counts.executable, 2);
+    assert.equal(counts.covered, 1);
+    assert.equal(counts.uncovered, 1);
+    assert.equal(counts.percent, 50);
+});
+test("changedCoverage ignores files without coverage data", () => {
+    const report = {
+        path: "lcov.info",
+        format: "lcov",
+        files: new Map([["src/a.ts", { executable: new Set([1]), covered: new Set([1]) }]]),
+    };
+    const counts = changedCoverage(report, new Map([
+        ["src/a.ts", new Set([1])],
+        ["src/missing.ts", new Set([1])],
+    ]));
+    assert.equal(counts.executable, 1);
+    assert.equal(counts.covered, 1);
+    assert.equal(counts.uncovered, 0);
+    assert.equal(counts.percent, 100);
+});
+test("changedCoverage returns a null percent when no changed line is executable", () => {
+    const report = {
+        path: "lcov.info",
+        format: "lcov",
+        files: new Map([["src/a.ts", { executable: new Set([1]), covered: new Set() }]]),
+    };
+    const counts = changedCoverage(report, new Map([["src/a.ts", new Set([9])]]));
+    assert.equal(counts.executable, 0);
+    assert.equal(counts.covered, 0);
+    assert.equal(counts.uncovered, 0);
+    assert.equal(counts.percent, null);
 });
 //# sourceMappingURL=coverage.test.js.map

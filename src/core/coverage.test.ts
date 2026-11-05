@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  changedCoverage,
   changedLines,
   coverageGaps,
   describeCoverage,
@@ -172,4 +173,51 @@ test("loadCoverage finds a default report and rejects unknown formats", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("changedCoverage counts executable and covered changed lines", () => {
+  const report: CoverageReport = {
+    path: "lcov.info",
+    format: "lcov",
+    files: new Map([
+      ["src/a.ts", { executable: new Set([1, 2, 3]), covered: new Set([1]) }],
+    ]),
+  };
+  const counts = changedCoverage(report, new Map([["src/a.ts", new Set([1, 2, 4])]]));
+  assert.equal(counts.executable, 2);
+  assert.equal(counts.covered, 1);
+  assert.equal(counts.uncovered, 1);
+  assert.equal(counts.percent, 50);
+});
+
+test("changedCoverage ignores files without coverage data", () => {
+  const report: CoverageReport = {
+    path: "lcov.info",
+    format: "lcov",
+    files: new Map([["src/a.ts", { executable: new Set([1]), covered: new Set([1]) }]]),
+  };
+  const counts = changedCoverage(
+    report,
+    new Map([
+      ["src/a.ts", new Set([1])],
+      ["src/missing.ts", new Set([1])],
+    ]),
+  );
+  assert.equal(counts.executable, 1);
+  assert.equal(counts.covered, 1);
+  assert.equal(counts.uncovered, 0);
+  assert.equal(counts.percent, 100);
+});
+
+test("changedCoverage returns a null percent when no changed line is executable", () => {
+  const report: CoverageReport = {
+    path: "lcov.info",
+    format: "lcov",
+    files: new Map([["src/a.ts", { executable: new Set([1]), covered: new Set() }]]),
+  };
+  const counts = changedCoverage(report, new Map([["src/a.ts", new Set([9])]]));
+  assert.equal(counts.executable, 0);
+  assert.equal(counts.covered, 0);
+  assert.equal(counts.uncovered, 0);
+  assert.equal(counts.percent, null);
 });

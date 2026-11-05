@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -336,6 +336,39 @@ const TOOLS = [
         },
     },
     {
+        name: "coverage",
+        description: "Changed-line coverage from a local lcov, Istanbul, Cobertura or Go report: reports uncovered changed lines and files with no coverage data. Gate on the covered percentage or the number of uncovered lines. Offline and free of model calls.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                coverage_file: {
+                    type: "string",
+                    description: "Coverage report path; auto-detected from coverage/lcov.info and other common paths",
+                },
+                fail_under: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 100,
+                    description: "Return exit code 1 when less than this percentage of changed executable lines is covered",
+                },
+                max_uncovered: {
+                    type: "integer",
+                    minimum: 0,
+                    description: "Return exit code 1 when more changed lines are uncovered",
+                },
+                diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+                base: { type: "string", description: "Check git diff <base>...HEAD, e.g. origin/main" },
+                staged: { type: "boolean", description: "Check staged changes" },
+                unstaged: { type: "boolean", description: "Check unstaged changes" },
+                include_untracked: { type: "boolean", description: "Include untracked files when diffing" },
+                paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -568,6 +601,14 @@ const PROMPTS = [
         description: "Audit dependencies and vulnerabilities, fix the cheapest real problem first, and rerun without lowering the gate or hiding packages.",
         arguments: [
             { name: "context", description: "What changed and which dependency is suspect", required: false },
+        ],
+    },
+    {
+        name: "cover-changed-lines",
+        title: "Cover the changed lines",
+        description: "Measure changed-line coverage, add tests for the uncovered lines and rerun with the same gate instead of lowering the threshold.",
+        arguments: [
+            { name: "context", description: "Which change and behavior should be covered", required: false },
         ],
     },
     {
@@ -1203,6 +1244,38 @@ async function callDeps(input, cwd) {
         args.push("--ignore", ignore.join(","));
     return toToolResult(await runCli(args, cwd));
 }
+async function callCoverage(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["coverage", "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        const coverageFile = stringArg(input, "coverage_file");
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        if (coverageFile)
+            args.push("--coverage-file", coverageFile);
+        const failUnder = integerArg(input, "fail_under");
+        if (failUnder !== undefined)
+            args.push("--fail-under", String(failUnder));
+        const maxUncovered = signedIntegerArg(input, "max_uncovered");
+        if (maxUncovered !== undefined)
+            args.push(`--max-uncovered=${maxUncovered}`);
+        args.push(...projectPaths(input, "paths"));
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -1473,6 +1546,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callImpact(input, cwd);
         case "deps":
             return callDeps(input, cwd);
+        case "coverage":
+            return callCoverage(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -1564,6 +1639,11 @@ function summarizeResult(value) {
         const scanned = String(value.scannedFiles);
         return `oc-pilot: ${symbols} changed symbol${symbols === "1" ? "" : "s"}, ${references} reference${references === "1" ? "" : "s"} in ${scanned} scanned file${scanned === "1" ? "" : "s"}`;
     }
+    if (typeof value.uncoveredLines === "number" && Array.isArray(value.gaps)) {
+        const files = value.gaps.length;
+        const percent = typeof value.coveragePercent === "number" ? ` (${String(value.coveragePercent)}%)` : "";
+        return `oc-pilot: ${String(value.uncoveredLines)} uncovered changed line${value.uncoveredLines === 1 ? "" : "s"} in ${String(files)} file${files === 1 ? "" : "s"}${percent}`;
+    }
     if (typeof value.score === "number" && typeof value.survived === "number") {
         const score = String(value.score);
         const survived = String(value.survived);
@@ -1633,6 +1713,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "impact" tool on the current diff. It lists the declarations the change added or removed and every untouched file that still mentions those names. Inspect each reference: update call sites, imports, types, docs and tests that the change invalidated. Do not rename a public symbol or delete a call site only to make the report empty, and remember the search is textual, so confirm each hit before editing. Rerun "impact" after the edits and report the changed symbols, the files updated and any references you deliberately left.${suffix}`;
         case "triage-deps":
             return `Call the oc-pilot "deps" tool with audit=true, offline=false, fail_on_issue=medium and fail_on_vuln=high. Separate real problems from noise: a phantom import, a missing declaration, an unused package, a floating version, a broken lockfile, then a vulnerability. Fix the cheapest real problem first and rerun the same call. Never add an ignore, lower a gate or remove a dependency only to silence the report; if a vulnerability has no fixed version, say so and propose a mitigation. If the server is read-only, show the planned package.json change and ask me to apply it. Report what was fixed, what remains and the exact versions.${suffix}`;
+        case "cover-changed-lines":
+            return `Call the oc-pilot "coverage" tool on the current diff with fail_under=80 (or max_uncovered=0 when the project has no meaningful percentage). Add tests that execute the uncovered changed lines, then call "coverage" again with the same gate. Do not lower the threshold, add coverage-ignore comments, or delete the uncovered branch only to get a pass. Report the covered percentage, the files and lines you covered, and any gap you deliberately left.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":

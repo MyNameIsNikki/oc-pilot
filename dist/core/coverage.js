@@ -292,6 +292,29 @@ export function coverageGaps(report, changed, options = {}) {
         uncoveredLines,
     };
 }
+export function changedCoverage(report, changed) {
+    let executable = 0;
+    let covered = 0;
+    for (const [file, lines] of [...changed].sort(([left], [right]) => left.localeCompare(right))) {
+        const entry = lookupCoverage(report.files, file);
+        if (!entry)
+            continue;
+        for (const line of lines) {
+            if (!entry.executable.has(line))
+                continue;
+            executable += 1;
+            if (entry.covered.has(line))
+                covered += 1;
+        }
+    }
+    const uncovered = executable - covered;
+    return {
+        executable,
+        covered,
+        uncovered,
+        percent: executable === 0 ? null : Math.round((covered / executable) * 100),
+    };
+}
 /** Prompt fragment: the exact lines the model should cover. */
 export function formatCoverageGaps(summary) {
     const lines = ["COVERAGE_GAPS: changed lines that no test executed. Cover these lines first:"];

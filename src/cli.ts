@@ -2,6 +2,7 @@
 import { runCache } from "./commands/cache.js";
 import { runDay } from "./commands/day.js";
 import { runDeps } from "./commands/deps.js";
+import { runCoverage } from "./commands/coverage.js";
 import { runImpact } from "./commands/impact.js";
 import { runExplain } from "./commands/explain.js";
 import { runStats } from "./commands/stats.js";
@@ -50,6 +51,7 @@ const HANDLERS: Record<string, Handler> = {
   custom: runCustom,
   scan: runScan,
   deps: runDeps,
+  coverage: runCoverage,
   preflight: runPreflight,
   receipt: runReceipt,
   ready: runReady,
@@ -87,6 +89,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   custom      Свободный запрос к oc-pilot
   scan        Офлайн-поиск секретов в diff (без LLM)
   deps        Аудит зависимостей: фантомные импорты, лишние пакеты, lockfile
+  coverage    Покрытие изменённых строк: непокрытые строки и гейт
   preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
   ready       Оценить готовность репозитория к работе с ИИ-агентом
@@ -122,6 +125,7 @@ ${COMMON_HELP}
   oc-pilot test-gen --staged --apply
   oc-pilot flaky --runs 5
   oc-pilot mutate --staged --min-score 80
+  oc-pilot coverage --staged --coverage-file coverage/lcov.info --fail-under 80
   oc-pilot sast --staged --fail-on-issue high
   oc-pilot authz --staged
   oc-pilot deps --json
@@ -172,7 +176,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, coverage, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }
