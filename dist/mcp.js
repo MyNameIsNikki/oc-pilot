@@ -1189,6 +1189,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "stats" && booleanArg(input, "clear")) {
             throw new ToolInputError("stats clear is disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if ((name === "sast" || name === "authz") && booleanArg(input, "update_baseline")) {
+            throw new ToolInputError("updating a baseline is disabled in read-only mode; start the MCP server with --allow-write");
+        }
     }
     switch (name) {
         case "review":

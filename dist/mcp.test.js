@@ -94,6 +94,12 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
                 method: "tools/call",
                 params: { name: "test_fix", arguments: { diff: "diff --git a/a b/a\n" } },
             },
+            {
+                jsonrpc: "2.0",
+                id: 4,
+                method: "tools/call",
+                params: { name: "sast", arguments: { paths: ["app.js"], update_baseline: true } },
+            },
         ], []);
         assert.equal(status, 0, stderr);
         const byId = new Map(responses.map((response) => [response.id, response]));
@@ -106,6 +112,9 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
         const testResult = byId.get(3)?.result;
         assert.equal(testResult?.isError, true);
         assert.match(testResult?.content?.[0]?.text ?? "", /read-only/);
+        const baselineResult = byId.get(4)?.result;
+        assert.equal(baselineResult?.isError, true);
+        assert.match(baselineResult?.content?.[0]?.text ?? "", /read-only/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

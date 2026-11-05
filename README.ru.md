@@ -942,7 +942,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.50.0
+      - uses: MyNameIsNikki/oc-pilot@v0.50.1
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

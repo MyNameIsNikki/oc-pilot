@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.50.1
+
+- Read-only MCP-сервер больше не позволяет `sast` и `authz` записывать baseline: `update_baseline` отклоняется с ошибкой про `--allow-write`.
+- Регрессионный тест на read-only режим; версия 0.50.1.
+
 ## 0.50.0
 
 - `sast` и `authz` получили `--baseline <file>` и `--update-baseline`: принятые находки скрываются, гейт падает только на новых.
