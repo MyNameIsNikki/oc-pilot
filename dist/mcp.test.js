@@ -245,6 +245,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(mutate, "mutate tool missing");
         assert.ok(mutate.inputSchema.properties.max_mutants, "max_mutants missing on mutate");
         assert.ok(mutate.inputSchema.properties.min_score, "min_score missing on mutate");
+        const flaky = tools.find((tool) => tool.name === "flaky");
+        assert.ok(flaky, "flaky tool missing");
+        assert.ok(flaky.inputSchema.properties.runs, "runs missing on flaky");
+        assert.ok(flaky.inputSchema.properties.fail_on_flaky, "fail_on_flaky missing on flaky");
+        assert.ok(flaky.inputSchema.properties.shuffle, "shuffle missing on flaky");
+        assert.ok(flaky.inputSchema.properties.seed, "seed missing on flaky");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -568,6 +574,53 @@ test("MCP mutate reports surviving mutants and restores the source", () => {
         assert.equal(result?.structuredContent?.mutants?.length, 1);
         assert.match(result?.content?.[0]?.text ?? "", /mutation score 0\/100, 1 survived/);
         assert.equal(readFileSync(join(dir, "app.js"), "utf8"), source);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP flaky reports a test that passes and fails across runs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-flaky-"));
+    try {
+        writeFileSync(join(dir, "flaky.cjs"), [
+            'const { existsSync, readFileSync, writeFileSync } = require("node:fs");',
+            'const count = existsSync("runs.txt") ? Number(readFileSync("runs.txt", "utf8")) : 0;',
+            'writeFileSync("runs.txt", String(count + 1));',
+            "if (count === 0) {",
+            '  console.log("✔ alpha");',
+            "} else {",
+            '  console.log("✖ alpha");',
+            "  process.exit(1);",
+            "}",
+            "",
+        ].join("\n"), "utf8");
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: {
+                    name: "flaky",
+                    arguments: { runs: 2, command: "node flaky.cjs", verbosity: "compact" },
+                },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 0);
+        assert.equal(result?.structuredContent?.runs, 2);
+        assert.equal(result?.structuredContent?.parsed, true);
+        assert.equal(result?.structuredContent?.flaky?.length, 1);
+        assert.equal(result?.structuredContent?.flaky?.[0]?.name, "alpha");
+        assert.equal(result?.structuredContent?.flaky?.[0]?.passes, 1);
+        assert.equal(result?.structuredContent?.flaky?.[0]?.failures, 1);
+        assert.match(result?.content?.[0]?.text ?? "", /1 flaky, 0 failing across 2 runs/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

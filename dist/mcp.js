@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -272,6 +272,23 @@ const TOOLS = [
         },
     },
     {
+        name: "flaky",
+        description: "Run the test command several times and compare per-test results, flagging tests that pass in some runs and fail in others. With shuffle=true it reorders test files using a reproducible seed. It never edits source files itself, but the test command may write build artifacts. Offline and free of model calls; fail_on_flaky returns exit code 1 when a flaky test is found.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                runs: { type: "integer", minimum: 1, maximum: 10, description: "How many times to run the tests (default 3)" },
+                command: { type: "string", description: "Test command; auto-detected when omitted" },
+                fail_on_flaky: { type: "boolean", description: "Return exit code 1 when any test is flaky" },
+                shuffle: { type: "boolean", description: "Shuffle test files between runs; the command must contain {files}" },
+                seed: { type: "string", description: "Shuffle seed; random when omitted" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -370,7 +387,7 @@ const TOOLS = [
     },
     {
         name: "ready",
-        description: "Agent readiness score 0-100 for the repository: tests, lockfile, git hooks, Slop Index, a fresh receipt, agent instructions, CI and config. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A score below fail_under returns exit code 1 with the full report, not a tool error.",
+        description: "Agent readiness score 0-100 for the repository: tests, lockfile, git hooks, Slop Index, a fresh receipt, agent instructions, CI, config and security. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A score below fail_under returns exit code 1 with the full report, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: {
             type: "object",
@@ -480,6 +497,14 @@ const PROMPTS = [
         description: "Ask oc-pilot to repair SAST or route-authorization findings, then rescan until no high findings remain.",
         arguments: [
             { name: "context", description: "What the change does and which finding matters", required: false },
+        ],
+    },
+    {
+        name: "stabilize-flaky",
+        title: "Stabilize a flaky test",
+        description: "Reproduce a flaky test with repeated and shuffled runs, identify shared state or ordering dependence, and make the smallest deterministic fix.",
+        arguments: [
+            { name: "context", description: "Which test is suspected and what changed recently", required: false },
         ],
     },
     {
@@ -1047,6 +1072,23 @@ async function callMutate(input, cwd) {
         temp.cleanup();
     }
 }
+async function callFlaky(input, cwd) {
+    const args = ["flaky", "--json"];
+    const runs = integerArg(input, "runs");
+    const command = stringArg(input, "command");
+    const seed = stringArg(input, "seed");
+    if (runs !== undefined)
+        args.push("--runs", String(runs));
+    if (command)
+        args.push("--command", command);
+    if (booleanArg(input, "fail_on_flaky"))
+        args.push("--fail-on-flaky");
+    if (booleanArg(input, "shuffle"))
+        args.push("--shuffle");
+    if (seed)
+        args.push("--seed", seed);
+    return toToolResult(await runCli(args, cwd));
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -1308,6 +1350,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callSlop(input, cwd);
         case "mutate":
             return callMutate(input, cwd);
+        case "flaky":
+            return callFlaky(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -1382,6 +1426,11 @@ function summarizeResult(value) {
         const truncated = value.patchTruncated === true ? ", patch truncated" : "";
         return `oc-pilot: fix ${files} file${files === 1 ? "" : "s"}, +${additions}/-${deletions} (${state})${truncated}`;
     }
+    if (Array.isArray(value.flaky) && typeof value.runs === "number") {
+        const flaky = String(value.flaky.length);
+        const failing = Array.isArray(value.failing) ? String(value.failing.length) : "0";
+        return `oc-pilot: ${flaky} flaky, ${failing} failing across ${String(value.runs)} runs`;
+    }
     if (typeof value.score === "number" && typeof value.survived === "number") {
         const score = String(value.score);
         const survived = String(value.survived);
@@ -1445,6 +1494,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
         case "fix-security":
             return `Call the oc-pilot "fix" tool with from_sast=true (or from_authz=true for route authorization) and apply=true. It asks the model for a patch that removes the findings, applies it, runs the tests and rescans; the result reports sast or authz as {before, after, remaining}. If the server is read-only, call the same tool without apply, show the patch and ask me to apply it. Do not add suppressions, do not edit .oc-pilot/baseline.json, and do not claim success while remaining is above zero. If high findings remain, report them with file:line and the smallest next step.${suffix}`;
+        case "stabilize-flaky":
+            return `Call the oc-pilot "flaky" tool with runs=5 and shuffle=true (the command must contain {files}; pass a fixed seed when you have one). If it reports no flaky tests, say so and stop. For each flaky test, inspect shared state, ordering, time, randomness and network assumptions, then make the smallest deterministic fix in the test or its setup. Never hide the problem with retries, sleeps, longer timeouts, skipped tests or by reordering files. Rerun with the same seed and runs to prove the test is stable. Report the test names, the cause, the fix and the before/after evidence.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":

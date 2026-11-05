@@ -19,6 +19,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `docgen` — GoDoc/RustDoc/JSDoc/docstrings.
 - `slop` — offline Slop Index.
 - `mutate` — mutation testing: flips operators, runs tests, lists survivors; needs `--allow-write` because it rewrites sources temporarily.
+- `flaky` — repeated and shuffled test runs that flag tests passing in some runs and failing in others.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -39,6 +40,7 @@ oc-pilot test-fix
 oc-pilot fix --apply --command "npm test"
 oc-pilot docgen "src/**/*.ts"
 oc-pilot mutate --staged --min-score 80
+oc-pilot flaky --runs 5 --fail-on-flaky
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.
