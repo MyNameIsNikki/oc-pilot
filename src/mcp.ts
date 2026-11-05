@@ -172,7 +172,7 @@ const TOOLS = [
   {
     name: "fix",
     description:
-      "Ask the model for a unified diff and validate it with git apply. With apply=true, applies the patch and runs tests, reverting on failure and retrying.",
+      "Ask the model for a unified diff and validate it with git apply. With from_sast or from_authz it targets security findings and rescans after the patch. With apply=true, applies the patch and runs tests, reverting on failure and retrying.",
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     inputSchema: {
       type: "object",
@@ -195,6 +195,14 @@ const TOOLS = [
         timeout: { type: "integer", minimum: 1 },
         repo_context: { type: "boolean" },
         no_secret_scan: { type: "boolean" },
+        from_sast: {
+          type: "boolean",
+          description: "Fix high-severity SAST findings in the changed files and rescan",
+        },
+        from_authz: {
+          type: "boolean",
+          description: "Fix high-severity route authorization findings and rescan",
+        },
       },
     },
   },
@@ -474,6 +482,15 @@ const PROMPTS = [
       "Score the repository, fix the safe gaps (hook, config, AGENTS.md), prove the result with a receipt, and rerun until the score is at least 85 or only human checks remain.",
     arguments: [
       { name: "context", description: "What the agent is about to work on", required: false },
+    ],
+  },
+  {
+    name: "fix-security",
+    title: "Fix security findings",
+    description:
+      "Ask oc-pilot to repair SAST or route-authorization findings, then rescan until no high findings remain.",
+    arguments: [
+      { name: "context", description: "What the change does and which finding matters", required: false },
     ],
   },
   {
@@ -962,6 +979,8 @@ async function callFix(input: JsonObject, cwd: string): Promise<ToolResult> {
     if (command) args.push("--command", command);
     if (booleanArg(input, "apply")) args.push("--apply");
     if (booleanArg(input, "no_tests")) args.push("--no-tests");
+    if (booleanArg(input, "from_sast")) args.push("--from-sast");
+    if (booleanArg(input, "from_authz")) args.push("--from-authz");
     if (rounds !== undefined) args.push("--rounds", String(rounds));
     args.push(...projectPaths(input, "paths"));
     return toToolResult(await runCli(args, cwd));
@@ -1314,6 +1333,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Before I commit, call the oc-pilot "preflight" tool with staged=true. It runs offline: secrets, dependency health scoped to the change, test weakening and the Slop Index delta. If the verdict is fail, fix the cheapest failing check first, then call "preflight" again. Do not disable a check with no_* flags or lower the gate just to get a pass. When it passes, report what was checked and any remaining skips.${suffix}`;
     case "get-ready":
       return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
+    case "fix-security":
+      return `Call the oc-pilot "fix" tool with from_sast=true (or from_authz=true for route authorization) and apply=true. It asks the model for a patch that removes the findings, applies it, runs the tests and rescans; the result reports sast or authz as {before, after, remaining}. If the server is read-only, call the same tool without apply, show the patch and ask me to apply it. Do not add suppressions, do not edit .oc-pilot/baseline.json, and do not claim success while remaining is above zero. If high findings remain, report them with file:line and the smallest next step.${suffix}`;
     case "prove-done":
       return `Do not say the work is done yet. Call the oc-pilot "receipt_verify" tool. A valid proof has ok=true, hashOk=true, stale=false and tests.passed=true for the current HEAD. If the receipt is missing, stale or reports failing tests, run the suite and create a fresh receipt with oc-pilot receipt, then call "receipt_verify" again. Use oc-pilot receipt --no-run only when tests cannot run here, and say so explicitly. Never edit a receipt by hand and never claim completion while ok is false or tests.passed is false. Report the receipt path, the commit and what was verified.${suffix}`;
     default:
