@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -308,6 +308,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(flaky.inputSchema.properties.fail_on_flaky, "fail_on_flaky missing on flaky");
     assert.ok(flaky.inputSchema.properties.shuffle, "shuffle missing on flaky");
     assert.ok(flaky.inputSchema.properties.seed, "seed missing on flaky");
+
+    const impact = tools.find((tool) => tool.name === "impact");
+    assert.ok(impact, "impact tool missing");
+    assert.ok(impact.inputSchema.properties.base, "base missing on impact");
+    assert.ok(impact.inputSchema.properties.staged, "staged missing on impact");
+    assert.ok(impact.inputSchema.properties.paths, "paths missing on impact");
 
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
@@ -718,6 +724,72 @@ test("MCP mutate reports surviving mutants and restores the source", () => {
       /mutation score 0\/100, 1 survived/,
     );
     assert.equal(readFileSync(join(dir, "app.js"), "utf8"), source);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP impact finds references to changed symbols", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-impact-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "checkout.ts"),
+      'import { charge } from "./wallet";\n\nexport function pay() {\n  return charge(10);\n}\n',
+      "utf8",
+    );
+    const diff = [
+      "diff --git a/src/wallet.ts b/src/wallet.ts",
+      "--- a/src/wallet.ts",
+      "+++ b/src/wallet.ts",
+      "@@ -1,3 +1,3 @@",
+      "-export function charge(amount: number) {",
+      "+export function chargeCard(amount: number) {",
+      "   return amount;",
+      " }",
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "impact",
+          arguments: { diff, verbosity: "compact" },
+        },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: {
+            symbols?: Array<{ name?: string }>;
+            references?: Array<{ symbol?: string; file?: string; line?: number }>;
+            scannedFiles?: number;
+          };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    const names = result?.structuredContent?.symbols?.map((symbol) => symbol.name) ?? [];
+    assert.ok(names.includes("charge"), `symbols: ${names.join(", ")}`);
+    assert.ok(names.includes("chargeCard"), `symbols: ${names.join(", ")}`);
+    const reference = result?.structuredContent?.references?.find((item) => item.symbol === "charge");
+    assert.ok(reference, "charge reference missing");
+    assert.equal(reference.file, "src/checkout.ts");
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /2 changed symbols, \d+ references? in \d+ scanned files?/,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

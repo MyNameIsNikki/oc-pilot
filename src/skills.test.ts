@@ -74,6 +74,7 @@ test("skills document real commands and avoid placeholders", () => {
     "help",
     "mutate",
     "flaky",
+    "impact",
   ]);
   for (const skill of skills) {
     for (const match of skill.body.matchAll(/oc-pilot ([a-z][a-z-]*)/g)) {

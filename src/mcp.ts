@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -318,6 +318,25 @@ const TOOLS = [
     },
   },
   {
+    name: "impact",
+    description:
+      "Show which declarations the diff changed or removed and where else those names are used. References in untouched files are the call sites most likely to break; the search is textual, so comments and strings can match. Offline and free of model calls.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Analyze git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Analyze staged changes" },
+        unstaged: { type: "boolean", description: "Analyze unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files when diffing" },
+        paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -550,6 +569,15 @@ const PROMPTS = [
       "Reproduce a flaky test with repeated and shuffled runs, identify shared state or ordering dependence, and make the smallest deterministic fix.",
     arguments: [
       { name: "context", description: "Which test is suspected and what changed recently", required: false },
+    ],
+  },
+  {
+    name: "check-impact",
+    title: "Check what the change touches",
+    description:
+      "Find external references to changed declarations, inspect every call site, update what the change broke and rerun until no stale references remain.",
+    arguments: [
+      { name: "context", description: "What changed and which symbols are risky", required: false },
     ],
   },
   {
@@ -1094,6 +1122,24 @@ async function callFlaky(input: JsonObject, cwd: string): Promise<ToolResult> {
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callImpact(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["impact", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -1301,6 +1347,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callMutate(input, cwd);
     case "flaky":
       return callFlaky(input, cwd);
+    case "impact":
+      return callImpact(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -1390,6 +1438,12 @@ function summarizeResult(value: JsonObject): string {
     const failing = Array.isArray(value.failing) ? String(value.failing.length) : "0";
     return `oc-pilot: ${flaky} flaky, ${failing} failing across ${String(value.runs)} runs`;
   }
+  if (Array.isArray(value.symbols) && Array.isArray(value.references) && typeof value.scannedFiles === "number") {
+    const symbols = String(value.symbols.length);
+    const references = String(value.references.length);
+    const scanned = String(value.scannedFiles);
+    return `oc-pilot: ${symbols} changed symbol${symbols === "1" ? "" : "s"}, ${references} reference${references === "1" ? "" : "s"} in ${scanned} scanned file${scanned === "1" ? "" : "s"}`;
+  }
   if (typeof value.score === "number" && typeof value.survived === "number") {
     const score = String(value.score);
     const survived = String(value.survived);
@@ -1459,6 +1513,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "fix" tool with from_sast=true (or from_authz=true for route authorization) and apply=true. It asks the model for a patch that removes the findings, applies it, runs the tests and rescans; the result reports sast or authz as {before, after, remaining}. If the server is read-only, call the same tool without apply, show the patch and ask me to apply it. Do not add suppressions, do not edit .oc-pilot/baseline.json, and do not claim success while remaining is above zero. If high findings remain, report them with file:line and the smallest next step.${suffix}`;
     case "stabilize-flaky":
       return `Call the oc-pilot "flaky" tool with runs=5 and shuffle=true (the command must contain {files}; pass a fixed seed when you have one). If it reports no flaky tests, say so and stop. For each flaky test, inspect shared state, ordering, time, randomness and network assumptions, then make the smallest deterministic fix in the test or its setup. Never hide the problem with retries, sleeps, longer timeouts, skipped tests or by reordering files. Rerun with the same seed and runs to prove the test is stable. Report the test names, the cause, the fix and the before/after evidence.${suffix}`;
+    case "check-impact":
+      return `Call the oc-pilot "impact" tool on the current diff. It lists the declarations the change added or removed and every untouched file that still mentions those names. Inspect each reference: update call sites, imports, types, docs and tests that the change invalidated. Do not rename a public symbol or delete a call site only to make the report empty, and remember the search is textual, so confirm each hit before editing. Rerun "impact" after the edits and report the changed symbols, the files updated and any references you deliberately left.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":
