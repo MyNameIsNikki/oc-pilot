@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { runShellCommand } from "../core/command.js";
 import { loadDiff } from "../core/diff-source.js";
 import { PilotError } from "../core/errors.js";
@@ -8,10 +9,14 @@ import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../co
 import { asBoolean, asString } from "../core/parse.js";
 import { collectPreflight } from "../core/preflight-run.js";
 import { detectTestCommand } from "../core/project.js";
-import { RECEIPT_VERSION, buildReceipt, gitSnapshot, readReceipt, receiptPath, renderReceipt, saveReceipt, verifyReceipt, } from "../core/receipt.js";
+import { RECEIPT_VERSION, buildReceipt, gitSnapshot, readReceipt, receiptPath, receiptPublicKeyPath, readReceiptPublicKey, renderReceipt, saveReceipt, signReceipt, generateReceiptKeyPair, verifyReceipt, } from "../core/receipt.js";
 import { VERSION } from "../version.js";
 const OPTIONS = withCommon({
     verify: { type: "boolean" },
+    sign: { type: "boolean" },
+    key: { type: "string" },
+    "public-key": { type: "string" },
+    keygen: { type: "string" },
     receipt: { type: "string" },
     out: { type: "string" },
     "no-run": { type: "boolean" },
@@ -42,6 +47,10 @@ preflight, а также SHA-256 всех этих данных. Модель н
 
 Опции:
       --verify              проверить сохранённую квитанцию вместо создания
+      --sign                подписать квитанцию Ed25519-ключом
+      --key <file>          приватный ключ для --sign (или OC_PILOT_RECEIPT_KEY)
+      --public-key <file>   публичный ключ для --verify (или .oc-pilot/receipt.pub)
+      --keygen <file>       создать пару ключей: <file> и <file>.pub
       --receipt <file>      путь к квитанции для --verify
       --out <file>          сохранить копию в указанный файл
       --no-run              не запускать тесты
@@ -65,7 +74,10 @@ ${COMMON_HELP}
   oc-pilot receipt --json
   oc-pilot receipt --out receipt.json
   oc-pilot receipt --verify
-  oc-pilot receipt --verify --receipt receipt.json`;
+  oc-pilot receipt --verify --receipt receipt.json
+  oc-pilot receipt --keygen receipt.key
+  oc-pilot receipt --sign --key receipt.key
+  oc-pilot receipt --verify --public-key receipt.key.pub`;
 function parseGate(raw) {
     if (raw === undefined || raw.trim() === "")
         return "high";
@@ -106,6 +118,7 @@ function runVerify(values, ctx) {
             stale: false,
             commit: null,
             head: null,
+            signature: "missing",
             reason: `квитанция не найдена: ${path}`,
         };
         const text = ctx.flags.json
@@ -116,11 +129,34 @@ function runVerify(values, ctx) {
             log.success(`Отчёт сохранён: ${wrote}`);
         return 1;
     }
+    const explicitKey = asString(values, "public-key") ?? process.env.OC_PILOT_RECEIPT_PUBLIC_KEY;
+    let publicKey;
+    if (explicitKey) {
+        try {
+            publicKey = readFileSync(resolve(ctx.cwd, explicitKey), "utf8");
+        }
+        catch {
+            throw new PilotError(`Не удалось прочитать публичный ключ: ${explicitKey}`, {
+                hint: "Укажите --public-key <file> с Ed25519-ключом в PEM.",
+                exitCode: 2,
+            });
+        }
+    }
+    else {
+        publicKey = readReceiptPublicKey(ctx.cwd);
+    }
     const receipt = readReceipt(path);
-    const verification = verifyReceipt(ctx.cwd, receipt);
+    const verification = verifyReceipt(ctx.cwd, receipt, publicKey);
+    const signatureText = verification.signature === "valid"
+        ? "действительна"
+        : verification.signature === "invalid"
+            ? "недействительна"
+            : verification.signature === "unchecked"
+                ? "не проверялась"
+                : "отсутствует";
     const text = ctx.flags.json
         ? `${JSON.stringify({ path, ...verification }, null, 2)}\n`
-        : `${renderReceipt(receipt, path)}Проверка: ${verification.ok ? "действительна" : `недействительна — ${verification.reason}`}.\n`;
+        : `${renderReceipt(receipt, path)}Подпись: ${signatureText}.\nПроверка: ${verification.ok ? "действительна" : `недействительна — ${verification.reason}`}.\n`;
     const wrote = writeOutput(text, ctx.flags.output);
     if (wrote)
         log.success(`Отчёт сохранён: ${wrote}`);
@@ -133,8 +169,28 @@ export async function runReceipt(argv) {
         return 0;
     }
     const ctx = resolveContext(values);
-    if (asBoolean(values, "verify"))
+    const keygenPath = asString(values, "keygen");
+    if (keygenPath) {
+        const target = resolve(ctx.cwd, keygenPath);
+        const pair = generateReceiptKeyPair();
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, pair.privateKey, { encoding: "utf8", mode: 0o600 });
+        writeFileSync(`${target}.pub`, pair.publicKey, "utf8");
+        log.success(`Приватный ключ: ${target}`);
+        log.success(`Публичный ключ: ${target}.pub`);
+        log.info(`Скопируйте публичный ключ в ${receiptPublicKeyPath(ctx.cwd)}, чтобы ready и CI проверяли подпись.`);
+        return 0;
+    }
+    const sign = asBoolean(values, "sign");
+    if (asBoolean(values, "verify")) {
+        if (sign) {
+            throw new PilotError("--verify не сочетается с --sign", {
+                hint: "Подписывайте квитанцию при создании, а проверяйте отдельной командой.",
+                exitCode: 2,
+            });
+        }
         return runVerify(values, ctx);
+    }
     const disabled = [];
     if (asBoolean(values, "no-secret-scan"))
         disabled.push("secrets");
@@ -174,7 +230,7 @@ export async function runReceipt(argv) {
         }
     }
     const snapshot = gitSnapshot(ctx.cwd);
-    const receipt = buildReceipt({
+    const body = {
         version: RECEIPT_VERSION,
         tool: "oc-pilot",
         toolVersion: VERSION,
@@ -186,7 +242,31 @@ export async function runReceipt(argv) {
         files: data.changedFiles,
         tests,
         preflight,
-    });
+    };
+    const signKey = asString(values, "key") ?? process.env.OC_PILOT_RECEIPT_KEY;
+    let receipt;
+    if (sign) {
+        if (!signKey) {
+            throw new PilotError("Для --sign нужен приватный ключ", {
+                hint: "Укажите --key <file> или переменную OC_PILOT_RECEIPT_KEY. Создайте пару: oc-pilot receipt --keygen <file>.",
+                exitCode: 2,
+            });
+        }
+        let privateKey;
+        try {
+            privateKey = readFileSync(resolve(ctx.cwd, signKey), "utf8");
+        }
+        catch {
+            throw new PilotError(`Не удалось прочитать приватный ключ: ${signKey}`, {
+                hint: "Укажите путь к Ed25519-ключу в PEM (PKCS#8).",
+                exitCode: 2,
+            });
+        }
+        receipt = signReceipt(body, privateKey);
+    }
+    else {
+        receipt = buildReceipt(body);
+    }
     const saved = saveReceipt(ctx.cwd, receipt, asString(values, "out"));
     const text = ctx.flags.json ? `${JSON.stringify(receipt, null, 2)}\n` : renderReceipt(receipt, saved);
     const wrote = writeOutput(text, ctx.flags.output);

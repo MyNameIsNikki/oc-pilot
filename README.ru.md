@@ -386,11 +386,16 @@ oc-pilot receipt --staged
 oc-pilot receipt --json
 oc-pilot receipt --verify
 oc-pilot receipt --verify --receipt path/to/receipt.json
+oc-pilot receipt --keygen receipt.key
+oc-pilot receipt --sign --key receipt.key
+oc-pilot receipt --verify --public-key receipt.key.pub
 ```
 
-Файл запечатан SHA-256 хешем тела. `--verify` пересчитывает хеш и сравнивает коммит с текущим `HEAD`, поэтому изменённый файл или квитанция от старого коммита считаются недействительными: `{path, ok, hashOk, stale, commit, head, reason?}`. Код возврата 1, если тесты упали, preflight не прошёл или квитанция не проверяется.
+Файл запечатан SHA-256 хешем тела. `--verify` пересчитывает хеш и сравнивает коммит с текущим `HEAD`, поэтому изменённый файл или квитанция от старого коммита считаются недействительными: `{path, ok, hashOk, stale, commit, head, signature, reason?}`. Код возврата 1, если тесты упали, preflight не прошёл или квитанция не проверяется.
 
-Квитанция содержит `{version, tool, toolVersion, createdAt, commit, branch, dirty, diff, files, tests, preflight, hash}`. `tests` — `{command, exitCode, timedOut, durationMs, passed, outputTail}` или `null` при `--no-run`; `preflight` — тот же отчёт, что печатает `preflight`. Вне репозитория квитанцию можно записать только в явный путь через `--out`.
+Хеш доказывает целостность, но не авторство. `--sign` подписывает хеш Ed25519-ключом: `--keygen <file>` создаёт приватный ключ (права 0600) и `<file>.pub`; `--key` или `OC_PILOT_RECEIPT_KEY` указывает на приватный ключ; в квитанции появляется поле `signature`. Проверка сверяет подпись, если доступен публичный ключ: `--public-key <file>`, `OC_PILOT_RECEIPT_PUBLIC_KEY` или закоммиченный `.oc-pilot/receipt.pub`. Статус подписи — `valid`, `invalid`, `missing` или `unchecked`; неподписанная квитанция не проходит проверку, когда ключ передан. `ready` тоже проверяет подпись, если существует `.oc-pilot/receipt.pub`. Приватный ключ храните вне репозитория.
+
+Квитанция содержит `{version, tool, toolVersion, createdAt, commit, branch, dirty, diff, files, tests, preflight, hash, signature?}`. `tests` — `{command, exitCode, timedOut, durationMs, passed, outputTail}` или `null` при `--no-run`; `preflight` — тот же отчёт, что печатает `preflight`. Вне репозитория квитанцию можно записать только в явный путь через `--out`.
 
 ### `ready`
 
@@ -858,7 +863,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.42.0
+      - uses: MyNameIsNikki/oc-pilot@v0.43.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

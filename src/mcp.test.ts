@@ -282,6 +282,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
     const receiptVerify = tools.find((tool) => tool.name === "receipt_verify");
     assert.ok(receiptVerify, "receipt_verify tool missing");
     assert.ok(receiptVerify.inputSchema.properties.receipt, "receipt missing on receipt_verify");
+    assert.ok(receiptVerify.inputSchema.properties.public_key, "public_key missing on receipt_verify");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

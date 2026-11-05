@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { assessReadiness, renderBadge, renderReadiness } from "./readiness.js";
-import { RECEIPT_VERSION, buildReceipt, saveReceipt } from "./receipt.js";
+import { RECEIPT_VERSION, buildReceipt, generateReceiptKeyPair, saveReceipt, signReceipt } from "./receipt.js";
 const PREFLIGHT = {
     status: "pass",
     checks: [],
@@ -105,6 +105,40 @@ test("assessReadiness warns about a stale receipt", () => {
         const receipt = report.checks.find((check) => check.id === "receipt");
         assert.ok(receipt);
         assert.notEqual(receipt.status, "pass");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("assessReadiness verifies a signed receipt when a public key is committed", () => {
+    const dir = makeRepo({ "src/app.ts": "export const value = 1;\n" });
+    try {
+        const sha = commit(dir);
+        const pair = generateReceiptKeyPair();
+        saveReceipt(dir, signReceipt({
+            version: RECEIPT_VERSION,
+            tool: "oc-pilot",
+            toolVersion: "0.43.0",
+            createdAt: "2026-11-05T00:00:00.000Z",
+            commit: sha,
+            branch: "main",
+            dirty: false,
+            diff: { files: 0, additions: 0, deletions: 0 },
+            files: [],
+            tests: null,
+            preflight: PREFLIGHT,
+        }, pair.privateKey));
+        mkdirSync(join(dir, ".oc-pilot"), { recursive: true });
+        writeFileSync(join(dir, ".oc-pilot", "receipt.pub"), pair.publicKey, "utf8");
+        const signed = assessReadiness(dir).checks.find((check) => check.id === "receipt");
+        assert.equal(signed?.status, "pass");
+        assert.match(signed?.detail ?? "", /подпись проверена/);
+        const path = join(dir, ".git", "oc-pilot", "receipt.json");
+        const stored = JSON.parse(readFileSync(path, "utf8"));
+        stored.signature = Buffer.from("broken").toString("base64");
+        writeFileSync(path, JSON.stringify(stored), "utf8");
+        const tampered = assessReadiness(dir).checks.find((check) => check.id === "receipt");
+        assert.notEqual(tampered?.status, "pass");
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

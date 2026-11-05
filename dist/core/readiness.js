@@ -5,7 +5,7 @@ import { PilotError } from "./errors.js";
 import { isGitRepo } from "./git.js";
 import { detectLockfile, readLockfile } from "./lockfile.js";
 import { detectTestCommand } from "./project.js";
-import { readReceipt, receiptPath, verifyReceipt } from "./receipt.js";
+import { readReceipt, readReceiptPublicKey, receiptPath, verifyReceipt } from "./receipt.js";
 import { analyzeRepository } from "./slop/index.js";
 const GRADE_LABELS = {
     "agent-ready": "готов к агенту",
@@ -107,9 +107,9 @@ export function assessReadiness(cwd, options = {}) {
         checks.push(check("receipt", "Квитанция", 15, "fail", "нет квитанции для HEAD: oc-pilot receipt"));
     }
     else {
-        const verification = verifyReceipt(cwd, receipt);
+        const verification = verifyReceipt(cwd, receipt, readReceiptPublicKey(cwd));
         checks.push(verification.ok
-            ? check("receipt", "Квитанция", 15, "pass", `действительна (${receipt.commit?.slice(0, 12) ?? "без коммита"})`)
+            ? check("receipt", "Квитанция", 15, "pass", `действительна (${receipt.commit?.slice(0, 12) ?? "без коммита"})${verification.signature === "valid" ? ", подпись проверена" : ""}`)
             : check("receipt", "Квитанция", 15, "warn", verification.reason ?? "недействительна"));
     }
     const docs = agentDocsFile(cwd);

@@ -290,6 +290,10 @@ const TOOLS = [
                     type: "string",
                     description: "Path to a receipt file; defaults to .git/oc-pilot/receipt.json",
                 },
+                public_key: {
+                    type: "string",
+                    description: "Public key file for the signature check; defaults to .oc-pilot/receipt.pub",
+                },
                 ...RESULT_PROPERTIES,
             },
         },
@@ -995,6 +999,9 @@ async function callReceiptVerify(input, cwd) {
     const receipt = stringArg(input, "receipt");
     if (receipt)
         args.push("--receipt", receipt);
+    const publicKey = stringArg(input, "public_key");
+    if (publicKey)
+        args.push("--public-key", publicKey);
     return toToolResult(await runCli(args, cwd));
 }
 async function callStats(input, cwd) {

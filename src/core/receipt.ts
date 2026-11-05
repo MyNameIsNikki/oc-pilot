@@ -1,4 +1,11 @@
-import { createHash } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign,
+  verify,
+} from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import type { DiffStats } from "../types.js";
@@ -33,7 +40,11 @@ export interface ReceiptBody {
 
 export interface Receipt extends ReceiptBody {
   hash: string;
+  /** Base64 Ed25519 signature over the hash, present when the receipt was signed. */
+  signature?: string;
 }
+
+export type ReceiptSignatureStatus = "valid" | "invalid" | "missing" | "unchecked";
 
 export interface ReceiptVerification {
   ok: boolean;
@@ -41,6 +52,7 @@ export interface ReceiptVerification {
   stale: boolean;
   commit: string | null;
   head: string | null;
+  signature: ReceiptSignatureStatus;
   reason?: string;
 }
 
@@ -51,6 +63,53 @@ export function receiptHash(body: ReceiptBody): string {
 
 export function buildReceipt(body: ReceiptBody): Receipt {
   return { ...body, hash: receiptHash(body) };
+}
+
+/** Signs the receipt hash with an Ed25519 private key in PEM (PKCS#8). */
+export function signReceipt(body: ReceiptBody, privateKeyPem: string): Receipt {
+  const receipt = buildReceipt(body);
+  let signature: string;
+  try {
+    signature = sign(null, Buffer.from(receipt.hash, "utf8"), createPrivateKey(privateKeyPem)).toString("base64");
+  } catch {
+    throw new PilotError("Не удалось подписать квитанцию: некорректный приватный ключ", {
+      hint: "Ожидается Ed25519-ключ в PEM (PKCS#8). Создайте пару: oc-pilot receipt --keygen <file>.",
+      exitCode: 2,
+    });
+  }
+  return { ...receipt, signature };
+}
+
+export function verifyReceiptSignature(receipt: Receipt, publicKeyPem: string): boolean {
+  if (!receipt.signature) return false;
+  try {
+    return verify(
+      null,
+      Buffer.from(receipt.hash, "utf8"),
+      createPublicKey(publicKeyPem),
+      Buffer.from(receipt.signature, "base64"),
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function generateReceiptKeyPair(): { privateKey: string; publicKey: string } {
+  const pair = generateKeyPairSync("ed25519");
+  return {
+    privateKey: pair.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+    publicKey: pair.publicKey.export({ type: "spki", format: "pem" }).toString(),
+  };
+}
+
+/** Public key committed with the project, so CI and agents can verify receipts. */
+export function receiptPublicKeyPath(cwd: string): string {
+  return join(cwd, ".oc-pilot", "receipt.pub");
+}
+
+export function readReceiptPublicKey(cwd: string): string | undefined {
+  const path = receiptPublicKeyPath(cwd);
+  return existsSync(path) ? readFileSync(path, "utf8") : undefined;
 }
 
 function gitValue(cwd: string, args: string[]): string | null {
@@ -134,11 +193,22 @@ export function readReceipt(path: string): Receipt {
   return parsed as Receipt;
 }
 
-export function verifyReceipt(cwd: string, receipt: Receipt): ReceiptVerification {
-  const { hash, ...body } = receipt;
+export function verifyReceipt(cwd: string, receipt: Receipt, publicKeyPem?: string): ReceiptVerification {
+  const { hash, signature, ...body } = receipt;
   const hashOk = hash === receiptHash(body as ReceiptBody);
   const head = gitValue(cwd, ["rev-parse", "HEAD"]);
   const stale = receipt.commit !== null && head !== null && receipt.commit !== head;
+
+  const signatureStatus: ReceiptSignatureStatus =
+    publicKeyPem === undefined
+      ? signature
+        ? "unchecked"
+        : "missing"
+      : signature
+        ? verifyReceiptSignature(receipt, publicKeyPem)
+          ? "valid"
+          : "invalid"
+        : "missing";
 
   let reason: string | undefined;
   if (receipt.version !== RECEIPT_VERSION) {
@@ -147,9 +217,21 @@ export function verifyReceipt(cwd: string, receipt: Receipt): ReceiptVerificatio
     reason = "хеш не совпадает: файл изменён после создания";
   } else if (stale) {
     reason = `квитанция выдана для ${receipt.commit?.slice(0, 12)}, а HEAD сейчас ${head?.slice(0, 12)}`;
+  } else if (publicKeyPem !== undefined && signatureStatus === "invalid") {
+    reason = "подпись не совпадает: квитанция подписана другим ключом или изменена";
+  } else if (publicKeyPem !== undefined && signatureStatus === "missing") {
+    reason = "квитанция не подписана, а проверка требует подпись";
   }
 
-  return { ok: hashOk && !stale && reason === undefined, hashOk, stale, commit: receipt.commit, head, reason };
+  return {
+    ok: hashOk && !stale && reason === undefined,
+    hashOk,
+    stale,
+    commit: receipt.commit,
+    head,
+    signature: signatureStatus,
+    reason,
+  };
 }
 
 /** Human-readable summary printed after a receipt is created or checked. */
@@ -173,6 +255,7 @@ export function renderReceipt(receipt: Receipt, savedPath?: string): string {
   const verdict = receipt.preflight.status === "pass" ? "пройден" : "провален";
   lines.push(`Preflight: ${verdict} — проверок с замечаниями: ${failed} из ${receipt.preflight.checks.length}`);
   lines.push(`Хеш: ${receipt.hash}`);
+  if (receipt.signature) lines.push("Подпись: Ed25519");
   if (savedPath) lines.push(`Сохранено: ${savedPath}`);
   return `${lines.join("\n")}\n`;
 }

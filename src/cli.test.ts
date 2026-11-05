@@ -1324,6 +1324,52 @@ test("receipt records a run and verifies against HEAD", () => {
   }
 });
 
+test("receipt --sign produces a verifiable Ed25519 signature", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-sign-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "app.ts"), "export const value = 1;\n", "utf8");
+    spawnSync("git", ["add", "app.ts"], { cwd: dir });
+    spawnSync(
+      "git",
+      ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"],
+      { cwd: dir },
+    );
+
+    const key = join(dir, "receipt.key");
+    const keygen = runCli(["receipt", "--cwd", dir, "--keygen", key], dir);
+    assert.equal(keygen.status, 0, keygen.stderr);
+    assert.equal(existsSync(`${key}.pub`), true);
+
+    const signed = runCli(["receipt", "--cwd", dir, "--sign", "--key", key, "--no-run", "--json"], dir);
+    assert.equal(signed.status, 0, signed.stderr);
+    const payload = JSON.parse(signed.stdout) as { signature?: string };
+    assert.equal(typeof payload.signature, "string");
+
+    const valid = runCli(
+      ["receipt", "--cwd", dir, "--verify", "--public-key", `${key}.pub`, "--json"],
+      dir,
+    );
+    assert.equal(valid.status, 0, valid.stderr);
+    const verdict = JSON.parse(valid.stdout) as { ok: boolean; signature: string };
+    assert.equal(verdict.ok, true);
+    assert.equal(verdict.signature, "valid");
+
+    const otherKey = join(dir, "other.key");
+    assert.equal(runCli(["receipt", "--cwd", dir, "--keygen", otherKey], dir).status, 0);
+    const rejected = runCli(
+      ["receipt", "--cwd", dir, "--verify", "--public-key", `${otherKey}.pub`, "--json"],
+      dir,
+    );
+    assert.equal(rejected.status, 1, rejected.stderr);
+    const failed = JSON.parse(rejected.stdout) as { ok: boolean; signature: string };
+    assert.equal(failed.ok, false);
+    assert.equal(failed.signature, "invalid");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt reports failing tests", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-fail-"));
   try {

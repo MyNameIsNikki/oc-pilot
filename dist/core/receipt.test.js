@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { RECEIPT_VERSION, buildReceipt, readReceipt, receiptHash, receiptPath, renderReceipt, saveReceipt, verifyReceipt, } from "./receipt.js";
+import { RECEIPT_VERSION, buildReceipt, generateReceiptKeyPair, readReceipt, receiptHash, receiptPath, renderReceipt, saveReceipt, signReceipt, verifyReceipt, } from "./receipt.js";
 const REPORT = {
     status: "pass",
     diff: { source: "git diff HEAD", files: 1, additions: 2, deletions: 0 },
@@ -128,6 +128,56 @@ test("saveReceipt outside a repository requires an explicit path", () => {
 });
 test("readReceipt reports a missing file", () => {
     assert.throws(() => readReceipt(join(tmpdir(), "oc-pilot-missing-receipt.json")), /не найдена/);
+});
+test("signReceipt signs the hash and verifies with the matching key", () => {
+    const dir = makeRepo();
+    try {
+        const pair = generateReceiptKeyPair();
+        const receipt = signReceipt(body(head(dir)), pair.privateKey);
+        assert.equal(typeof receipt.signature, "string");
+        assert.match(renderReceipt(receipt), /Подпись: Ed25519/);
+        const checked = verifyReceipt(dir, receipt, pair.publicKey);
+        assert.equal(checked.ok, true);
+        assert.equal(checked.signature, "valid");
+        const unchecked = verifyReceipt(dir, receipt);
+        assert.equal(unchecked.ok, true);
+        assert.equal(unchecked.signature, "unchecked");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("verifyReceipt rejects a receipt signed by another key", () => {
+    const dir = makeRepo();
+    try {
+        const pair = generateReceiptKeyPair();
+        const other = generateReceiptKeyPair();
+        const receipt = signReceipt(body(head(dir)), pair.privateKey);
+        const checked = verifyReceipt(dir, receipt, other.publicKey);
+        assert.equal(checked.ok, false);
+        assert.equal(checked.signature, "invalid");
+        assert.match(checked.reason ?? "", /подпись/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("verifyReceipt requires a signature when a public key is given", () => {
+    const dir = makeRepo();
+    try {
+        const pair = generateReceiptKeyPair();
+        const receipt = buildReceipt(body(head(dir)));
+        const checked = verifyReceipt(dir, receipt, pair.publicKey);
+        assert.equal(checked.ok, false);
+        assert.equal(checked.signature, "missing");
+        assert.match(checked.reason ?? "", /не подписана/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("signReceipt rejects an invalid private key", () => {
+    assert.throws(() => signReceipt(body(null), "not a key"), /приватный ключ/);
 });
 test("renderReceipt describes the run", () => {
     const receipt = buildReceipt(body("abcdef1234567890"));

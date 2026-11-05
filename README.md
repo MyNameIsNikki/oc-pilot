@@ -397,11 +397,16 @@ oc-pilot receipt --staged
 oc-pilot receipt --json
 oc-pilot receipt --verify
 oc-pilot receipt --verify --receipt path/to/receipt.json
+oc-pilot receipt --keygen receipt.key
+oc-pilot receipt --sign --key receipt.key
+oc-pilot receipt --verify --public-key receipt.key.pub
 ```
 
-The file is sealed with a SHA-256 hash of its body. `--verify` recomputes the hash and compares the commit with the current `HEAD`, so an edited file or a receipt from an older commit is reported as invalid: `{path, ok, hashOk, stale, commit, head, reason?}`. The exit code is 1 when the tests fail, the preflight fails or the receipt does not verify.
+The file is sealed with a SHA-256 hash of its body. `--verify` recomputes the hash and compares the commit with the current `HEAD`, so an edited file or a receipt from an older commit is reported as invalid: `{path, ok, hashOk, stale, commit, head, signature, reason?}`. The exit code is 1 when the tests fail, the preflight fails or the receipt does not verify.
 
-A receipt carries `{version, tool, toolVersion, createdAt, commit, branch, dirty, diff, files, tests, preflight, hash}`. `tests` is `{command, exitCode, timedOut, durationMs, passed, outputTail}` or `null` with `--no-run`; `preflight` is the same report `preflight` prints. Outside a repository the receipt can only be written to an explicit path with `--out`.
+A hash proves integrity, not authorship. `--sign` signs the hash with an Ed25519 key: `--keygen <file>` writes a private key (mode 0600) and `<file>.pub`; `--key` or `OC_PILOT_RECEIPT_KEY` points at the private key; the receipt gains a `signature` field. Verification checks the signature when a public key is available: `--public-key <file>`, `OC_PILOT_RECEIPT_PUBLIC_KEY`, or the committed `.oc-pilot/receipt.pub`. The `signature` status is `valid`, `invalid`, `missing` or `unchecked`; an unsigned receipt fails verification when a key is supplied. `ready` verifies the signature too when `.oc-pilot/receipt.pub` exists. Keep the private key outside the repository.
+
+A receipt carries `{version, tool, toolVersion, createdAt, commit, branch, dirty, diff, files, tests, preflight, hash, signature?}`. `tests` is `{command, exitCode, timedOut, durationMs, passed, outputTail}` or `null` with `--no-run`; `preflight` is the same report `preflight` prints. Outside a repository the receipt can only be written to an explicit path with `--out`.
 
 ### `ready`
 
@@ -1032,7 +1037,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.42.0
+      - uses: MyNameIsNikki/oc-pilot@v0.43.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1055,7 +1060,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.42.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.43.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
