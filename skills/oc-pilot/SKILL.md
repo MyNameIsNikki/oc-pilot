@@ -21,6 +21,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `mutate` — mutation testing: flips operators, runs tests, lists survivors; needs `--allow-write` because it rewrites sources temporarily.
 - `flaky` — repeated and shuffled test runs that flag tests passing in some runs and failing in others.
 - `impact` — declarations changed by the diff and every untouched file that still references them.
+- `deps` — dependency audit: phantom and missing imports, unused packages, lockfile drift, OSV vulnerabilities and licenses; `fix` and `sbom` need `--allow-write`.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -43,6 +44,7 @@ oc-pilot docgen "src/**/*.ts"
 oc-pilot mutate --staged --min-score 80
 oc-pilot flaky --runs 5 --fail-on-flaky
 oc-pilot impact --staged
+oc-pilot deps --audit
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

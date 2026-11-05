@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -337,6 +337,36 @@ const TOOLS = [
     },
   },
   {
+    name: "deps",
+    description:
+      "Audit declared and imported dependencies: phantom imports, unused or missing packages, floating versions and lockfile health. With audit=true it also queries OSV for vulnerabilities and checks licenses; offline=true keeps the audit to the local advisory cache. fix=true rewrites package.json and sbom writes a file, so both need --allow-write. No model call.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        why: { type: "string", description: "Explain where this package comes from instead of auditing" },
+        audit: { type: "boolean", description: "Query OSV for vulnerabilities and audit licenses" },
+        offline: { type: "boolean", description: "Keep the audit offline; requires audit" },
+        osv_url: { type: "string", description: "Override the OSV API base URL; requires audit" },
+        fail_on_issue: {
+          type: "string",
+          enum: ["high", "medium", "low"],
+          description: "Lowest dependency issue severity that fails the run",
+        },
+        fail_on_vuln: {
+          type: "string",
+          enum: ["critical", "high", "medium", "low"],
+          description: "Lowest vulnerability severity that fails the run; requires audit",
+        },
+        ignore: { type: "array", items: { type: "string" }, description: "Package names to ignore" },
+        fix: { type: "boolean", description: "Apply safe package.json fixes; needs --allow-write" },
+        sbom: { type: "string", description: "Write a CycloneDX SBOM to this path; needs --allow-write" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -578,6 +608,15 @@ const PROMPTS = [
       "Find external references to changed declarations, inspect every call site, update what the change broke and rerun until no stale references remain.",
     arguments: [
       { name: "context", description: "What changed and which symbols are risky", required: false },
+    ],
+  },
+  {
+    name: "triage-deps",
+    title: "Triage dependency problems",
+    description:
+      "Audit dependencies and vulnerabilities, fix the cheapest real problem first, and rerun without lowering the gate or hiding packages.",
+    arguments: [
+      { name: "context", description: "What changed and which dependency is suspect", required: false },
     ],
   },
   {
@@ -1140,6 +1179,26 @@ async function callImpact(input: JsonObject, cwd: string): Promise<ToolResult> {
   }
 }
 
+async function callDeps(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const args = ["deps", "--json"];
+  const why = stringArg(input, "why");
+  const failOnIssue = stringArg(input, "fail_on_issue");
+  const failOnVuln = stringArg(input, "fail_on_vuln");
+  const osvUrl = stringArg(input, "osv_url");
+  const sbom = stringArg(input, "sbom");
+  if (why) args.push("--why", why);
+  if (failOnIssue) args.push("--fail-on-issue", failOnIssue);
+  if (failOnVuln) args.push("--fail-on-vuln", failOnVuln);
+  if (osvUrl) args.push("--osv-url", osvUrl);
+  if (sbom) args.push("--sbom", sbom);
+  if (booleanArg(input, "audit")) args.push("--audit");
+  if (booleanArg(input, "offline")) args.push("--offline");
+  if (booleanArg(input, "fix")) args.push("--fix");
+  const ignore = stringArrayArg(input, "ignore");
+  if (ignore.length > 0) args.push("--ignore", ignore.join(","));
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -1323,6 +1382,9 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
     if (name === "mutate") {
       throw new ToolInputError("mutation testing rewrites source files temporarily and is disabled in read-only mode; start the MCP server with --allow-write");
     }
+    if (name === "deps" && (booleanArg(input, "fix") || stringArg(input, "sbom"))) {
+      throw new ToolInputError("deps fix and sbom write files and are disabled in read-only mode; start the MCP server with --allow-write");
+    }
   }
   switch (name) {
     case "review":
@@ -1349,6 +1411,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callFlaky(input, cwd);
     case "impact":
       return callImpact(input, cwd);
+    case "deps":
+      return callDeps(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -1438,6 +1502,12 @@ function summarizeResult(value: JsonObject): string {
     const failing = Array.isArray(value.failing) ? String(value.failing.length) : "0";
     return `oc-pilot: ${flaky} flaky, ${failing} failing across ${String(value.runs)} runs`;
   }
+  if (typeof value.packageName === "string" && Array.isArray(value.issues) && typeof value.declared === "number") {
+    const issues = String(value.issues.length);
+    const audit = asObject(value.audit);
+    const vulnerabilities = Array.isArray(audit?.vulnerabilities) ? String(audit.vulnerabilities.length) : "0";
+    return `oc-pilot: ${issues} dependency issue${issues === "1" ? "" : "s"}, ${vulnerabilities} vulnerabilit${vulnerabilities === "1" ? "y" : "ies"} (${String(value.declared)} declared, ${String(value.imported)} imported)`;
+  }
   if (Array.isArray(value.symbols) && Array.isArray(value.references) && typeof value.scannedFiles === "number") {
     const symbols = String(value.symbols.length);
     const references = String(value.references.length);
@@ -1515,6 +1585,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "flaky" tool with runs=5 and shuffle=true (the command must contain {files}; pass a fixed seed when you have one). If it reports no flaky tests, say so and stop. For each flaky test, inspect shared state, ordering, time, randomness and network assumptions, then make the smallest deterministic fix in the test or its setup. Never hide the problem with retries, sleeps, longer timeouts, skipped tests or by reordering files. Rerun with the same seed and runs to prove the test is stable. Report the test names, the cause, the fix and the before/after evidence.${suffix}`;
     case "check-impact":
       return `Call the oc-pilot "impact" tool on the current diff. It lists the declarations the change added or removed and every untouched file that still mentions those names. Inspect each reference: update call sites, imports, types, docs and tests that the change invalidated. Do not rename a public symbol or delete a call site only to make the report empty, and remember the search is textual, so confirm each hit before editing. Rerun "impact" after the edits and report the changed symbols, the files updated and any references you deliberately left.${suffix}`;
+    case "triage-deps":
+      return `Call the oc-pilot "deps" tool with audit=true, offline=false, fail_on_issue=medium and fail_on_vuln=high. Separate real problems from noise: a phantom import, a missing declaration, an unused package, a floating version, a broken lockfile, then a vulnerability. Fix the cheapest real problem first and rerun the same call. Never add an ignore, lower a gate or remove a dependency only to silence the report; if a vulnerability has no fixed version, say so and propose a mitigation. If the server is read-only, show the planned package.json change and ask me to apply it. Report what was fixed, what remains and the exact versions.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":

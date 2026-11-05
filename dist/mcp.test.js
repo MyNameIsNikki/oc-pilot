@@ -106,6 +106,12 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
                 method: "tools/call",
                 params: { name: "mutate", arguments: { max_mutants: 1 } },
             },
+            {
+                jsonrpc: "2.0",
+                id: 6,
+                method: "tools/call",
+                params: { name: "deps", arguments: { fix: true } },
+            },
         ], []);
         assert.equal(status, 0, stderr);
         const byId = new Map(responses.map((response) => [response.id, response]));
@@ -124,6 +130,9 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
         const mutateResult = byId.get(5)?.result;
         assert.equal(mutateResult?.isError, true);
         assert.match(mutateResult?.content?.[0]?.text ?? "", /read-only/);
+        const depsResult = byId.get(6)?.result;
+        assert.equal(depsResult?.isError, true);
+        assert.match(depsResult?.content?.[0]?.text ?? "", /read-only/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
@@ -256,6 +265,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(impact.inputSchema.properties.base, "base missing on impact");
         assert.ok(impact.inputSchema.properties.staged, "staged missing on impact");
         assert.ok(impact.inputSchema.properties.paths, "paths missing on impact");
+        const deps = tools.find((tool) => tool.name === "deps");
+        assert.ok(deps, "deps tool missing");
+        assert.ok(deps.inputSchema.properties.fail_on_issue, "fail_on_issue missing on deps");
+        assert.ok(deps.inputSchema.properties.fix, "fix missing on deps");
+        assert.ok(deps.inputSchema.properties.sbom, "sbom missing on deps");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -579,6 +593,50 @@ test("MCP mutate reports surviving mutants and restores the source", () => {
         assert.equal(result?.structuredContent?.mutants?.length, 1);
         assert.match(result?.content?.[0]?.text ?? "", /mutation score 0\/100, 1 survived/);
         assert.equal(readFileSync(join(dir, "app.js"), "utf8"), source);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP deps --why explains the lockfile chain", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-deps-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", dependencies: { express: "^4.18.0" } }, null, 2), "utf8");
+        writeFileSync(join(dir, "package-lock.json"), JSON.stringify({
+            name: "demo",
+            version: "1.0.0",
+            lockfileVersion: 3,
+            requires: true,
+            packages: {
+                "": { name: "demo", version: "1.0.0", dependencies: { express: "^4.18.0" } },
+                "node_modules/express": { version: "4.18.2", dependencies: { "body-parser": "1.20.1" } },
+                "node_modules/body-parser": { version: "1.20.1", dependencies: { qs: "6.11.0" } },
+                "node_modules/qs": { version: "6.11.0" },
+            },
+        }, null, 2), "utf8");
+        writeFileSync(join(dir, "app.ts"), 'import express from "express";\n\nexport const app = express();\n', "utf8");
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: { name: "deps", arguments: { why: "qs" } },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 0);
+        assert.equal(result?.structuredContent?.name, "qs");
+        assert.deepEqual(result?.structuredContent?.versions, ["6.11.0"]);
+        assert.deepEqual(result?.structuredContent?.dependents, ["body-parser"]);
+        assert.deepEqual(result?.structuredContent?.chains, [["express", "body-parser", "qs"]]);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
