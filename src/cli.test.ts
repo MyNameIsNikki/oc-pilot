@@ -1854,3 +1854,69 @@ test("deps --sbom writes a CycloneDX file", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("sast flags request data in shell and SQL sinks", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-sast-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(
+      join(dir, "app.js"),
+      [
+        'const { exec } = require("node:child_process");',
+        "function handler(req, db) {",
+        "  exec(`rm -rf ${req.query.dir}`);",
+        '  db.query("SELECT * FROM users WHERE id = " + req.query.id);',
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    spawnSync("git", ["add", "app.js"], { cwd: dir });
+
+    const result = runCli(["sast", "--cwd", dir, "--staged", "--fail-on-issue", "high", "--json"], dir);
+    assert.equal(result.status, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      findings: Array<{ rule: string; severity: string }>;
+      summary: { high: number };
+    };
+    assert.ok(payload.findings.some((finding) => finding.rule === "command-injection"));
+    assert.ok(payload.findings.some((finding) => finding.rule === "sql-injection"));
+    assert.ok(payload.summary.high >= 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("sast passes clean code and emits SARIF", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-sast-clean-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(
+      join(dir, "safe.js"),
+      [
+        'const fs = require("node:fs");',
+        'const path = require("node:path");',
+        'function handler(req) { return fs.readFileSync(path.join("/data", path.basename(req.query.file))); }',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    spawnSync("git", ["add", "safe.js"], { cwd: dir });
+
+    const clean = runCli(["sast", "--cwd", dir, "--staged", "--json"], dir);
+    assert.equal(clean.status, 0, clean.stderr);
+    const payload = JSON.parse(clean.stdout) as { findings: unknown[] };
+    assert.deepEqual(payload.findings, []);
+
+    const sarif = runCli(["sast", "--cwd", dir, "--staged", "--format", "sarif"], dir);
+    assert.equal(sarif.status, 0, sarif.stderr);
+    const report = JSON.parse(sarif.stdout) as {
+      version: string;
+      runs: Array<{ results: unknown[] }>;
+    };
+    assert.equal(report.version, "2.1.0");
+    assert.deepEqual(report.runs[0]?.results, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -454,6 +454,31 @@ oc-pilot flaky --fail-on-flaky
 
 JSON: `{command, runs, completed, parsed, tests, flaky, failing, shuffle}`, где каждый тест — `{name, passes, failures, status}` со `status` равным `flaky`, `failing` или `passing`. С `--shuffle` поле `shuffle` равно `{seed, files}`.
 
+### `sast`
+
+Детерминированный статический анализ изменённых файлов: инъекции команд и SQL, path traversal, SSRF, выполнение кода, XSS, открытые редиректы, отключённая проверка TLS, wildcard CORS, prototype pollution, слабые хеши и JWT `none`. Модель не вызывается, сеть не используется: один и тот же дифф всегда даёт одни и те же находки.
+
+```bash
+oc-pilot sast --staged
+oc-pilot sast --base main --fail-on-issue medium
+oc-pilot sast src/server.ts --json
+oc-pilot sast --staged --format sarif -o sast.sarif
+```
+
+Анализ учитывает источники данных, но остаётся эвристическим: сток (sink) помечается, когда данные запроса (`req.query`, `req.body`, `req.params`, заголовки, cookies, `userInput`, `untrusted*`) или подстановка шаблона доходят до него в том же выражении. Константы и параметризованные запросы не помечаются. `path.resolve`, `path.normalize`, `path.basename` и `path.join` снимают находку path traversal.
+
+Осознанное исключение подавляется на строке находки или строкой выше:
+
+```js
+exec(req.query.cmd); // oc-pilot:sast-ignore command-injection: admin-only endpoint
+```
+
+Подавление без причины игнорируется. `--ignore <rules>` отключает целые правила, `--no-suppressions` отключает inline-подавления для аудита.
+
+`--fail-on-issue <high|medium|low>` задаёт порог для кода возврата (по умолчанию `high`). `--format sarif` выдаёт SARIF 2.1.0 для GitHub code scanning и других потребителей.
+
+JSON: `{files, findings, suppressed, summary}`, каждая находка — `{rule, severity, file, line, column, message, snippet}`, `summary` считает `high`, `medium`, `low`.
+
 ### `deps`
 
 Офлайн-аудит здоровья npm-, pnpm- и yarn-зависимостей. Модель не вызывается, сеть не используется.
@@ -885,7 +910,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.45.0
+      - uses: MyNameIsNikki/oc-pilot@v0.46.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

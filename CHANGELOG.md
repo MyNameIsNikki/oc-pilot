@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.46.0
+
+- Команда `sast`: детерминированный статический анализ изменённых файлов — инъекции команд и SQL, path traversal, SSRF, выполнение кода, XSS, открытые редиректы, отключённый TLS, wildcard CORS, prototype pollution, слабые хеши и JWT `none`.
+- Эвристика источников данных: сток помечается, когда до него доходят `req.query`/`req.body`/`req.params`/headers/cookies, `userInput` или `untrusted*`; константы и параметризованные запросы не флагаются, `path.resolve`/`basename`/`join` снимают path traversal.
+- Подавления `oc-pilot:sast-ignore <rule>: причина` на строке находки или выше; без причины игнорируются. `--ignore <rules>` и `--no-suppressions` для аудита.
+- `--fail-on-issue <high|medium|low>` как CI-гейт, `--format sarif` (SARIF 2.1.0) и JSON `{files, findings, suppressed, summary}`.
+- Документация; 507 тестов; версия 0.46.0.
+
 ## 0.45.0
 
 - `deps --audit`: запросы к OSV по пакетам из lockfile — CVE/GHSA, severity и исправленные версии; кеш `.oc-pilot/osv-cache.json` на 24 часа, `--offline` и `--osv-url`.

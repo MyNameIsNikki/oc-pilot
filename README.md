@@ -465,6 +465,31 @@ Per-test results are parsed from the Node test runner spec reporter, TAP, Go (`-
 
 The JSON payload is `{command, runs, completed, parsed, tests, flaky, failing, shuffle}`; each test is `{name, passes, failures, status}` with `status` equal to `flaky`, `failing` or `passing`. With `--shuffle`, `shuffle` is `{seed, files}`.
 
+### `sast`
+
+Deterministic static analysis of the changed files: command and SQL injection, path traversal, SSRF, code execution, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT `none`. No model call, no network: the same diff always produces the same findings.
+
+```bash
+oc-pilot sast --staged
+oc-pilot sast --base main --fail-on-issue medium
+oc-pilot sast src/server.ts --json
+oc-pilot sast --staged --format sarif -o sast.sarif
+```
+
+The analysis is taint-aware but heuristic: a sink is reported when request data (`req.query`, `req.body`, `req.params`, headers, cookies, `userInput`, `untrusted*`) or a template interpolation reaches it within the same expression. Constants and parameterized queries are not reported. `path.resolve`, `path.normalize`, `path.basename` and `path.join` suppress path traversal findings.
+
+Suppress a deliberate exception on the finding line or the line above:
+
+```js
+exec(req.query.cmd); // oc-pilot:sast-ignore command-injection: admin-only endpoint
+```
+
+A suppression without a reason is ignored. `--ignore <rules>` skips whole rules, `--no-suppressions` disables inline suppressions for an audit run.
+
+`--fail-on-issue <high|medium|low>` sets the exit code threshold (default `high`). `--format sarif` emits SARIF 2.1.0 for GitHub code scanning and other SARIF consumers.
+
+The JSON payload is `{files, findings, suppressed, summary}`; each finding is `{rule, severity, file, line, column, message, snippet}` and `summary` counts `high`, `medium`, `low`.
+
 ### `deps`
 
 Offline health audit of npm, pnpm and yarn dependencies. No model call, no network.
@@ -1059,7 +1084,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.45.0
+      - uses: MyNameIsNikki/oc-pilot@v0.46.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1082,7 +1107,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.45.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.46.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
