@@ -295,6 +295,7 @@ oc-pilot fix --diff changes.diff                 # только показать
 oc-pilot fix --apply --command "npm test"        # применить и проверить
 oc-pilot fix --apply --command "go test ./..." --keep-on-test-failure
 oc-pilot fix --from-sast --staged --apply        # починить SAST-находки
+oc-pilot fix --from-authz --staged --apply       # починить находки авторизации
 oc-pilot review --github                         # аннотации GitHub Actions
 ```
 
@@ -306,12 +307,15 @@ oc-pilot review --github                         # аннотации GitHub Act
 | `--keep-on-test-failure` | не откатывать патч при падении тестов |
 | `--no-snapshot` | не создавать снимок перед применением |
 | `--from-sast` | исправить high-находки SAST в изменённых файлах и пересканировать |
+| `--from-authz` | исправить high-находки авторизации маршрутов и пересканировать |
 
 `fix` не делает commit и push. При падении тестов патч откатывается, если не указан `--keep-on-test-failure`. Чужие незакоммиченные изменения не откатываются.
 
 Перед применением `fix` сохраняет снимок рабочего дерева в `.git/oc-pilot/snapshots/` (tracked-изменения бинарным патчем + копии untracked-файлов). Снимки локальны: они не попадают в коммиты. Откат — `oc-pilot restore`; отключить снимок — `--no-snapshot`.
 
 С `--from-sast` команда сканирует изменённые файлы встроенными правилами SAST, просит модель о патче, применяет его и пересканирует. В JSON добавляется `sast: {before, after, remaining}`; код 1, если high-находки остались.
+
+С `--from-authz` тот же цикл работает с находками авторизации маршрутов (маршрут без сессии, IDOR, админка без роли), а в JSON добавляется `authz: {before, after, remaining}`; `--from-sast` и `--from-authz` несовместимы.
 
 ### `docgen`
 
@@ -946,7 +950,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.51.0
+      - uses: MyNameIsNikki/oc-pilot@v0.52.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

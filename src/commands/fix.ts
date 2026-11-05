@@ -10,6 +10,8 @@ import { describeDiffSource, loadDiff } from "../core/diff-source.js";
 import { detectProjectType, detectTestCommand } from "../core/project.js";
 import { parseFindings } from "../core/findings.js";
 import { scanSource, type SastFinding } from "../core/sast.js";
+import { scanAuthzSource, type AuthzFinding } from "../core/authz.js";
+import { PilotError } from "../core/errors.js";
 import { isCodeFile, isGeneratedPath } from "../core/slop/source.js";
 import { executeRecipeDetailed, githubAnnotations } from "../core/run.js";
 import { loadSecretIgnore, scanDiff } from "../core/secrets.js";
@@ -29,6 +31,7 @@ const OPTIONS: OptionSpec = withCommon({
   "no-tests": { type: "boolean" },
   "keep-on-test-failure": { type: "boolean" },
   "from-sast": { type: "boolean" },
+  "from-authz": { type: "boolean" },
   rounds: { type: "string" },
   "no-secret-scan": { type: "boolean" },
   "no-snapshot": { type: "boolean" },
@@ -47,6 +50,7 @@ git apply --check и по желанию применяет. С --apply и те�
       --no-tests             не запускать тесты после применения
       --keep-on-test-failure оставить патч, даже если тесты упали
       --from-sast            исправить SAST-находки в изменённых файлах
+      --from-authz           исправить находки авторизации маршрутов
       --rounds <n>           попыток исправления, 1..5 (по умолчанию 2)
       --staged               только staged-изменения
       --unstaged             только unstaged-изменения
@@ -64,6 +68,7 @@ ${COMMON_HELP}
   oc-pilot fix --apply
   oc-pilot fix --apply --command "npm test" --rounds 3
   oc-pilot fix --from-sast --staged --apply
+  oc-pilot fix --from-authz --staged --apply
   oc-pilot fix src/wallet.go --apply
   oc-pilot restore            # откат к снимку последнего fix --apply
 `;
@@ -123,6 +128,24 @@ export async function runFix(argv: string[]): Promise<number> {
     return 0;
   }
 
+  const fromAuthz = asBoolean(values, "from-authz");
+  if (fromSast && fromAuthz) {
+    throw new PilotError("--from-sast не сочетается с --from-authz", {
+      hint: "Выберите один тип находок.",
+      exitCode: 2,
+    });
+  }
+  const authzFiles = fromAuthz
+    ? data.changedFiles.filter((file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(ctx.cwd, file)))
+    : [];
+  const authzBefore = fromAuthz
+    ? authzFiles.flatMap((file) => scanAuthzSource(file, readFileSync(join(ctx.cwd, file), "utf8")).findings)
+    : [];
+  if (fromAuthz && authzBefore.length === 0) {
+    log.info("Находок авторизации нет — исправлять нечего.");
+    return 0;
+  }
+
   let snapshot: SnapshotInfo | undefined;
   if (apply && !ctx.flags.dryRun && !asBoolean(values, "no-snapshot")) {
     if (isGitRepo(ctx.cwd)) {
@@ -155,8 +178,18 @@ export async function runFix(argv: string[]): Promise<number> {
     );
   }
 
+  if (fromAuthz) {
+    baseParts[0] = "FIX_MODE: fix the authorization findings listed in AUTHZ_FINDINGS. Propose the smallest safe unified diff.";
+    baseParts.push(
+      "Do not introduce new authorization findings. Keep the behavior unchanged and add no dependencies.",
+      `AUTHZ_FINDINGS:\n${authzBefore.map((finding) => `- ${finding.severity} ${finding.rule} ${finding.method} ${finding.route} ${finding.file}:${finding.line} — ${finding.message}`).join("\n")}`,
+    );
+  }
+
   const rescanSast = (): SastFinding[] =>
     sastFiles.flatMap((file) => scanSource(file, readFileSync(join(ctx.cwd, file), "utf8")).findings);
+  const rescanAuthz = (): AuthzFinding[] =>
+    authzFiles.flatMap((file) => scanAuthzSource(file, readFileSync(join(ctx.cwd, file), "utf8")).findings);
 
   const captureCtx = {
     ...ctx,
@@ -266,6 +299,11 @@ export async function runFix(argv: string[]): Promise<number> {
       const sastInfo = fromSast
         ? { before: sastBefore.length, after: sastAfter.length, remaining: sastRemaining.length }
         : undefined;
+      const authzAfter = fromAuthz ? rescanAuthz() : [];
+      const authzRemaining = authzAfter.filter((finding) => finding.severity === "high");
+      const authzInfo = fromAuthz
+        ? { before: authzBefore.length, after: authzAfter.length, remaining: authzRemaining.length }
+        : undefined;
       const payload = {
         applied: true,
         patch,
@@ -273,6 +311,7 @@ export async function runFix(argv: string[]): Promise<number> {
         analysis: execution.analysis,
         meta: execution.meta,
         ...(sastInfo ? { sast: sastInfo } : {}),
+        ...(authzInfo ? { authz: authzInfo } : {}),
       };
       if (ctx.flags.json) {
         const path = writeOutput(JSON.stringify(payload, null, 2), ctx.flags.output);
@@ -282,6 +321,10 @@ export async function runFix(argv: string[]): Promise<number> {
       }
       if (sastRemaining.length > 0) {
         log.warn(`SAST: осталось ${String(sastRemaining.length)} high-находок.`);
+        return 1;
+      }
+      if (authzRemaining.length > 0) {
+        log.warn(`Authz: осталось ${String(authzRemaining.length)} high-находок.`);
         return 1;
       }
       return 0;
@@ -301,6 +344,11 @@ export async function runFix(argv: string[]): Promise<number> {
       const sastInfo = fromSast
         ? { before: sastBefore.length, after: sastAfter.length, remaining: sastRemaining.length }
         : undefined;
+      const authzAfter = fromAuthz ? rescanAuthz() : [];
+      const authzRemaining = authzAfter.filter((finding) => finding.severity === "high");
+      const authzInfo = fromAuthz
+        ? { before: authzBefore.length, after: authzAfter.length, remaining: authzRemaining.length }
+        : undefined;
       const payload = {
         applied: true,
         patch,
@@ -308,6 +356,7 @@ export async function runFix(argv: string[]): Promise<number> {
         analysis: execution.analysis,
         meta: execution.meta,
         ...(sastInfo ? { sast: sastInfo } : {}),
+        ...(authzInfo ? { authz: authzInfo } : {}),
       };
       if (ctx.flags.json) {
         const path = writeOutput(JSON.stringify(payload, null, 2), ctx.flags.output);
@@ -317,6 +366,10 @@ export async function runFix(argv: string[]): Promise<number> {
       }
       if (sastRemaining.length > 0) {
         log.warn(`SAST: осталось ${String(sastRemaining.length)} high-находок.`);
+        return 1;
+      }
+      if (authzRemaining.length > 0) {
+        log.warn(`Authz: осталось ${String(authzRemaining.length)} high-находок.`);
         return 1;
       }
       return 0;

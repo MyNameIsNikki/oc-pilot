@@ -1704,4 +1704,66 @@ test("fix --from-sast repairs a vulnerable line", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("fix --from-authz repairs an IDOR route", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-fix-authz-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "base.txt"), "x\n", "utf8");
+        spawnSync("git", ["add", "base.txt"], { cwd: dir });
+        spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+        const source = [
+            'const express = require("express");',
+            "const router = express.Router();",
+            'router.get("/users/:id", async (req, res) => {',
+            "  const user = await db.user.findUnique({ where: { id: req.params.id } });",
+            "  res.json(user);",
+            "});",
+            "module.exports = router;",
+            "",
+        ].join("\n");
+        mkdirSync(join(dir, "src"), { recursive: true });
+        writeFileSync(join(dir, "src", "routes.js"), source, "utf8");
+        const diffPath = join(dir, "changes.diff");
+        writeFileSync(diffPath, [
+            "diff --git a/src/routes.js b/src/routes.js",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/routes.js",
+            "@@ -0,0 +1,7 @@",
+            '+const express = require("express");',
+            "+const router = express.Router();",
+            '+router.get("/users/:id", async (req, res) => {',
+            "+  const user = await db.user.findUnique({ where: { id: req.params.id } });",
+            "+  res.json(user);",
+            "+});",
+            "+module.exports = router;",
+            "",
+        ].join("\n"), "utf8");
+        const patch = [
+            "diff --git a/src/routes.js b/src/routes.js",
+            "--- a/src/routes.js",
+            "+++ b/src/routes.js",
+            "@@ -3,4 +3,6 @@",
+            ' router.get("/users/:id", async (req, res) => {',
+            "   const user = await db.user.findUnique({ where: { id: req.params.id } });",
+            "+  if (!req.user) return res.status(401).end();",
+            "+  if (user.id !== req.user.id) return res.status(403).end();",
+            "   res.json(user);",
+            " });",
+            "",
+        ].join("\n");
+        const fake = installFakeOpenCode(dir);
+        const result = runCli(["fix", "--from-authz", "--diff", diffPath, "--apply", "--no-tests", "--cwd", dir, "--json"], dir, { ...fake, FAKE_PATCH_TEXT: patch });
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.applied, true);
+        assert.ok((payload.authz?.before ?? 0) >= 1);
+        assert.equal(payload.authz?.after, 0);
+        assert.equal(payload.authz?.remaining, 0);
+        assert.match(readFileSync(join(dir, "src", "routes.js"), "utf8"), /req\.user\.id/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map
