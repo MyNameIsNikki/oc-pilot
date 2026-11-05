@@ -222,10 +222,15 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(preflight.inputSchema.properties.max_delta, "max_delta missing on preflight");
         assert.ok(preflight.inputSchema.properties.fail_on_issue, "fail_on_issue missing on preflight");
         assert.ok(preflight.inputSchema.properties.no_sast, "no_sast missing on preflight");
+        assert.ok(preflight.inputSchema.properties.no_authz, "no_authz missing on preflight");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
         assert.ok(sast.inputSchema.properties.ignore, "ignore missing on sast");
+        const authz = tools.find((tool) => tool.name === "authz");
+        assert.ok(authz, "authz tool missing");
+        assert.ok(authz.inputSchema.properties.public, "public missing on authz");
+        assert.ok(authz.inputSchema.properties.fail_on_issue, "fail_on_issue missing on authz");
         const ready = tools.find((tool) => tool.name === "ready");
         assert.ok(ready, "ready tool missing");
         assert.ok(ready.inputSchema.properties.fail_under, "fail_under missing on ready");
@@ -444,6 +449,43 @@ test("MCP sast returns findings without a tool error", () => {
         assert.equal(result?._meta?.exitCode, 1);
         assert.equal(result?.structuredContent?.findings?.[0]?.rule, "command-injection");
         assert.equal(result?.structuredContent?.findings?.[0]?.severity, "high");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP authz returns route findings without a tool error", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-authz-"));
+    try {
+        const git = (args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+        git(["init"]);
+        git(["config", "user.email", "test@example.com"]);
+        git(["config", "user.name", "Test"]);
+        writeFileSync(join(dir, "base.txt"), "x\n", "utf8");
+        git(["add", "."]);
+        git(["commit", "-m", "init"]);
+        writeFileSync(join(dir, "app.js"), 'router.get("/users/:id", async (req, res) => { const user = await db.user.findUnique({ where: { id: req.params.id } }); res.json(user); });\n', "utf8");
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: { name: "authz", arguments: { paths: ["app.js"], fail_on_issue: "high" } },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 1);
+        assert.equal(result?.structuredContent?.routes?.length, 1);
+        const rules = (result?.structuredContent?.findings ?? []).map((finding) => finding.rule);
+        assert.ok(rules.includes("route-no-auth"), `rules: ${rules.join(",")}`);
+        assert.ok(rules.includes("idor"), `rules: ${rules.join(",")}`);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

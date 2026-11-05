@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DiffStats, SecretFinding } from "../types.js";
+import type { AuthzFinding } from "./authz.js";
 import type { DepIssue, DependencyAudit } from "./deps-health.js";
 import { buildPreflightReport, renderPreflight, scopeDependencyIssues, type PreflightInput } from "./preflight.js";
 import type { SastFinding } from "./sast.js";
@@ -53,6 +54,7 @@ function input(overrides: Partial<PreflightInput> = {}): PreflightInput {
     diff: { source: "git diff HEAD", stats: STATS },
     secrets: [],
     sast: [],
+    authz: [],
     deps: cleanAudit([]),
     weaknesses: [],
     slop: { report: slopReport(45), delta: slopDelta(2) },
@@ -90,7 +92,7 @@ test("preflight passes when every check is clean", () => {
   assert.equal(report.status, "pass");
   assert.deepEqual(
     report.checks.map((check) => check.status),
-    ["pass", "pass", "pass", "pass", "pass"],
+    ["pass", "pass", "pass", "pass", "pass", "pass"],
   );
   assert.equal(report.diff.files, 1);
 });
@@ -133,6 +135,31 @@ test("SAST findings fail only above the configured gate", () => {
   assert.equal(buildPreflightReport(input({ sast: [medium], sastGate: "medium" })).status, "fail");
 });
 
+const AUTHZ: AuthzFinding = {
+  rule: "idor",
+  severity: "high",
+  file: "src/routes.ts",
+  line: 2,
+  column: 3,
+  method: "GET",
+  route: "/users/:id",
+  message: "объект ищется по id из запроса без проверки владельца",
+};
+
+test("authz findings fail only above the configured gate", () => {
+  const high = buildPreflightReport(input({ authz: [AUTHZ] }));
+  assert.equal(high.status, "fail");
+  assert.equal(high.checks[2]?.status, "fail");
+  assert.match(high.checks[2]!.summary, /1 находок: high 1/);
+  assert.deepEqual(high.checks[2]?.details, [
+    "high idor GET /users/:id src/routes.ts:2 — объект ищется по id из запроса без проверки владельца",
+  ]);
+
+  const medium: AuthzFinding = { ...AUTHZ, severity: "medium" };
+  assert.equal(buildPreflightReport(input({ authz: [medium] })).status, "pass");
+  assert.equal(buildPreflightReport(input({ authz: [medium], authzGate: "medium" })).status, "fail");
+});
+
 test("dependency issues fail only above the configured gate", () => {
   const high: DepIssue = { kind: "phantom", severity: "high", name: "axios", message: "not declared" };
   const medium: DepIssue = { kind: "unused", severity: "medium", name: "left-pad", message: "unused" };
@@ -162,9 +189,9 @@ test("weakened tests fail the run", () => {
   const report = buildPreflightReport(input({ weaknesses: [weakness] }));
 
   assert.equal(report.status, "fail");
-  assert.equal(report.checks[3]?.status, "fail");
-  assert.match(report.checks[3]!.summary, /1 ослабление/);
-  assert.deepEqual(report.checks[3]?.details, ["src/app.test.ts:12 — тест пропущен через it.skip"]);
+  assert.equal(report.checks[4]?.status, "fail");
+  assert.match(report.checks[4]!.summary, /1 ослабление/);
+  assert.deepEqual(report.checks[4]?.details, ["src/app.test.ts:12 — тест пропущен через it.skip"]);
 });
 
 test("slop growth above the limit fails the run", () => {
@@ -173,26 +200,27 @@ test("slop growth above the limit fails the run", () => {
   );
 
   assert.equal(report.status, "fail");
-  assert.equal(report.checks[4]?.status, "fail");
-  assert.match(report.checks[4]!.summary, /\+12/);
-  assert.deepEqual(report.checks[4]?.details, ["Дубликаты: +2"]);
+  assert.equal(report.checks[5]?.status, "fail");
+  assert.match(report.checks[5]!.summary, /\+12/);
+  assert.deepEqual(report.checks[5]?.details, ["Дубликаты: +2"]);
 });
 
 test("skipped checks stay visible without failing", () => {
   const report = buildPreflightReport(
     input({
-      disabled: ["secrets", "sast", "deps", "tests", "slop"],
+      disabled: ["secrets", "sast", "authz", "deps", "tests", "slop"],
     }),
   );
 
   assert.equal(report.status, "pass");
   assert.deepEqual(
     report.checks.map((check) => check.status),
-    ["skip", "skip", "skip", "skip", "skip"],
+    ["skip", "skip", "skip", "skip", "skip", "skip"],
   );
   assert.match(report.checks[0]!.summary, /--no-secret-scan/);
   assert.match(report.checks[1]!.summary, /--no-sast/);
-  assert.match(report.checks[4]!.summary, /--no-slop/);
+  assert.match(report.checks[2]!.summary, /--no-authz/);
+  assert.match(report.checks[5]!.summary, /--no-slop/);
 });
 
 test("preflight does not claim a zero index for an empty diff", () => {
@@ -213,9 +241,9 @@ test("renderPreflight prints one verdict per check", () => {
 
   assert.match(text, /FAIL {2}secrets/);
   assert.match(text, /OK {4}deps/);
-  assert.match(text, /Preflight не пройден: 1 из 5 проверок\./);
+  assert.match(text, /Preflight не пройден: 1 из 6 проверок\./);
   assert.ok(text.endsWith("\n"));
 
   const clean = renderPreflight(buildPreflightReport(input()));
-  assert.match(clean, /Preflight пройден: 5 проверок, замечаний нет\./);
+  assert.match(clean, /Preflight пройден: 6 проверок, замечаний нет\./);
 });

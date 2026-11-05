@@ -1269,7 +1269,7 @@ test("preflight can skip every check", () => {
     assert.equal(payload.status, "pass");
     assert.deepEqual(
       payload.checks.map((check) => check.status),
-      ["skip", "skip", "skip", "skip", "skip"],
+      ["skip", "skip", "skip", "skip", "skip", "skip"],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1969,6 +1969,71 @@ test("preflight runs SAST on the changed files", () => {
       checks: Array<{ id: string; status: string }>;
     };
     assert.equal(skippedPayload.checks.find((check) => check.id === "sast")?.status, "skip");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("preflight runs authz on changed routes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-preflight-authz-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "base.txt"), "x\n", "utf8");
+    spawnSync("git", ["add", "base.txt"], { cwd: dir });
+    spawnSync(
+      "git",
+      ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"],
+      { cwd: dir },
+    );
+
+    const route =
+      'router.get("/users/:id", async (req, res) => { const user = await db.user.findUnique({ where: { id: req.params.id } }); res.json(user); });\n';
+    const patch = [
+      "diff --git a/src/routes.js b/src/routes.js",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/routes.js",
+      "@@ -0,0 +1 @@",
+      `+${route.trimEnd()}`,
+      "",
+    ].join("\n");
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "src", "routes.js"), route, "utf8");
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, patch, "utf8");
+
+    const result = runCli(
+      ["preflight", "--diff", diffPath, "--no-deps", "--no-slop", "--no-sast", "--json", "--cwd", dir],
+      dir,
+    );
+    assert.equal(result.status, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      checks: Array<{ id: string; status: string; summary: string }>;
+    };
+    const authz = payload.checks.find((check) => check.id === "authz");
+    assert.equal(authz?.status, "fail");
+    assert.match(authz?.summary ?? "", /idor|route-no-auth|2 находок/);
+
+    const skipped = runCli(
+      [
+        "preflight",
+        "--diff",
+        diffPath,
+        "--no-deps",
+        "--no-slop",
+        "--no-sast",
+        "--no-authz",
+        "--json",
+        "--cwd",
+        dir,
+      ],
+      dir,
+    );
+    assert.equal(skipped.status, 0, skipped.stderr);
+    const skippedPayload = JSON.parse(skipped.stdout) as {
+      checks: Array<{ id: string; status: string }>;
+    };
+    assert.equal(skippedPayload.checks.find((check) => check.id === "authz")?.status, "skip");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

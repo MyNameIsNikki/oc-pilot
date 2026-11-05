@@ -2,10 +2,11 @@ import type { DiffStats, SecretFinding } from "../types.js";
 import type { DepIssue, DepSeverity, DependencyAudit } from "./deps-health.js";
 import { issueFailsGate } from "./deps-health.js";
 import type { SlopDelta, SlopReport } from "./slop/model.js";
-import { severityAtLeast, type SastFinding, type SastSeverity } from "./sast.js";
+import { severityAtLeast as authzSeverityAtLeast, type AuthzFinding, type AuthzSeverity } from "./authz.js";
+import { severityAtLeast as sastSeverityAtLeast, type SastFinding, type SastSeverity } from "./sast.js";
 import type { TestWeakness } from "./test-weakening.js";
 
-export type PreflightCheckId = "secrets" | "sast" | "deps" | "tests" | "slop";
+export type PreflightCheckId = "secrets" | "sast" | "authz" | "deps" | "tests" | "slop";
 export type PreflightStatus = "pass" | "fail" | "skip";
 
 export interface PreflightCheck {
@@ -27,6 +28,8 @@ export interface PreflightInput {
   secrets?: SecretFinding[] | null;
   sast?: SastFinding[] | null;
   sastSkip?: string;
+  authz?: AuthzFinding[] | null;
+  authzSkip?: string;
   deps?: { audit: DependencyAudit; issues: DepIssue[] } | null;
   depsSkip?: string;
   weaknesses?: TestWeakness[] | null;
@@ -36,6 +39,7 @@ export interface PreflightInput {
   /** Minimum dependency severity that fails the gate. Default: high. */
   depsGate?: DepSeverity;
   sastGate?: SastSeverity;
+  authzGate?: AuthzSeverity;
   /** Maximum allowed Slop Index growth. Default: 10. */
   maxSlopDelta?: number;
 }
@@ -43,6 +47,7 @@ export interface PreflightInput {
 const LABELS: Record<PreflightCheckId, string> = {
   secrets: "секреты",
   sast: "sast",
+  authz: "authz",
   deps: "зависимости",
   tests: "тесты",
   slop: "slop",
@@ -130,7 +135,7 @@ export function buildPreflightReport(input: PreflightInput): PreflightReport {
     checks.push(
       check(
         "sast",
-        findings.some((finding) => severityAtLeast(finding.severity, gate)) ? "fail" : "pass",
+        findings.some((finding) => sastSeverityAtLeast(finding.severity, gate)) ? "fail" : "pass",
         findings.length === 0
           ? "опасных паттернов не найдено"
           : `${String(findings.length)} находок: high ${String(high)}, medium ${String(medium)}, low ${String(low)}`,
@@ -141,6 +146,30 @@ export function buildPreflightReport(input: PreflightInput): PreflightReport {
     );
   } else {
     checks.push(check("sast", "skip", input.sastSkip ?? "анализ не выполнялся"));
+  }
+
+  if (disabled.has("authz")) {
+    checks.push(check("authz", "skip", "отключено (--no-authz)"));
+  } else if (input.authz) {
+    const findings = input.authz;
+    const gate = input.authzGate ?? "high";
+    const high = findings.filter((finding) => finding.severity === "high").length;
+    const medium = findings.length - high;
+    checks.push(
+      check(
+        "authz",
+        findings.some((finding) => authzSeverityAtLeast(finding.severity, gate)) ? "fail" : "pass",
+        findings.length === 0
+          ? "маршрутов без авторизации не найдено"
+          : `${String(findings.length)} находок: high ${String(high)}, medium ${String(medium)}`,
+        findings.map(
+          (finding) =>
+            `${finding.severity} ${finding.rule} ${finding.method} ${finding.route} ${finding.file}:${String(finding.line)} — ${finding.message}`,
+        ),
+      ),
+    );
+  } else {
+    checks.push(check("authz", "skip", input.authzSkip ?? "анализ не выполнялся"));
   }
 
   if (disabled.has("deps")) {

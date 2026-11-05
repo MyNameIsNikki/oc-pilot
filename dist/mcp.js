@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "sast", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -262,8 +262,42 @@ const TOOLS = [
         },
     },
     {
+        name: "authz",
+        description: "Offline authorization analysis of HTTP routes: handlers without a session check, IDOR (an object loaded by a request id without an ownership check) and admin paths without a role guard. Understands Express, Fastify, Koa and Next.js route files. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                diff: { type: "string", description: "Unified diff to scan instead of the git working tree" },
+                base: { type: "string", description: "Scan git diff <base>...HEAD, e.g. origin/main" },
+                staged: { type: "boolean", description: "Scan staged changes" },
+                unstaged: { type: "boolean", description: "Scan unstaged changes" },
+                include_untracked: { type: "boolean", description: "Include untracked files when diffing" },
+                paths: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Files or directories to scan instead of the git diff",
+                },
+                fail_on_issue: {
+                    type: "string",
+                    enum: ["high", "medium"],
+                    description: "Lowest severity that fails the gate (default high)",
+                },
+                ignore: { type: "array", items: { type: "string" }, description: "Rule ids to ignore" },
+                public: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Route prefixes that are public by design, e.g. /health",
+                },
+                no_suppressions: { type: "boolean", description: "Ignore oc-pilot:authz-ignore comments" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "preflight",
-        description: "One offline verdict before a commit: secrets, SAST, dependency health scoped to the change, test weakening and the Slop Index delta. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A failed check returns status fail with exit code 1, not a tool error.",
+        description: "One offline verdict before a commit: secrets, SAST, route authorization, dependency health scoped to the change, test weakening and the Slop Index delta. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A failed check returns status fail with exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: {
             type: "object",
@@ -279,10 +313,11 @@ const TOOLS = [
                 fail_on_issue: {
                     type: "string",
                     enum: ["high", "medium", "low"],
-                    description: "Lowest SAST and dependency severity that fails the gate (default high)",
+                    description: "Lowest SAST, authz and dependency severity that fails the gate (default high)",
                 },
                 no_secret_scan: { type: "boolean", description: "Skip the secret scan" },
                 no_sast: { type: "boolean", description: "Skip SAST" },
+                no_authz: { type: "boolean", description: "Skip route authorization analysis" },
                 no_deps: { type: "boolean", description: "Skip dependency health" },
                 no_tests: { type: "boolean", description: "Skip test weakening" },
                 no_slop: { type: "boolean", description: "Skip the Slop Index delta" },
@@ -1006,6 +1041,8 @@ async function callPreflight(input, cwd) {
             args.push("--no-secret-scan");
         if (booleanArg(input, "no_sast"))
             args.push("--no-sast");
+        if (booleanArg(input, "no_authz"))
+            args.push("--no-authz");
         if (booleanArg(input, "no_deps"))
             args.push("--no-deps");
         if (booleanArg(input, "no_tests"))
@@ -1041,6 +1078,40 @@ async function callSast(input, cwd) {
         const ignore = stringArrayArg(input, "ignore");
         if (ignore.length > 0)
             args.push("--ignore", ignore.join(","));
+        if (booleanArg(input, "no_suppressions"))
+            args.push("--no-suppressions");
+        args.push(...projectPaths(input, "paths"));
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
+async function callAuthz(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["authz", "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        const failOn = stringArg(input, "fail_on_issue");
+        if (failOn)
+            args.push("--fail-on-issue", failOn);
+        const ignore = stringArrayArg(input, "ignore");
+        if (ignore.length > 0)
+            args.push("--ignore", ignore.join(","));
+        const publicRoutes = stringArrayArg(input, "public");
+        if (publicRoutes.length > 0)
+            args.push("--public", publicRoutes.join(","));
         if (booleanArg(input, "no_suppressions"))
             args.push("--no-suppressions");
         args.push(...projectPaths(input, "paths"));
@@ -1128,6 +1199,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callPreflight(input, cwd);
         case "sast":
             return callSast(input, cwd);
+        case "authz":
+            return callAuthz(input, cwd);
         case "ready":
             return callReady(input, cwd);
         case "receipt_verify":
@@ -1287,7 +1360,7 @@ async function processMessage(message, cwd, readOnly) {
                 resourceTemplates: { listChanged: false },
             },
             serverInfo: { name: SERVER_NAME, version: VERSION },
-            instructions: `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Prompts (prompts/list) wrap the common flows: review my diff, fix failing tests, pre-commit gate, security review, agent readiness, prove done. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}). Offline tools (scan, stats, slop, sast, preflight, ready, receipt_verify) never call a model and keep working even after the call budget is exhausted; oc-pilot://slop exposes the Slop Index report and the slop-check prompt frames the entropy question.${readOnly ? " This server is read-only: fix apply, commit apply, running new tests and clearing stats are disabled." : ""}`,
+            instructions: `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Prompts (prompts/list) wrap the common flows: review my diff, fix failing tests, pre-commit gate, security review, agent readiness, prove done. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}). Offline tools (scan, stats, slop, sast, authz, preflight, ready, receipt_verify) never call a model and keep working even after the call budget is exhausted; oc-pilot://slop exposes the Slop Index report and the slop-check prompt frames the entropy question.${readOnly ? " This server is read-only: fix apply, commit apply, running new tests and clearing stats are disabled." : ""}`,
         });
     }
     if (method === "ping")
@@ -1348,7 +1421,7 @@ async function processMessage(message, cwd, readOnly) {
                 content: [
                     {
                         type: "text",
-                        text: `Tool budget exhausted (${maxToolCalls} model-backed calls per session). Restart the server to reset, raise --max-calls, or use the offline tools: scan, stats, slop, sast, preflight, ready, receipt_verify.`,
+                        text: `Tool budget exhausted (${maxToolCalls} model-backed calls per session). Restart the server to reset, raise --max-calls, or use the offline tools: scan, stats, slop, sast, authz, preflight, ready, receipt_verify.`,
                     },
                 ],
                 isError: true,
@@ -1594,7 +1667,7 @@ Environment:
   OC_PILOT_MCP_TOKEN, OC_PILOT_MCP_CORS, OC_PILOT_MCP_READ_ONLY,
   OC_PILOT_MCP_MAX_CALLS
 
-The offline tools (scan, stats, slop, sast, preflight, ready, receipt_verify) never call a model and keep working
+The offline tools (scan, stats, slop, sast, authz, preflight, ready, receipt_verify) never call a model and keep working
 after the call budget is exhausted. oc-pilot://slop exposes the Slop Index.
 
 Examples:

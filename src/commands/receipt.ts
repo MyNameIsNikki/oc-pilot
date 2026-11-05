@@ -50,6 +50,7 @@ const OPTIONS: OptionSpec = withCommon({
   "fail-on-issue": { type: "string" },
   "no-secret-scan": { type: "boolean" },
   "no-sast": { type: "boolean" },
+  "no-authz": { type: "boolean" },
   "no-deps": { type: "boolean" },
   "no-tests": { type: "boolean" },
   "no-slop": { type: "boolean" },
@@ -82,9 +83,10 @@ preflight, а также SHA-256 всех этих данных. Модель н
       --diff <file>         готовый unified diff вместо git-состояния
       --since <ref>         база для дельты slop (по умолчанию HEAD)
       --max-delta <n>       допустимый рост Slop Index (по умолчанию 10)
-      --fail-on-issue <lvl> порог зависимостей: high, medium или low (по умолчанию high)
+      --fail-on-issue <lvl> порог SAST, authz и зависимостей: high, medium или low (по умолчанию high)
       --no-secret-scan      не проверять секреты
       --no-sast             не запускать SAST
+      --no-authz            не проверять авторизацию маршрутов
       --no-deps             не проверять зависимости
       --no-tests            не искать ослабление тестов
       --no-slop             не считать дельту Slop Index
@@ -220,6 +222,7 @@ export async function runReceipt(argv: string[]): Promise<number> {
   const disabled: PreflightCheckId[] = [];
   if (asBoolean(values, "no-secret-scan")) disabled.push("secrets");
   if (asBoolean(values, "no-sast")) disabled.push("sast");
+  if (asBoolean(values, "no-authz")) disabled.push("authz");
   if (asBoolean(values, "no-deps")) disabled.push("deps");
   if (asBoolean(values, "no-tests")) disabled.push("tests");
   if (asBoolean(values, "no-slop")) disabled.push("slop");
@@ -230,6 +233,7 @@ export async function runReceipt(argv: string[]): Promise<number> {
     disabled,
     depsGate: gate,
     sastGate: gate,
+    authzGate: gate === "high" ? "high" : "medium",
     maxSlopDelta: optionalNumber(values, "max-delta"),
     since: asString(values, "since"),
   });

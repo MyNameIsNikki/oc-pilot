@@ -364,7 +364,7 @@ oc-pilot scan --staged --format sarif -o oc-pilot.sarif
 
 ### `preflight`
 
-Один офлайн-вердикт перед коммитом. Пять проверок идут без модели и без сети: секреты в диффе, детерминированный SAST по изменённым исходникам (инъекции команд и SQL, path traversal, SSRF, выполнение кода, XSS и другое), здоровье зависимостей в границах изменённых файлов, ослабление тестов (`it.skip`, удалённые проверки, поднятые таймауты) и дельта Slop Index относительно базовой ссылки.
+Один офлайн-вердикт перед коммитом. Шесть проверок идут без модели и без сети: секреты в диффе, детерминированный SAST по изменённым исходникам (инъекции команд и SQL, path traversal, SSRF, выполнение кода, XSS и другое), авторизация маршрутов по изменённым исходникам (маршрут без сессии, IDOR, админский путь без роли), здоровье зависимостей в границах изменённых файлов, ослабление тестов (`it.skip`, удалённые проверки, поднятые таймауты) и дельта Slop Index относительно базовой ссылки.
 
 ```bash
 oc-pilot preflight
@@ -374,13 +374,13 @@ oc-pilot preflight --no-slop --fail-on-issue medium
 oc-pilot preflight --staged --no-sast
 ```
 
-Проблемы зависимостей ограничены скоупом: preflight сообщает только о файлах, которые меняет дифф, и о пакетах, названных в добавленных строках, поэтому старый репозиторий не падает на первом же запуске. `--fail-on-issue` (по умолчанию `high`) задаёт порог и для находок SAST, и для severity зависимостей, а `--max-delta` (по умолчанию 10 пунктов) — порог Slop Index; каждую проверку можно отключить через `--no-secret-scan`, `--no-sast`, `--no-deps`, `--no-tests` или `--no-slop`. Код возврата 1, если хоть одна проверка упала, иначе 0 — один шаг CI заменяет пять.
+Проблемы зависимостей ограничены скоупом: preflight сообщает только о файлах, которые меняет дифф, и о пакетах, названных в добавленных строках, поэтому старый репозиторий не падает на первом же запуске. `--fail-on-issue` (по умолчанию `high`) задаёт порог и для находок SAST, и для авторизации маршрутов, и для severity зависимостей, а `--max-delta` (по умолчанию 10 пунктов) — порог Slop Index; каждую проверку можно отключить через `--no-secret-scan`, `--no-sast`, `--no-authz`, `--no-deps`, `--no-tests` или `--no-slop`. Код возврата 1, если хоть одна проверка упала, иначе 0 — один шаг CI заменяет шесть.
 
 JSON-отчёт — `{status, checks, diff}`, где каждая проверка содержит `{id, label, status, summary, details}`, а `status` равен `pass`, `fail` или `skip`.
 
 ### `receipt`
 
-Превращает «у меня работает» в проверяемое утверждение. Квитанция прогоняет тесты и preflight (включая SAST), а затем записывает результат вместе с SHA коммита, веткой, состоянием рабочего дерева, статистикой диффа и точными командами. Файл пишется в `.git/oc-pilot/receipt.json`, поэтому никогда не попадает в рабочее дерево. `--no-sast` пропускает проверку SAST для изменения, где она неприменима.
+Превращает «у меня работает» в проверяемое утверждение. Квитанция прогоняет тесты и preflight (включая SAST и authz), а затем записывает результат вместе с SHA коммита, веткой, состоянием рабочего дерева, статистикой диффа и точными командами. Файл пишется в `.git/oc-pilot/receipt.json`, поэтому никогда не попадает в рабочее дерево. `--no-sast` или `--no-authz` пропускает проверку для изменения, где она неприменима.
 
 ```bash
 oc-pilot receipt --staged
@@ -560,7 +560,7 @@ oc-pilot commit --json        # машиночитаемый вывод
 
 ### `install-hook`
 
-Ставит нативные git-хуки без husky и зависимостей. Хук `pre-commit` запускает `oc-pilot preflight --staged`: секреты, здоровье зависимостей в границах изменения, ослабление тестов и дельта Slop Index. С `--pre-push` дополнительно ставится `pre-push` с `oc-pilot review --fail-on critical --fail-on-secrets`. Флаг `--scan` оставляет лёгкий pre-commit только с `oc-pilot scan --staged`.
+Ставит нативные git-хуки без husky и зависимостей. Хук `pre-commit` запускает `oc-pilot preflight --staged`: секреты, SAST, авторизация маршрутов, здоровье зависимостей в границах изменения, ослабление тестов и дельта Slop Index. С `--pre-push` дополнительно ставится `pre-push` с `oc-pilot review --fail-on critical --fail-on-secrets`. Флаг `--scan` оставляет лёгкий pre-commit только с `oc-pilot scan --staged`.
 
 ```bash
 oc-pilot install-hook
@@ -855,7 +855,7 @@ oc-pilot setup --client cursor --global
 
 ZCode импортирует серверы из Claude Code, Codex, OpenCode и `.agents`, либо пишет нативный конфиг через `oc-pilot setup --client zcode`.
 
-Инструменты: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`, `sast`, `preflight`, `ready`, `receipt_verify`. У `scan` есть `all: true` — проверка всего репозитория, а не diff. `slop` запускает офлайн Slop Index и принимает `since`, `since_days`, `limit`, `exclude` и `no_blame`. `sast` запускает детерминированный статический анализ по изменению или по явным `paths` и принимает `fail_on_issue`, `ignore` и `no_suppressions`; находка на уровне порога или выше — обычный результат с кодом 1. `preflight` возвращает один офлайн-вердикт по планируемому изменению и принимает те же флаги источника (`diff`, `base`, `staged`, `unstaged`, `include_untracked`), плюс `since`, `max_delta`, `fail_on_issue`, `no_secret_scan`, `no_sast`, `no_deps`, `no_tests` и `no_slop`; проваленная проверка — обычный результат со `status: "fail"` и кодом 1, а не ошибка инструмента, чтобы агент видел, какая именно проверка упала. `ready` возвращает офлайн-оценку готовности 0–100 и принимает `fail_under`; оценка ниже порога — тоже обычный результат с кодом 1. `receipt_verify` пересчитывает SHA-256 квитанции, сверяет записанный коммит с HEAD и возвращает `ok`, `hashOk` и `stale`; отсутствующая, изменённая или устаревшая квитанция — обычный результат с `ok: false` и кодом 1, чтобы агент видел, почему доказательство не прошло. Сервер по умолчанию read-only: `--allow-write` разрешает `fix` с `apply: true`, `commit` с `apply: true`, `test_fix` с командой и `stats` с `clear: true`. Результат `fix` содержит unified-патч, список `files` и `patchStats` (`additions`, `deletions`, `hunks`, `bytes`); патчи длиннее 200 000 символов обрезаются с флагами `patchTruncated` и `patchBytes`, чтобы хост мог показать или применить изменение, не разбирая diff заново.
+Инструменты: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`, `sast`, `authz`, `preflight`, `ready`, `receipt_verify`. У `scan` есть `all: true` — проверка всего репозитория, а не diff. `slop` запускает офлайн Slop Index и принимает `since`, `since_days`, `limit`, `exclude` и `no_blame`. `sast` запускает детерминированный статический анализ по изменению или по явным `paths` и принимает `fail_on_issue`, `ignore` и `no_suppressions`; находка на уровне порога или выше — обычный результат с кодом 1. `authz` проверяет авторизацию маршрутов по изменению или явным `paths` и принимает `fail_on_issue`, `ignore`, `public` и `no_suppressions`; находка маршрута на уровне порога или выше — тоже обычный результат с кодом 1. `preflight` возвращает один офлайн-вердикт по планируемому изменению и принимает те же флаги источника (`diff`, `base`, `staged`, `unstaged`, `include_untracked`), плюс `since`, `max_delta`, `fail_on_issue`, `no_secret_scan`, `no_sast`, `no_authz`, `no_deps`, `no_tests` и `no_slop`; проваленная проверка — обычный результат со `status: "fail"` и кодом 1, а не ошибка инструмента, чтобы агент видел, какая именно проверка упала. `ready` возвращает офлайн-оценку готовности 0–100 и принимает `fail_under`; оценка ниже порога — тоже обычный результат с кодом 1. `receipt_verify` пересчитывает SHA-256 квитанции, сверяет записанный коммит с HEAD и возвращает `ok`, `hashOk` и `stale`; отсутствующая, изменённая или устаревшая квитанция — обычный результат с `ok: false` и кодом 1, чтобы агент видел, почему доказательство не прошло. Сервер по умолчанию read-only: `--allow-write` разрешает `fix` с `apply: true`, `commit` с `apply: true`, `test_fix` с командой и `stats` с `clear: true`. Результат `fix` содержит unified-патч, список `files` и `patchStats` (`additions`, `deletions`, `hunks`, `bytes`); патчи длиннее 200 000 символов обрезаются с флагами `patchTruncated` и `patchBytes`, чтобы хост мог показать или применить изменение, не разбирая diff заново.
 
 Каждый инструмент принимает `max_findings` (по умолчанию 50; урезанный результат дополнительно содержит `truncated` и `totalFindings`) и `verbosity` (`full` отдаёт JSON, `compact` — одну строку сводки, а те же данные остаются в `structuredContent`). Если клиент передал `_meta.progressToken`, сервер шлёт `notifications/progress`; после `logging/setLevel` — ещё и `notifications/message` на каждый вызов. `--max-calls <n>` (или `OC_PILOT_MCP_MAX_CALLS`) ограничивает число вызовов с моделью за сессию, `0` снимает лимит, а офлайн-инструменты `scan`, `stats`, `slop`, `sast`, `preflight`, `ready` и `receipt_verify` работают и после исчерпания бюджета.
 
@@ -938,7 +938,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.48.0
+      - uses: MyNameIsNikki/oc-pilot@v0.49.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

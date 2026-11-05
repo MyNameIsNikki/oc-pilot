@@ -18,7 +18,8 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `fix` — propose a unified diff; with `apply: true`, apply it and run tests, reverting on failure.
 - `docgen` — GoDoc/RustDoc/JSDoc/docstrings.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
-- `preflight` — one offline verdict: secrets, SAST, dependency health, test weakening, Slop Index delta.
+- `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
+- `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
 - `ready` — offline agent readiness score 0-100 across tests, lockfile, hooks, slop, receipt, docs, CI and config.
 - `receipt_verify` — verify the receipt for HEAD: its hash, recorded commit and whether its tests passed.
 - `custom` — any other code question with an optional diff.

@@ -43,6 +43,7 @@ function input(overrides = {}) {
         diff: { source: "git diff HEAD", stats: STATS },
         secrets: [],
         sast: [],
+        authz: [],
         deps: cleanAudit([]),
         weaknesses: [],
         slop: { report: slopReport(45), delta: slopDelta(2) },
@@ -69,7 +70,7 @@ test("scopeDependencyIssues keeps only issues touched by the change", () => {
 test("preflight passes when every check is clean", () => {
     const report = buildPreflightReport(input());
     assert.equal(report.status, "pass");
-    assert.deepEqual(report.checks.map((check) => check.status), ["pass", "pass", "pass", "pass", "pass"]);
+    assert.deepEqual(report.checks.map((check) => check.status), ["pass", "pass", "pass", "pass", "pass", "pass"]);
     assert.equal(report.diff.files, 1);
 });
 test("a critical secret fails the run and a warning alone does not", () => {
@@ -103,6 +104,28 @@ test("SAST findings fail only above the configured gate", () => {
     assert.equal(buildPreflightReport(input({ sast: [medium] })).status, "pass");
     assert.equal(buildPreflightReport(input({ sast: [medium], sastGate: "medium" })).status, "fail");
 });
+const AUTHZ = {
+    rule: "idor",
+    severity: "high",
+    file: "src/routes.ts",
+    line: 2,
+    column: 3,
+    method: "GET",
+    route: "/users/:id",
+    message: "объект ищется по id из запроса без проверки владельца",
+};
+test("authz findings fail only above the configured gate", () => {
+    const high = buildPreflightReport(input({ authz: [AUTHZ] }));
+    assert.equal(high.status, "fail");
+    assert.equal(high.checks[2]?.status, "fail");
+    assert.match(high.checks[2].summary, /1 находок: high 1/);
+    assert.deepEqual(high.checks[2]?.details, [
+        "high idor GET /users/:id src/routes.ts:2 — объект ищется по id из запроса без проверки владельца",
+    ]);
+    const medium = { ...AUTHZ, severity: "medium" };
+    assert.equal(buildPreflightReport(input({ authz: [medium] })).status, "pass");
+    assert.equal(buildPreflightReport(input({ authz: [medium], authzGate: "medium" })).status, "fail");
+});
 test("dependency issues fail only above the configured gate", () => {
     const high = { kind: "phantom", severity: "high", name: "axios", message: "not declared" };
     const medium = { kind: "unused", severity: "medium", name: "left-pad", message: "unused" };
@@ -120,26 +143,27 @@ test("weakened tests fail the run", () => {
     };
     const report = buildPreflightReport(input({ weaknesses: [weakness] }));
     assert.equal(report.status, "fail");
-    assert.equal(report.checks[3]?.status, "fail");
-    assert.match(report.checks[3].summary, /1 ослабление/);
-    assert.deepEqual(report.checks[3]?.details, ["src/app.test.ts:12 — тест пропущен через it.skip"]);
+    assert.equal(report.checks[4]?.status, "fail");
+    assert.match(report.checks[4].summary, /1 ослабление/);
+    assert.deepEqual(report.checks[4]?.details, ["src/app.test.ts:12 — тест пропущен через it.skip"]);
 });
 test("slop growth above the limit fails the run", () => {
     const report = buildPreflightReport(input({ slop: { report: slopReport(55), delta: slopDelta(12) }, maxSlopDelta: 10 }));
     assert.equal(report.status, "fail");
-    assert.equal(report.checks[4]?.status, "fail");
-    assert.match(report.checks[4].summary, /\+12/);
-    assert.deepEqual(report.checks[4]?.details, ["Дубликаты: +2"]);
+    assert.equal(report.checks[5]?.status, "fail");
+    assert.match(report.checks[5].summary, /\+12/);
+    assert.deepEqual(report.checks[5]?.details, ["Дубликаты: +2"]);
 });
 test("skipped checks stay visible without failing", () => {
     const report = buildPreflightReport(input({
-        disabled: ["secrets", "sast", "deps", "tests", "slop"],
+        disabled: ["secrets", "sast", "authz", "deps", "tests", "slop"],
     }));
     assert.equal(report.status, "pass");
-    assert.deepEqual(report.checks.map((check) => check.status), ["skip", "skip", "skip", "skip", "skip"]);
+    assert.deepEqual(report.checks.map((check) => check.status), ["skip", "skip", "skip", "skip", "skip", "skip"]);
     assert.match(report.checks[0].summary, /--no-secret-scan/);
     assert.match(report.checks[1].summary, /--no-sast/);
-    assert.match(report.checks[4].summary, /--no-slop/);
+    assert.match(report.checks[2].summary, /--no-authz/);
+    assert.match(report.checks[5].summary, /--no-slop/);
 });
 test("preflight does not claim a zero index for an empty diff", () => {
     const report = buildPreflightReport(input({
@@ -155,9 +179,9 @@ test("renderPreflight prints one verdict per check", () => {
     const text = renderPreflight(report);
     assert.match(text, /FAIL {2}secrets/);
     assert.match(text, /OK {4}deps/);
-    assert.match(text, /Preflight не пройден: 1 из 5 проверок\./);
+    assert.match(text, /Preflight не пройден: 1 из 6 проверок\./);
     assert.ok(text.endsWith("\n"));
     const clean = renderPreflight(buildPreflightReport(input()));
-    assert.match(clean, /Preflight пройден: 5 проверок, замечаний нет\./);
+    assert.match(clean, /Preflight пройден: 6 проверок, замечаний нет\./);
 });
 //# sourceMappingURL=preflight.test.js.map

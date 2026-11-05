@@ -4,6 +4,7 @@ import { auditDependencies } from "./deps-health.js";
 import { log } from "./log.js";
 import { buildPreflightReport, scopeDependencyIssues, } from "./preflight.js";
 import { scanSource } from "./sast.js";
+import { scanAuthzSource } from "./authz.js";
 import { analyzeAgainst } from "./slop/index.js";
 import { isCodeFile, isGeneratedPath } from "./slop/source.js";
 import { analyzeTestWeakness } from "./test-weakening.js";
@@ -55,11 +56,28 @@ export function collectPreflight(cwd, data, options = {}) {
             }
         }
     }
+    let authz = null;
+    let authzSkip;
+    if (!disabled.includes("authz")) {
+        const files = data.changedFiles.filter((file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(cwd, file)));
+        if (files.length === 0) {
+            authzSkip = "нет изменённых файлов для анализа";
+        }
+        else {
+            authz = [];
+            for (const file of files) {
+                const text = readFileSync(join(cwd, file), "utf8");
+                authz.push(...scanAuthzSource(file, text).findings);
+            }
+        }
+    }
     return buildPreflightReport({
         diff: { source: data.source, stats: data.stats },
         secrets: disabled.includes("secrets") ? null : data.findings,
         sast,
         sastSkip,
+        authz,
+        authzSkip,
         deps,
         depsSkip,
         weaknesses: disabled.includes("tests") ? null : analyzeTestWeakness(data.diff),
@@ -68,6 +86,7 @@ export function collectPreflight(cwd, data, options = {}) {
         disabled,
         depsGate: options.depsGate,
         sastGate: options.sastGate,
+        authzGate: options.authzGate,
         maxSlopDelta: options.maxSlopDelta,
     });
 }

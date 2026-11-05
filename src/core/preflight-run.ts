@@ -10,6 +10,7 @@ import {
   type PreflightReport,
 } from "./preflight.js";
 import { scanSource, type SastFinding, type SastSeverity } from "./sast.js";
+import { scanAuthzSource, type AuthzFinding, type AuthzSeverity } from "./authz.js";
 import { analyzeAgainst } from "./slop/index.js";
 import { isCodeFile, isGeneratedPath } from "./slop/source.js";
 import { analyzeTestWeakness } from "./test-weakening.js";
@@ -18,6 +19,7 @@ export interface CollectPreflightOptions {
   disabled?: PreflightCheckId[];
   depsGate?: DepSeverity;
   sastGate?: SastSeverity;
+  authzGate?: AuthzSeverity;
   maxSlopDelta?: number;
   since?: string;
 }
@@ -76,11 +78,30 @@ export function collectPreflight(
     }
   }
 
+  let authz: AuthzFinding[] | null = null;
+  let authzSkip: string | undefined;
+  if (!disabled.includes("authz")) {
+    const files = data.changedFiles.filter(
+      (file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(cwd, file)),
+    );
+    if (files.length === 0) {
+      authzSkip = "нет изменённых файлов для анализа";
+    } else {
+      authz = [];
+      for (const file of files) {
+        const text = readFileSync(join(cwd, file), "utf8");
+        authz.push(...scanAuthzSource(file, text).findings);
+      }
+    }
+  }
+
   return buildPreflightReport({
     diff: { source: data.source, stats: data.stats },
     secrets: disabled.includes("secrets") ? null : data.findings,
     sast,
     sastSkip,
+    authz,
+    authzSkip,
     deps,
     depsSkip,
     weaknesses: disabled.includes("tests") ? null : analyzeTestWeakness(data.diff),
@@ -89,6 +110,7 @@ export function collectPreflight(
     disabled,
     depsGate: options.depsGate,
     sastGate: options.sastGate,
+    authzGate: options.authzGate,
     maxSlopDelta: options.maxSlopDelta,
   });
 }

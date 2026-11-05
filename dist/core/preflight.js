@@ -1,8 +1,10 @@
 import { issueFailsGate } from "./deps-health.js";
-import { severityAtLeast } from "./sast.js";
+import { severityAtLeast as authzSeverityAtLeast } from "./authz.js";
+import { severityAtLeast as sastSeverityAtLeast } from "./sast.js";
 const LABELS = {
     secrets: "секреты",
     sast: "sast",
+    authz: "authz",
     deps: "зависимости",
     tests: "тесты",
     slop: "slop",
@@ -71,12 +73,27 @@ export function buildPreflightReport(input) {
         const high = findings.filter((finding) => finding.severity === "high").length;
         const medium = findings.filter((finding) => finding.severity === "medium").length;
         const low = findings.length - high - medium;
-        checks.push(check("sast", findings.some((finding) => severityAtLeast(finding.severity, gate)) ? "fail" : "pass", findings.length === 0
+        checks.push(check("sast", findings.some((finding) => sastSeverityAtLeast(finding.severity, gate)) ? "fail" : "pass", findings.length === 0
             ? "опасных паттернов не найдено"
             : `${String(findings.length)} находок: high ${String(high)}, medium ${String(medium)}, low ${String(low)}`, findings.map((finding) => `${finding.severity} ${finding.rule} ${finding.file}:${String(finding.line)} — ${finding.message}`)));
     }
     else {
         checks.push(check("sast", "skip", input.sastSkip ?? "анализ не выполнялся"));
+    }
+    if (disabled.has("authz")) {
+        checks.push(check("authz", "skip", "отключено (--no-authz)"));
+    }
+    else if (input.authz) {
+        const findings = input.authz;
+        const gate = input.authzGate ?? "high";
+        const high = findings.filter((finding) => finding.severity === "high").length;
+        const medium = findings.length - high;
+        checks.push(check("authz", findings.some((finding) => authzSeverityAtLeast(finding.severity, gate)) ? "fail" : "pass", findings.length === 0
+            ? "маршрутов без авторизации не найдено"
+            : `${String(findings.length)} находок: high ${String(high)}, medium ${String(medium)}`, findings.map((finding) => `${finding.severity} ${finding.rule} ${finding.method} ${finding.route} ${finding.file}:${String(finding.line)} — ${finding.message}`)));
+    }
+    else {
+        checks.push(check("authz", "skip", input.authzSkip ?? "анализ не выполнялся"));
     }
     if (disabled.has("deps")) {
         checks.push(check("deps", "skip", "отключено (--no-deps)"));
