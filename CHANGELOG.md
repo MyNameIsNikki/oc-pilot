@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.45.0
+
+- `deps --audit`: запросы к OSV по пакетам из lockfile — CVE/GHSA, severity и исправленные версии; кеш `.oc-pilot/osv-cache.json` на 24 часа, `--offline` и `--osv-url`.
+- `--fail-on-vuln <critical|high|medium|low>` превращает аудит в security-гейт: код 1, если уязвимость достигает порога.
+- Лицензионный аудит по установленным `node_modules`: strong copyleft, proprietary и unknown попадают в отчёт, отсутствующие манифесты считаются `missing`.
+- `--sbom <file>` записывает CycloneDX 1.5 с npm purl для каждого пакета из lockfile.
+- Документация; 497 тестов; версия 0.45.0.
+
 ## 0.44.0
 
 - Команда `mutate`: мутационное тестирование изменённых файлов — переворачивает операторы сравнения и булевы операторы, прогоняет набор тестов на каждом мутанте и считает `killed`, `survived` и `timeout`.

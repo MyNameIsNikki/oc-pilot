@@ -466,6 +466,9 @@ oc-pilot deps --ignore lint-staged
 oc-pilot deps --fix --dry-run
 oc-pilot deps --fix
 oc-pilot deps --why qs
+oc-pilot deps --audit --fail-on-vuln high
+oc-pilot deps --audit --offline
+oc-pilot deps --sbom sbom.json
 ```
 
 Команда сравнивает `package.json` с тем, что код реально импортирует, и с лок-файлом проекта: `package-lock.json`, `pnpm-lock.yaml` или `yarn.lock`:
@@ -484,7 +487,11 @@ oc-pilot deps --why qs
 
 `--why <name>` отвечает на вопрос, который возникает до любой чистки: откуда этот пакет вообще взялся. Команда локально читает `package.json` и лок-файл проекта и показывает поле и спецификацию объявления, файлы с прямым импортом, пакеты, которые от него зависят, все установленные версии и число копий, а также цепочки зависимостей от корня. Если пакет не объявлен, не установлен и не импортируется, код возврата 1. `--why` не сочетается с `--fix`.
 
-JSON-результат — `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; с `--fix` добавляется `fix: {applied, dryRun, fixes, skipped}`, а с `--why` команда печатает один объект `DependencyWhy`: `{name, versions, copies, declared, importedBy, dependents, chains}`.
+`--audit` добавляет известные уязвимости и лицензии. Команда спрашивает OSV (`api.osv.dev`) по каждому пакету из lockfile, показывает CVE/GHSA, severity и первую исправленную версию, а ответы кеширует в `.oc-pilot/osv-cache.json` на 24 часа. `--offline` использует только кеш, не ходит в сеть и падает, если кеш пуст. `--osv-url` направляет запрос на зеркало. `--fail-on-vuln <critical|high|medium|low>` превращает результат в security-гейт: код 1, если хотя бы одна уязвимость достигает порога. Лицензии читаются из установленных манифестов в `node_modules`; strong copyleft, proprietary и unknown попадают в отчёт, а пакеты без установленного манифеста считаются `missing`, а не угадываются.
+
+`--sbom <file>` записывает CycloneDX 1.5 SBOM по каждому пакету из lockfile, с npm purl, относительно корня проекта. Сеть не нужна.
+
+JSON-результат — `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; с `--fix` добавляется `fix: {applied, dryRun, fixes, skipped}`, с `--why` команда печатает один объект `DependencyWhy`: `{name, versions, copies, declared, importedBy, dependents, chains}`, с `--audit` добавляется `audit: {checked, unchecked, vulnerabilities, online, stale, cachePath, licenses}`, а с `--sbom` — `sbom: <path>`.
 
 ### `commit`
 
@@ -878,7 +885,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.44.0
+      - uses: MyNameIsNikki/oc-pilot@v0.45.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

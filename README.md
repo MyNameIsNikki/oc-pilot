@@ -477,6 +477,9 @@ oc-pilot deps --ignore lint-staged
 oc-pilot deps --fix --dry-run
 oc-pilot deps --fix
 oc-pilot deps --why qs
+oc-pilot deps --audit --fail-on-vuln high
+oc-pilot deps --audit --offline
+oc-pilot deps --sbom sbom.json
 ```
 
 It compares `package.json` with what the code actually imports and with the lockfile the project uses: `package-lock.json`, `pnpm-lock.yaml` or `yarn.lock`.
@@ -495,7 +498,11 @@ It compares `package.json` with what the code actually imports and with the lock
 
 `--why <name>` answers the question that comes before any cleanup: where does this package actually come from. It reads `package.json` and the lockfile locally and prints the declared field and spec, the files that import it, the packages that depend on it, every installed version and copy count, and the dependency chains from the root. A package that is neither declared, installed nor imported exits with code 1. `--why` cannot be combined with `--fix`.
 
-The JSON payload is `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; with `--fix` it gains `fix: {applied, dryRun, fixes, skipped}`, and with `--why` the command prints a single `DependencyWhy` object: `{name, versions, copies, declared, importedBy, dependents, chains}`.
+`--audit` adds known vulnerabilities and licenses. It asks OSV (`api.osv.dev`) for every locked package, reports CVE/GHSA ids, severity and the first fixed version, and caches answers in `.oc-pilot/osv-cache.json` for 24 hours. `--offline` uses the cache without touching the network and fails when the cache is empty. `--osv-url` points the query at a mirror. `--fail-on-vuln <critical|high|medium|low>` turns the result into a security gate: the command exits with code 1 when any vulnerability reaches the threshold. Licenses are read from installed `node_modules` manifests; strong copyleft, proprietary and unknown licenses are listed, and packages without an installed manifest are counted as `missing` instead of guessed.
+
+`--sbom <file>` writes a CycloneDX 1.5 software bill of materials for every locked package, with npm purls, relative to the project root. It needs no network.
+
+The JSON payload is `{packageName, declared, imported, scannedFiles, truncated, lockfile, issues}`; with `--fix` it gains `fix: {applied, dryRun, fixes, skipped}`, with `--why` the command prints a single `DependencyWhy` object: `{name, versions, copies, declared, importedBy, dependents, chains}`, with `--audit` it gains `audit: {checked, unchecked, vulnerabilities, online, stale, cachePath, licenses}`, and with `--sbom` — `sbom: <path>`.
 
 ### `commit`
 
@@ -1052,7 +1059,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.44.0
+      - uses: MyNameIsNikki/oc-pilot@v0.45.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1075,7 +1082,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.44.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.45.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

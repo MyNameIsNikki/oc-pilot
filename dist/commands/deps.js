@@ -3,14 +3,22 @@ import { auditDependencies, issueFailsGate } from "../core/deps-health.js";
 import { explainDependency, renderDependencyWhy } from "../core/deps-why.js";
 import { PilotError } from "../core/errors.js";
 import { writeOutput } from "../core/io.js";
+import { readLockfile } from "../core/lockfile.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
 import { asBoolean, asString } from "../core/parse.js";
+import { auditVulnerabilities, renderVulnerabilities, severityAtLeast } from "../core/osv.js";
+import { auditLicenses, buildSbom, renderLicenses, writeSbom } from "../core/sbom.js";
 const OPTIONS = withCommon({
     "fail-on-issue": { type: "string" },
     ignore: { type: "string" },
     fix: { type: "boolean" },
     why: { type: "string" },
+    audit: { type: "boolean" },
+    "osv-url": { type: "string" },
+    offline: { type: "boolean" },
+    "fail-on-vuln": { type: "string" },
+    sbom: { type: "string" },
 });
 const HELP = `Использование:
   oc-pilot deps [опции]
@@ -19,7 +27,8 @@ const HELP = `Использование:
 в package.json (чистая установка упадёт), объявленные но неиспользуемые
 пакеты, зависимости только для тестов в dependencies, дубли по назначению,
 небезопасные спецификации версий и рассинхрон с package-lock.json.
-Сеть не используется, модель не вызывается.
+По умолчанию сеть не используется и модель не вызывается; --audit
+дополнительно запрашивает OSV и кеширует ответы.
 
 Опции:
       --fail-on-issue <level>  код 1 при проблеме уровня high, medium или low
@@ -28,6 +37,11 @@ const HELP = `Использование:
                                фантомные импорты и плавающие версии — по lockfile
       --why <name>             показать, откуда пакет: объявление, импорты,
                                зависимые пакеты и цепочки от корня
+      --audit                  проверить известные уязвимости через OSV (нужна сеть)
+      --fail-on-vuln <level>   код 1 при уязвимости уровня critical, high, medium или low
+      --offline                не ходить в сеть, использовать кеш .oc-pilot/osv-cache.json
+      --osv-url <url>          другой endpoint OSV (по умолчанию api.osv.dev)
+      --sbom <file>            записать CycloneDX SBOM по версиям из lockfile
 ${COMMON_HELP}
 
 Примеры:
@@ -38,7 +52,10 @@ ${COMMON_HELP}
   oc-pilot deps --why qs
   oc-pilot deps --why qs --json
   oc-pilot deps --fix --dry-run
-  oc-pilot deps --fix --fail-on-issue high`;
+  oc-pilot deps --fix --fail-on-issue high
+  oc-pilot deps --audit --fail-on-vuln high
+  oc-pilot deps --audit --offline --json
+  oc-pilot deps --sbom sbom.json`;
 const SEVERITIES = new Set(["high", "medium", "low"]);
 function parseSeverity(value) {
     const normalized = value.trim().toLowerCase();
@@ -50,6 +67,17 @@ function parseSeverity(value) {
     }
     return normalized;
 }
+function parseVulnSeverity(value) {
+    const normalized = value.trim().toLowerCase();
+    if (!VULN_SEVERITIES.has(normalized)) {
+        throw new PilotError(`Некорректный --fail-on-vuln: ${value}`, {
+            hint: "Допустимые значения: critical, high, medium, low",
+            exitCode: 2,
+        });
+    }
+    return normalized;
+}
+const VULN_SEVERITIES = new Set(["critical", "high", "medium", "low"]);
 function renderIssue(issue) {
     const files = issue.files && issue.files.length > 0 ? ` [${issue.files.join(", ")}]` : "";
     return `${issue.severity.toUpperCase().padEnd(6)} ${issue.kind.padEnd(9)} ${issue.name} — ${issue.message}${files}`;
@@ -72,6 +100,27 @@ export async function runDeps(argv) {
     const gate = gateRaw ? parseSeverity(gateRaw) : undefined;
     const fix = asBoolean(values, "fix");
     const whyName = asString(values, "why")?.trim();
+    const audit = asBoolean(values, "audit");
+    const offline = asBoolean(values, "offline");
+    const sbomFile = asString(values, "sbom");
+    const vulnGateRaw = asString(values, "fail-on-vuln");
+    const vulnGate = vulnGateRaw ? parseVulnSeverity(vulnGateRaw) : undefined;
+    const osvUrl = asString(values, "osv-url");
+    if (offline && !audit) {
+        throw new PilotError("--offline требует --audit", { hint: "Добавьте --audit или уберите --offline.", exitCode: 2 });
+    }
+    if (vulnGate && !audit) {
+        throw new PilotError("--fail-on-vuln требует --audit", { hint: "Добавьте --audit.", exitCode: 2 });
+    }
+    if (osvUrl && !audit) {
+        throw new PilotError("--osv-url требует --audit", { hint: "Добавьте --audit.", exitCode: 2 });
+    }
+    if (whyName && (audit || sbomFile)) {
+        throw new PilotError("--why не сочетается с --audit и --sbom", {
+            hint: "Сначала посмотрите происхождение пакета, затем запускайте аудит отдельно.",
+            exitCode: 2,
+        });
+    }
     if (whyName) {
         if (fix) {
             throw new PilotError("--why не сочетается с --fix", {
@@ -104,11 +153,46 @@ export async function runDeps(argv) {
                 report = auditDependencies(ctx.cwd, { ignore });
         }
     }
-    const failed = gate !== undefined && issueFailsGate(report.issues, gate);
+    let auditResult;
+    let licenseAudit;
+    let sbomPath;
+    if (audit || sbomFile) {
+        const lock = readLockfile(ctx.cwd);
+        if (!lock || lock.packages.length === 0) {
+            throw new PilotError("Lockfile не найден или пуст", {
+                hint: "Аудит уязвимостей и SBOM требуют разрешённых версий: выполните установку зависимостей.",
+                exitCode: 2,
+            });
+        }
+        if (audit) {
+            auditResult = await auditVulnerabilities(ctx.cwd, lock.packages, {
+                url: osvUrl ?? process.env.OC_PILOT_OSV_URL,
+                offline,
+            });
+            licenseAudit = auditLicenses(ctx.cwd, lock.packages);
+        }
+        if (sbomFile)
+            sbomPath = writeSbom(ctx.cwd, sbomFile, buildSbom(lock.packages, report.packageName));
+    }
+    const vulnFailed = auditResult !== undefined &&
+        vulnGate !== undefined &&
+        auditResult.vulnerabilities.some((vuln) => severityAtLeast(vuln.severity, vulnGate));
+    const failed = (gate !== undefined && issueFailsGate(report.issues, gate)) || vulnFailed;
+    const auditLines = [];
+    if (auditResult)
+        auditLines.push(renderVulnerabilities(auditResult).trimEnd());
+    if (licenseAudit)
+        auditLines.push(renderLicenses(licenseAudit).trimEnd());
+    if (sbomPath)
+        auditLines.push(`SBOM сохранён: ${sbomPath}`);
     if (ctx.flags.json) {
-        const payload = fix && plan
-            ? { ...report, fix: { applied, dryRun: ctx.flags.dryRun, fixes: plan.fixes, skipped: plan.skipped } }
-            : report;
+        const payload = { ...report };
+        if (fix && plan)
+            payload.fix = { applied, dryRun: ctx.flags.dryRun, fixes: plan.fixes, skipped: plan.skipped };
+        if (auditResult)
+            payload.audit = { ...auditResult, licenses: licenseAudit };
+        if (sbomPath)
+            payload.sbom = sbomPath;
         writeOutput(JSON.stringify(payload, null, 2), ctx.flags.output);
         return failed ? 1 : 0;
     }
@@ -120,13 +204,15 @@ export async function runDeps(argv) {
         log.warn("Режим --dry-run: package.json не изменён.");
     }
     if (report.issues.length === 0) {
-        const body = fixLines.length > 0 ? `${fixLines.join("\n")}\nПроблем не найдено.\n` : "Проблем не найдено.\n";
-        const wrote = writeOutput(body, ctx.flags.output);
+        const parts = [...fixLines, "Проблем не найдено.", ...auditLines];
+        const wrote = writeOutput(`${parts.join("\n")}\n`, ctx.flags.output);
         if (wrote)
             log.success(`Отчёт сохранён: ${wrote}`);
         else
             log.success("Проблем не найдено.");
-        return 0;
+        if (vulnFailed)
+            log.error(`Есть уязвимости уровня ${vulnGate ?? "high"} или выше.`);
+        return failed ? 1 : 0;
     }
     const lines = [...fixLines, ...report.issues.map(renderIssue)];
     const counts = {
@@ -136,6 +222,7 @@ export async function runDeps(argv) {
     };
     lines.push("");
     lines.push(`Итог: high ${counts.high}, medium ${counts.medium}, low ${counts.low}.`);
+    lines.push(...auditLines);
     const body = `${lines.join("\n")}\n`;
     const wrote = writeOutput(body, ctx.flags.output);
     if (wrote) {
@@ -149,8 +236,10 @@ export async function runDeps(argv) {
                 log.detail(`${issue.kind}: ${issue.name}`);
         }
     }
-    if (failed)
-        log.error(`Есть проблемы уровня ${gate} или выше.`);
+    if (vulnFailed)
+        log.error(`Есть уязвимости уровня ${vulnGate ?? "high"} или выше.`);
+    else if (failed)
+        log.error(`Есть проблемы уровня ${gate ?? "high"} или выше.`);
     return failed ? 1 : 0;
 }
 //# sourceMappingURL=deps.js.map

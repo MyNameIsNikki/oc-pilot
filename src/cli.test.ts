@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { test } from "node:test";
 
 const CLI = resolve("dist/cli.js");
@@ -1716,6 +1716,140 @@ test("mutate reports a killed and a surviving mutation", () => {
       dir,
     );
     assert.equal(gated.status, 1, gated.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("deps --audit fails on a known vulnerability from OSV", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-osv-"));
+  let server: ReturnType<typeof spawn> | undefined;
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "demo", private: true, dependencies: { "left-pad": "1.3.0" } }),
+      "utf8",
+    );
+    writeFileSync(
+      join(dir, "package-lock.json"),
+      JSON.stringify({
+        name: "demo",
+        lockfileVersion: 3,
+        packages: { "": { name: "demo" }, "node_modules/left-pad": { version: "1.3.0" } },
+      }),
+      "utf8",
+    );
+    writeFileSync(join(dir, "app.ts"), 'import leftPad from "left-pad";\n', "utf8");
+
+    const serverPath = join(dir, "osv-server.js");
+    writeFileSync(
+      serverPath,
+      [
+        'const http = require("node:http");',
+        "const server = http.createServer((req, res) => {",
+        '  req.on("data", () => {});',
+        '  req.on("end", () => {',
+        '    res.writeHead(200, { "content-type": "application/json" });',
+        "    res.end(JSON.stringify({ results: [{ vulns: [{",
+        '      id: "GHSA-test-1234",',
+        '      summary: "test vulnerability",',
+        '      database_specific: { severity: "high" },',
+        '      affected: [{ ranges: [{ events: [{ fixed: "1.3.1" }] }] }],',
+        "    }] }] }));",
+        "  });",
+        "});",
+        'server.listen(0, "127.0.0.1", () => {',
+        "  process.stdout.write(String(server.address().port) + \"\\n\");",
+        "});",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    server = spawn(process.execPath, [serverPath], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+    const port = await new Promise<number>((resolvePort, reject) => {
+      let buffer = "";
+      const timer = setTimeout(() => reject(new Error("OSV server did not start")), 10_000);
+      server?.stdout?.on("data", (chunk: Buffer) => {
+        buffer += chunk.toString();
+        const match = buffer.match(/(\d+)/);
+        if (match) {
+          clearTimeout(timer);
+          resolvePort(Number(match[1]));
+        }
+      });
+      server?.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+
+    const result = runCli(
+      [
+        "deps",
+        "--cwd",
+        dir,
+        "--audit",
+        "--osv-url",
+        `http://127.0.0.1:${String(port)}/v1/querybatch`,
+        "--fail-on-vuln",
+        "high",
+        "--json",
+      ],
+      dir,
+    );
+    assert.equal(result.status, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      audit?: { vulnerabilities?: Array<{ id: string; severity: string; fixed: string[] }> };
+    };
+    const vulnerability = payload.audit?.vulnerabilities?.[0];
+    assert.equal(vulnerability?.id, "GHSA-test-1234");
+    assert.equal(vulnerability?.severity, "high");
+    assert.deepEqual(vulnerability?.fixed, ["1.3.1"]);
+  } finally {
+    const child = server;
+    if (child && child.exitCode === null) {
+      child.kill();
+      await Promise.race([
+        new Promise<void>((resolveExit) => child.once("exit", () => resolveExit())),
+        new Promise<void>((resolveTimeout) => setTimeout(resolveTimeout, 5_000)),
+      ]);
+    }
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("deps --sbom writes a CycloneDX file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-sbom-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "demo", private: true, dependencies: { "left-pad": "1.3.0" } }),
+      "utf8",
+    );
+    writeFileSync(
+      join(dir, "package-lock.json"),
+      JSON.stringify({
+        name: "demo",
+        lockfileVersion: 3,
+        packages: { "": { name: "demo" }, "node_modules/left-pad": { version: "1.3.0" } },
+      }),
+      "utf8",
+    );
+    writeFileSync(join(dir, "app.ts"), 'import leftPad from "left-pad";\n', "utf8");
+
+    const result = runCli(["deps", "--cwd", dir, "--sbom", "out/sbom.json", "--json"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as { sbom?: string };
+    assert.match(payload.sbom ?? "", /out[\\/]sbom\.json$/);
+    const sbom = JSON.parse(readFileSync(join(dir, "out", "sbom.json"), "utf8")) as {
+      bomFormat: string;
+      components: Array<{ name: string }>;
+    };
+    assert.equal(sbom.bomFormat, "CycloneDX");
+    assert.ok(sbom.components.some((component) => component.name === "left-pad"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
