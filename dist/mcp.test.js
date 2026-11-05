@@ -220,6 +220,9 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(preflight, "preflight tool missing");
         assert.ok(preflight.inputSchema.properties.max_delta, "max_delta missing on preflight");
         assert.ok(preflight.inputSchema.properties.fail_on_issue, "fail_on_issue missing on preflight");
+        const ready = tools.find((tool) => tool.name === "ready");
+        assert.ok(ready, "ready tool missing");
+        assert.ok(ready.inputSchema.properties.fail_under, "fail_under missing on ready");
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
@@ -300,6 +303,44 @@ test("MCP preflight returns a failing verdict without a tool error", () => {
         const secrets = result?.structuredContent?.checks?.find((check) => check.id === "secrets");
         assert.equal(secrets?.status, "fail");
         assert.match(result?.content?.[0]?.text ?? "", /"status": "fail"/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP ready returns the readiness score without a tool error", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-ready-"));
+    try {
+        const git = (args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+        git(["init"]);
+        git(["config", "user.email", "test@example.com"]);
+        git(["config", "user.name", "Test"]);
+        git(["config", "core.autocrlf", "false"]);
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", private: true, scripts: { test: 'node -e "process.exit(0)"' } }), "utf8");
+        writeFileSync(join(dir, "package-lock.json"), JSON.stringify({ name: "demo", lockfileVersion: 3, packages: { "": { name: "demo" } } }), "utf8");
+        writeFileSync(join(dir, "app.ts"), "export const value = 1;\n", "utf8");
+        git(["add", "."]);
+        git(["commit", "-m", "init"]);
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: { name: "ready", arguments: { fail_under: 85 } },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 1);
+        assert.equal(typeof result?.structuredContent?.score, "number");
+        assert.equal(result?.structuredContent?.checks?.find((check) => check.id === "tests")?.status, "pass");
+        assert.match(result?.content?.[0]?.text ?? "", /"grade"/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

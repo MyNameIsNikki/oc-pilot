@@ -18,6 +18,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `fix` — propose a unified diff; with `apply: true`, apply it and run tests, reverting on failure.
 - `docgen` — GoDoc/RustDoc/JSDoc/docstrings.
 - `preflight` — one offline verdict: secrets, dependency health, test weakening, Slop Index delta.
+- `ready` — offline agent readiness score 0-100 across tests, lockfile, hooks, slop, receipt, docs, CI and config.
 - `custom` — any other code question with an optional diff.
 
 Pass `diff` as unified diff **text**. Omit it to let the server use the

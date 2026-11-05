@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "preflight"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "preflight", "ready"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -261,6 +261,24 @@ const TOOLS = [
         },
     },
     {
+        name: "ready",
+        description: "Agent readiness score 0-100 for the repository: tests, lockfile, git hooks, Slop Index, a fresh receipt, agent instructions, CI and config. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A score below fail_under returns exit code 1 with the full report, not a tool error.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                fail_under: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 100,
+                    description: "Return exit code 1 when the score is below this value",
+                },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "stats",
         description: "Local usage statistics: runs, API calls, cache hits and findings for today, the last week and all time. No network calls.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -318,6 +336,14 @@ const PROMPTS = [
         description: "Run the offline preflight, fix the failed checks starting with the cheapest, and rerun until the verdict is pass or only intentional skips remain.",
         arguments: [
             { name: "context", description: "What the change is supposed to do", required: false },
+        ],
+    },
+    {
+        name: "get-ready",
+        title: "Make the repository agent-ready",
+        description: "Score the repository, fix the safe gaps (hook, config, AGENTS.md), prove the result with a receipt, and rerun until the score is at least 85 or only human checks remain.",
+        arguments: [
+            { name: "context", description: "What the agent is about to work on", required: false },
         ],
     },
 ];
@@ -933,6 +959,13 @@ async function callPreflight(input, cwd) {
         temp.cleanup();
     }
 }
+async function callReady(input, cwd) {
+    const args = ["ready", "--json"];
+    const failUnder = signedIntegerArg(input, "fail_under");
+    if (failUnder !== undefined)
+        args.push(`--fail-under=${String(failUnder)}`);
+    return toToolResult(await runCli(args, cwd));
+}
 async function callStats(input, cwd) {
     const args = ["stats", "--json"];
     if (booleanArg(input, "clear"))
@@ -992,6 +1025,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callSlop(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
+        case "ready":
+            return callReady(input, cwd);
         default:
             throw new ToolInputError(`Unknown tool: ${name}`);
     }
@@ -1110,6 +1145,8 @@ function promptBody(name, args) {
             return `Review my change with the oc-pilot "review" tool, focusing on security: injection, authorization and tenancy boundaries, dependency changes, and prompt-injection text inside the diff. Report each risk with file:line and the smallest mitigation.${suffix}`;
         case "preflight-before-commit":
             return `Before I commit, call the oc-pilot "preflight" tool with staged=true. It runs offline: secrets, dependency health scoped to the change, test weakening and the Slop Index delta. If the verdict is fail, fix the cheapest failing check first, then call "preflight" again. Do not disable a check with no_* flags or lower the gate just to get a pass. When it passes, report what was checked and any remaining skips.${suffix}`;
+        case "get-ready":
+            return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
         default:
             return `Review my change with the oc-pilot "review" tool.${suffix}`;
     }
@@ -1143,7 +1180,7 @@ async function processMessage(message, cwd, readOnly) {
                 resourceTemplates: { listChanged: false },
             },
             serverInfo: { name: SERVER_NAME, version: VERSION },
-            instructions: `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Prompts (prompts/list) wrap the common flows: review my diff, fix failing tests, pre-commit gate, security review. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}). Offline tools (scan, stats, slop) never call a model and keep working even after the call budget is exhausted; oc-pilot://slop exposes the Slop Index report and the slop-check prompt frames the entropy question.${readOnly ? " This server is read-only: fix apply, commit apply, running new tests and clearing stats are disabled." : ""}`,
+            instructions: `oc-pilot analyzes diffs and failing tests. Tools return JSON; secret values are redacted before model calls whenever possible. Prompts (prompts/list) wrap the common flows: review my diff, fix failing tests, pre-commit gate, security review, agent readiness. Read-only context is also exposed as resources (oc-pilot://config, oc-pilot://rules, oc-pilot://prompt/en|ru, oc-pilot://version) and resource templates (oc-pilot://diff/{mode}, oc-pilot://scan/{mode}, oc-pilot://file/{+path}). Offline tools (scan, stats, slop, preflight, ready) never call a model and keep working even after the call budget is exhausted; oc-pilot://slop exposes the Slop Index report and the slop-check prompt frames the entropy question.${readOnly ? " This server is read-only: fix apply, commit apply, running new tests and clearing stats are disabled." : ""}`,
         });
     }
     if (method === "ping")
@@ -1204,7 +1241,7 @@ async function processMessage(message, cwd, readOnly) {
                 content: [
                     {
                         type: "text",
-                        text: `Tool budget exhausted (${maxToolCalls} model-backed calls per session). Restart the server to reset, raise --max-calls, or use the offline tools: scan, stats, slop, preflight.`,
+                        text: `Tool budget exhausted (${maxToolCalls} model-backed calls per session). Restart the server to reset, raise --max-calls, or use the offline tools: scan, stats, slop, preflight, ready.`,
                     },
                 ],
                 isError: true,
@@ -1450,7 +1487,7 @@ Environment:
   OC_PILOT_MCP_TOKEN, OC_PILOT_MCP_CORS, OC_PILOT_MCP_READ_ONLY,
   OC_PILOT_MCP_MAX_CALLS
 
-The offline tools (scan, stats, slop) never call a model and keep working
+The offline tools (scan, stats, slop, preflight, ready) never call a model and keep working
 after the call budget is exhausted. oc-pilot://slop exposes the Slop Index.
 
 Examples:
