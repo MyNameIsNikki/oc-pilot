@@ -16,6 +16,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `review` — bugs, security issues, idioms, and structured findings.
 - `test_fix` — root cause of a failing test plus a minimal fix.
 - `fix` — propose a unified diff; with `apply: true`, apply it and run tests, reverting on failure.
+- `test_gen` — write tests for changed code; with `apply: true`, apply them and run the suite, reverting failures unless `keep_failing`.
 - `docgen` — GoDoc/RustDoc/JSDoc/docstrings.
 - `slop` — offline Slop Index.
 - `mutate` — mutation testing: flips operators, runs tests, lists survivors; needs `--allow-write` because it rewrites sources temporarily.
@@ -40,6 +41,7 @@ call should fail the build.
 oc-pilot review --fail-on warning --fail-on-secrets
 oc-pilot scan --json
 oc-pilot test-fix
+oc-pilot test-gen --staged --apply
 oc-pilot fix --apply --command "npm test"
 oc-pilot docgen "src/**/*.ts"
 oc-pilot mutate --staged --min-score 80

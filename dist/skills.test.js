@@ -32,6 +32,7 @@ test("skills document real commands and avoid placeholders", () => {
     const commands = new Set([
         "review",
         "test-fix",
+        "test-gen",
         "fix",
         "scan",
         "commit",

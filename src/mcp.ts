@@ -117,6 +117,41 @@ const TOOLS = [
     },
   },
   {
+    name: "test_gen",
+    description:
+      "Generate tests for the changed code, or only for uncovered changed lines when coverage is requested. Without apply it returns a patch and writes nothing; with apply it writes the test files, runs the suite and reverts failing tests unless keep_failing is set. Model-backed.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        apply: { type: "boolean", description: "Write the generated tests; needs --allow-write (default false)" },
+        no_run: { type: "boolean", description: "With apply, write tests without running them" },
+        keep_failing: { type: "boolean", description: "Keep generated tests even when the suite fails" },
+        force: { type: "boolean", description: "Allow editing existing test files" },
+        rounds: { type: "integer", minimum: 1, maximum: 5, description: "Generation attempts (default 2)" },
+        coverage: { type: "boolean", description: "Target only uncovered changed lines" },
+        coverage_file: { type: "string", description: "Coverage report path (lcov, Istanbul, Cobertura or Go)" },
+        from_slop: { type: "boolean", description: "Select untested files with the Slop Index instead of the diff" },
+        slop_files: { type: "integer", minimum: 1, maximum: 50, description: "How many untested files to target (default 3)" },
+        command: { type: "string", description: "Test command; auto-detected when omitted" },
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string" },
+        staged: { type: "boolean" },
+        unstaged: { type: "boolean" },
+        include_untracked: { type: "boolean" },
+        paths: { type: "array", items: { type: "string" } },
+        context: { type: "string" },
+        ...RESULT_PROPERTIES,
+        lang: { type: "string", enum: ["en", "ru"] },
+        model: { type: "string" },
+        timeout: { type: "integer", minimum: 1 },
+        repo_context: { type: "boolean" },
+        no_secret_scan: { type: "boolean" },
+      },
+    },
+  },
+  {
     name: "docgen",
     description:
       "Generate GoDoc/RustDoc/JSDoc/docstrings for files or globs. Returns proposed documentation as Markdown and JSON.",
@@ -663,6 +698,15 @@ const PROMPTS = [
     ],
   },
   {
+    name: "generate-tests",
+    title: "Generate tests for the change",
+    description:
+      "Generate tests for changed code or only for uncovered changed lines, apply them and run the suite, fixing the patch until the tests pass.",
+    arguments: [
+      { name: "context", description: "What behavior the tests should protect", required: false },
+    ],
+  },
+  {
     name: "prove-tests",
     title: "Prove the tests catch regressions",
     description:
@@ -1103,6 +1147,40 @@ async function callTestFix(input: JsonObject, cwd: string): Promise<ToolResult> 
   }
 }
 
+async function callTestGen(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["test-gen", ...commonArgs(input, { repoContext: true, secrets: true, failOn: false }), "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    const command = stringArg(input, "command");
+    const context = contextArg(input);
+    const rounds = integerArg(input, "rounds");
+    const slopFiles = integerArg(input, "slop_files");
+    const coverageFile = stringArg(input, "coverage_file");
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    if (booleanArg(input, "apply")) args.push("--apply");
+    if (booleanArg(input, "no_run")) args.push("--no-run");
+    if (booleanArg(input, "keep_failing")) args.push("--keep-failing");
+    if (booleanArg(input, "force")) args.push("--force");
+    if (booleanArg(input, "coverage")) args.push("--coverage");
+    if (booleanArg(input, "from_slop")) args.push("--from-slop");
+    if (coverageFile) args.push("--coverage-file", coverageFile);
+    if (rounds !== undefined) args.push("--rounds", String(rounds));
+    if (slopFiles !== undefined) args.push("--slop-files", String(slopFiles));
+    if (command) args.push("--command", command);
+    if (context) args.push("--context", context);
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callDocgen(input: JsonObject, cwd: string): Promise<ToolResult> {
   const files = projectPaths(input, "files");
   if (files.length === 0) throw new ToolInputError("files is required");
@@ -1449,6 +1527,9 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
     if (name === "mutate") {
       throw new ToolInputError("mutation testing rewrites source files temporarily and is disabled in read-only mode; start the MCP server with --allow-write");
     }
+    if (name === "test_gen" && booleanArg(input, "apply")) {
+      throw new ToolInputError("test_gen apply writes test files and is disabled in read-only mode; start the MCP server with --allow-write");
+    }
     if (name === "deps" && (booleanArg(input, "fix") || stringArg(input, "sbom"))) {
       throw new ToolInputError("deps fix and sbom write files and are disabled in read-only mode; start the MCP server with --allow-write");
     }
@@ -1458,6 +1539,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callReview(input, cwd);
     case "test_fix":
       return callTestFix(input, cwd);
+    case "test_gen":
+      return callTestGen(input, cwd);
     case "docgen":
       return callDocgen(input, cwd);
     case "custom":
@@ -1556,6 +1639,10 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 function summarizeResult(value: JsonObject): string {
   if (typeof value.index === "number") {
     return `oc-pilot: Slop Index ${value.index}/100 (${String(value.grade ?? "unknown")})`;
+  }
+  if (typeof value.status === "string" && typeof value.rounds === "number" && Array.isArray(value.files)) {
+    const files = String(value.files.length);
+    return `oc-pilot: tests ${value.status}, ${files} file${files === "1" ? "" : "s"}, ${String(value.rounds)} round${value.rounds === 1 ? "" : "s"}`;
   }
   if (typeof value.patch === "string") {
     const stats = asObject(value.patchStats);
@@ -1663,6 +1750,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "deps" tool with audit=true, offline=false, fail_on_issue=medium and fail_on_vuln=high. Separate real problems from noise: a phantom import, a missing declaration, an unused package, a floating version, a broken lockfile, then a vulnerability. Fix the cheapest real problem first and rerun the same call. Never add an ignore, lower a gate or remove a dependency only to silence the report; if a vulnerability has no fixed version, say so and propose a mitigation. If the server is read-only, show the planned package.json change and ask me to apply it. Report what was fixed, what remains and the exact versions.${suffix}`;
     case "cover-changed-lines":
       return `Call the oc-pilot "coverage" tool on the current diff with fail_under=80 (or max_uncovered=0 when the project has no meaningful percentage). Add tests that execute the uncovered changed lines, then call "coverage" again with the same gate. Do not lower the threshold, add coverage-ignore comments, or delete the uncovered branch only to get a pass. Report the covered percentage, the files and lines you covered, and any gap you deliberately left.${suffix}`;
+    case "generate-tests":
+      return `Call the oc-pilot "test_gen" tool with apply=true, coverage=true and a coverage_file when one exists. Without a coverage report it targets the changed code; with from_slop=true it targets untested files instead. The tool writes only test files, runs the suite and reverts failing tests. If the server is read-only, call it without apply, show the patch and ask me to apply it. Do not edit production code, weaken assertions, add skips or change the test command only to get a pass. Rerun until status is pass, then report the files, rounds, test results and any coverage gaps that remain.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":

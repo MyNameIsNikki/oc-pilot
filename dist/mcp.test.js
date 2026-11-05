@@ -112,6 +112,12 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
                 method: "tools/call",
                 params: { name: "deps", arguments: { fix: true } },
             },
+            {
+                jsonrpc: "2.0",
+                id: 7,
+                method: "tools/call",
+                params: { name: "test_gen", arguments: { apply: true } },
+            },
         ], []);
         assert.equal(status, 0, stderr);
         const byId = new Map(responses.map((response) => [response.id, response]));
@@ -133,6 +139,9 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
         const depsResult = byId.get(6)?.result;
         assert.equal(depsResult?.isError, true);
         assert.match(depsResult?.content?.[0]?.text ?? "", /read-only/);
+        const testGenResult = byId.get(7)?.result;
+        assert.equal(testGenResult?.isError, true);
+        assert.match(testGenResult?.content?.[0]?.text ?? "", /read-only/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
@@ -275,6 +284,13 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(coverage.inputSchema.properties.coverage_file, "coverage_file missing on coverage");
         assert.ok(coverage.inputSchema.properties.fail_under, "fail_under missing on coverage");
         assert.ok(coverage.inputSchema.properties.max_uncovered, "max_uncovered missing on coverage");
+        const testGen = tools.find((tool) => tool.name === "test_gen");
+        assert.ok(testGen, "test_gen tool missing");
+        assert.ok(testGen.inputSchema.properties.apply, "apply missing on test_gen");
+        assert.ok(testGen.inputSchema.properties.no_run, "no_run missing on test_gen");
+        assert.ok(testGen.inputSchema.properties.coverage, "coverage missing on test_gen");
+        assert.ok(testGen.inputSchema.properties.from_slop, "from_slop missing on test_gen");
+        assert.ok(testGen.inputSchema.properties.rounds, "rounds missing on test_gen");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");

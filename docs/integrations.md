@@ -203,7 +203,7 @@ mounted workspace.
 ## Agent skills
 
 `skills/oc-pilot/SKILL.md` is a portable Agent Skill. It tells an agent when to
-call `scan`, `review`, `test_fix`, `fix`, `docgen`, `slop`, `mutate`, `flaky`, `impact`, `deps`, `coverage`, `sast`, `authz`, `preflight`, `ready`, and `receipt_verify`, prefers MCP tools, and
+call `scan`, `review`, `test_fix`, `fix`, `test_gen`, `docgen`, `slop`, `mutate`, `flaky`, `impact`, `deps`, `coverage`, `sast`, `authz`, `preflight`, `ready`, and `receipt_verify`, prefers MCP tools, and
 documents safety rules for `fix.apply`. Install it by copying
 `skills/oc-pilot` into the client's skills directory (for Claude Code, usually
 `.claude/skills/oc-pilot`).
@@ -231,7 +231,7 @@ Or register it from the CLI:
 claude mcp add oc-pilot -- oc-pilot-mcp --cwd /absolute/path/to/project
 ```
 
-Claude Code will expose `review`, `test_fix`, `fix`, `docgen`, `custom`,
+Claude Code will expose `review`, `test_fix`, `fix`, `test_gen`, `docgen`, `custom`,
 `scan`, `slop`, `mutate`, `flaky`, `impact`, `deps`, `coverage`, `sast`, `authz`, `preflight`, `ready`, and `receipt_verify` as MCP tools. A typical instruction:
 
 > Before proposing a fix, call the `oc-pilot` `review` tool with
@@ -478,7 +478,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.59.0
+- uses: MyNameIsNikki/oc-pilot@v0.60.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -522,7 +522,7 @@ The repository ships `.pre-commit-hooks.yaml`, so the standard
 ```yaml
 repos:
   - repo: https://github.com/MyNameIsNikki/oc-pilot
-    rev: v0.59.0
+    rev: v0.60.0
     hooks:
       - id: oc-pilot-secrets  # oc-pilot scan --staged
       - id: oc-pilot-review   # oc-pilot review --staged --fail-on critical --fail-on-secrets

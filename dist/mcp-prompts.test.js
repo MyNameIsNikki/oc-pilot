@@ -51,6 +51,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
             "check-impact",
             "triage-deps",
             "cover-changed-lines",
+            "generate-tests",
             "prove-tests",
             "prove-done",
         ]);
