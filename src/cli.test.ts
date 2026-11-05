@@ -1562,3 +1562,49 @@ test("ready --fix --dry-run leaves the repository untouched", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("ready --fix --receipt records a verified receipt", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-ready-receipt-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "demo", private: true, scripts: { test: 'node -e "process.exit(0)"' } }),
+      "utf8",
+    );
+    writeFileSync(
+      join(dir, "package-lock.json"),
+      JSON.stringify({ name: "demo", lockfileVersion: 3, packages: { "": { name: "demo" } } }),
+      "utf8",
+    );
+    writeFileSync(join(dir, "app.ts"), "export const value = 1;\n", "utf8");
+    spawnSync("git", ["add", "-A"], { cwd: dir });
+    spawnSync(
+      "git",
+      ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"],
+      { cwd: dir },
+    );
+
+    const result = runCli(["ready", "--cwd", dir, "--fix", "--receipt", "--json"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      score: number;
+      fix: { applied: boolean; receipt?: { path: string; testsPassed: boolean; preflight: string } };
+    };
+    assert.equal(payload.fix.applied, true);
+    assert.equal(payload.fix.receipt?.testsPassed, true);
+    assert.equal(payload.fix.receipt?.preflight, "pass");
+    assert.ok(payload.fix.receipt?.path.endsWith("receipt.json"));
+    assert.ok(existsSync(join(dir, ".git", "oc-pilot", "receipt.json")));
+    assert.ok(payload.score >= 90);
+
+    const after = runCli(["ready", "--cwd", dir, "--json"], dir);
+    const checks = (JSON.parse(after.stdout) as { checks: Array<{ id: string; status: string }> }).checks;
+    assert.equal(checks.find((check) => check.id === "receipt")?.status, "pass");
+
+    const invalid = runCli(["ready", "--cwd", dir, "--receipt", "--json"], dir);
+    assert.equal(invalid.status, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

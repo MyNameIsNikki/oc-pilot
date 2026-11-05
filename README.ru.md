@@ -403,13 +403,16 @@ oc-pilot ready --badge
 oc-pilot ready --fail-under 85
 oc-pilot ready --fix
 oc-pilot ready --fix --dry-run
+oc-pilot ready --fix --receipt
 ```
 
 Оценка переводится в грейд: 85 и выше — `agent-ready`, 65 и выше — `almost`, 40 и выше — `risky`, ниже — `not-ready`. `--badge` печатает shields.io-бейдж в markdown для README, а `--fail-under <n>` возвращает код 1 ниже порога, поэтому оценкой можно гейтить pull request.
 
 `--fix` применяет только безопасные офлайн-исправления: ставит хук `pre-commit`, если хука нет, пишет `.oc-pilot.json` с найденной тестовой командой и создаёт `AGENTS.md` с командами проекта. Чужой хук, существующий конфиг или готовые инструкции для агента не перезаписываются — они попадают в список пропущенных вместе с проверками, которые требуют человека: квитанция, lockfile и Slop Index. `--dry-run` печатает план, не трогая дерево, а после исправлений оценка пересчитывается.
 
-JSON-результат — `{score, grade, checks, commit}`; каждая проверка — `{id, label, status, points, max, detail}`, где `detail` называет файл, который принёс или потерял очки, и команду, которая это исправляет. С `--fix` в payload добавляется `fix: {applied, dryRun, fixes, skipped}`.
+`--receipt` превращает `--fix` в полный цикл: после исправлений команда прогоняет тесты, запускает preflight и сохраняет квитанцию для `HEAD`, поэтому проверка квитанции проходит в том же запуске. Флаг работает только вместе с `--fix`; без тестовой команды квитанция попадает в пропущенные. Упавшие тесты или проваленный preflight всё равно создают квитанцию — отчёт скажет, что именно не прошло.
+
+JSON-результат — `{score, grade, checks, commit}`; каждая проверка — `{id, label, status, points, max, detail}`, где `detail` называет файл, который принёс или потерял очки, и команду, которая это исправляет. С `--fix` в payload добавляется `fix: {applied, dryRun, fixes, skipped, receipt}`, где `receipt` — `{path, testsPassed, preflight}` или отсутствует.
 
 ### `flaky`
 
@@ -855,7 +858,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.39.0
+      - uses: MyNameIsNikki/oc-pilot@v0.40.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
