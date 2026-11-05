@@ -7,6 +7,10 @@ import { detectLockfile, readLockfile } from "./lockfile.js";
 import { detectTestCommand } from "./project.js";
 import { readReceipt, readReceiptPublicKey, receiptPath, verifyReceipt } from "./receipt.js";
 import { analyzeRepository } from "./slop/index.js";
+import { scanAuthzSource } from "./authz.js";
+import { authzFingerprint, loadFindingsBaseline, sastFingerprint } from "./findings-baseline.js";
+import { scanSource } from "./sast.js";
+import { readRepository } from "./slop/collect.js";
 
 export type ReadinessStatus = "pass" | "warn" | "fail";
 export type ReadinessGrade = "agent-ready" | "almost" | "risky" | "not-ready";
@@ -74,6 +78,37 @@ function ciFile(cwd: string): string | undefined {
  * Scores how safely a coding agent can work in this repository. Every check is
  * offline and cheap: no model call, no network, no test run.
  */
+function securityCheck(cwd: string): ReadinessCheck {
+  const files = readRepository(cwd).files;
+  if (files.length === 0) {
+    return check("security", "Безопасность", 15, "fail", "нет исходников для анализа");
+  }
+  const sast = files.flatMap((file) => scanSource(file.path, file.text).findings);
+  const authz = files.flatMap((file) => scanAuthzSource(file.path, file.text).findings);
+  let baselineSast = new Set<string>();
+  let baselineAuthz = new Set<string>();
+  try {
+    const baseline = loadFindingsBaseline(cwd);
+    baselineSast = new Set(baseline.baseline.sast);
+    baselineAuthz = new Set(baseline.baseline.authz);
+  } catch {
+    // A broken baseline must never hide findings.
+  }
+  const activeSast = sast.filter((finding) => !baselineSast.has(sastFingerprint(finding)));
+  const activeAuthz = authz.filter((finding) => !baselineAuthz.has(authzFingerprint(finding)));
+  const all = [...activeSast, ...activeAuthz];
+  const high = all.filter((finding) => finding.severity === "high").length;
+  const medium = all.filter((finding) => finding.severity === "medium").length;
+  const low = all.filter((finding) => finding.severity === "low").length;
+  if (high > 0) {
+    return check("security", "Безопасность", 15, "fail", `${String(high)} high, ${String(medium)} medium, ${String(low)} low`);
+  }
+  if (medium + low > 0) {
+    return check("security", "Безопасность", 15, "warn", `high нет, ${String(medium)} medium, ${String(low)} low`);
+  }
+  return check("security", "Безопасность", 15, "pass", `проверено ${String(files.length)} файл(ов), опасных паттернов нет`);
+}
+
 export function assessReadiness(cwd: string, options: ReadinessOptions = {}): ReadinessReport {
   if (!isGitRepo(cwd)) {
     throw new PilotError("Готовность считается только в git-репозитории", {
@@ -86,13 +121,15 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
   const testCommand = detectTestCommand(cwd)?.command;
   checks.push(
     testCommand
-      ? check("tests", "Тестовая команда", 20, "pass", testCommand)
-      : check("tests", "Тестовая команда", 20, "fail", "не найдена — агенту нечем проверять изменения"),
+      ? check("tests", "Тестовая команда", 15, "pass", testCommand)
+      : check("tests", "Тестовая команда", 15, "fail", "не найдена — агенту нечем проверять изменения"),
   );
+
+  checks.push(securityCheck(cwd));
 
   const lock = detectLockfile(cwd);
   if (!lock) {
-    checks.push(check("lockfile", "Lockfile", 15, "fail", "не найден — установка невоспроизводима"));
+    checks.push(check("lockfile", "Lockfile", 10, "fail", "не найден — установка невоспроизводима"));
   } else {
     const audit = auditDependencies(cwd);
     const lockIssues = audit.issues.filter((issue) => issue.kind === "lockfile");
@@ -109,10 +146,10 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
     }
     checks.push(
       broken.length > 0
-        ? check("lockfile", "Lockfile", 15, "fail", `${lock.file}: ${String(broken.length)} пакет(ов) не установлены`)
+        ? check("lockfile", "Lockfile", 10, "fail", `${lock.file}: ${String(broken.length)} пакет(ов) не установлены`)
         : unreadable
-          ? check("lockfile", "Lockfile", 15, "warn", `${lock.file}: не удалось прочитать lockfile`)
-          : check("lockfile", "Lockfile", 15, "pass", lock.file),
+          ? check("lockfile", "Lockfile", 10, "warn", `${lock.file}: не удалось прочитать lockfile`)
+          : check("lockfile", "Lockfile", 10, "pass", lock.file),
     );
   }
 
@@ -138,7 +175,7 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
   const path = receiptPath(cwd);
   const receipt = path ? readReceiptOrUndefined(path) : undefined;
   if (!receipt) {
-    checks.push(check("receipt", "Квитанция", 15, "fail", "нет квитанции для HEAD: oc-pilot receipt"));
+    checks.push(check("receipt", "Квитанция", 10, "fail", "нет квитанции для HEAD: oc-pilot receipt"));
   } else {
     const verification = verifyReceipt(cwd, receipt, readReceiptPublicKey(cwd));
     checks.push(
@@ -146,13 +183,13 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
         ? check(
             "receipt",
             "Квитанция",
-            15,
+            10,
             "pass",
             `действительна (${receipt.commit?.slice(0, 12) ?? "без коммита"})${
               verification.signature === "valid" ? ", подпись проверена" : ""
             }`,
           )
-        : check("receipt", "Квитанция", 15, "warn", verification.reason ?? "недействительна"),
+        : check("receipt", "Квитанция", 10, "warn", verification.reason ?? "недействительна"),
     );
   }
 

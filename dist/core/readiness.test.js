@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { assessReadiness, renderBadge, renderReadiness } from "./readiness.js";
+import { saveFindingsBaseline, sastFingerprint } from "./findings-baseline.js";
+import { scanSource } from "./sast.js";
 import { RECEIPT_VERSION, buildReceipt, generateReceiptKeyPair, saveReceipt, signReceipt } from "./receipt.js";
 const PREFLIGHT = {
     status: "pass",
@@ -139,6 +141,41 @@ test("assessReadiness verifies a signed receipt when a public key is committed",
         writeFileSync(path, JSON.stringify(stored), "utf8");
         const tampered = assessReadiness(dir).checks.find((check) => check.id === "receipt");
         assert.notEqual(tampered?.status, "pass");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("assessReadiness fails on a vulnerable source file", () => {
+    const dir = makeRepo({
+        "src/app.js": 'const { exec } = require("child_process");\nexec(req.query.cmd);\n',
+    });
+    try {
+        const report = assessReadiness(dir);
+        const security = report.checks.find((check) => check.id === "security");
+        assert.ok(security);
+        assert.equal(security.status, "fail");
+        assert.match(security.detail, /1 high/);
+        assert.equal(security.points, 0);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("assessReadiness honors the findings baseline", () => {
+    const source = 'const { exec } = require("child_process");\nexec(req.query.cmd);\n';
+    const dir = makeRepo({ "src/app.js": source });
+    try {
+        const findings = scanSource("src/app.js", source).findings;
+        saveFindingsBaseline(dir, ".oc-pilot/baseline.json", {
+            version: 1,
+            sast: findings.map(sastFingerprint),
+            authz: [],
+        });
+        const security = assessReadiness(dir).checks.find((check) => check.id === "security");
+        assert.ok(security);
+        assert.equal(security.status, "pass");
+        assert.match(security.detail, /опасных паттернов нет/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

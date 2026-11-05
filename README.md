@@ -420,7 +420,7 @@ A receipt carries `{version, tool, toolVersion, createdAt, commit, branch, dirty
 
 ### `ready`
 
-Scores how ready a repository is for an AI agent. One offline number from 0 to 100 across eight checks: tests (20), lockfile (15), git hooks (15), Slop Index (15), a fresh receipt (15), agent instructions (10), CI (5) and config (5). Each check is `pass`, `warn` or `fail` and earns 100%, 50% or 0% of its weight. No model call, no network, but it does require a git repository.
+Scores how ready a repository is for an AI agent. One offline number from 0 to 100 across nine checks: tests (15), lockfile (10), git hooks (15), Slop Index (15), a fresh receipt (10), agent instructions (10), CI (5), config (5) and security (15). Each check is `pass`, `warn` or `fail` and earns 100%, 50% or 0% of its weight. The security check runs the deterministic SAST and route-authorization rules over the repository and respects `.oc-pilot/baseline.json`. No model call, no network, but it does require a git repository.
 
 ```bash
 oc-pilot ready
@@ -1124,7 +1124,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.52.0
+      - uses: MyNameIsNikki/oc-pilot@v0.53.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1147,7 +1147,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.52.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.53.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

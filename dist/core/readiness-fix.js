@@ -6,6 +6,7 @@ const SKIP_REASONS = {
     tests: "нет тестовой команды — добавьте scripts.test в package.json",
     lockfile: "установите зависимости менеджером пакетов",
     slop: "энтропия кода исправляется вручную",
+    security: "исправляется через oc-pilot fix --from-sast или --from-authz",
     receipt: "запустите oc-pilot receipt, чтобы получить квитанцию",
     ci: "CI настраивается вручную",
 };
