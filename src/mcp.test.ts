@@ -130,6 +130,12 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
           method: "tools/call",
           params: { name: "sast", arguments: { paths: ["app.js"], update_baseline: true } },
         },
+        {
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: { name: "mutate", arguments: { max_mutants: 1 } },
+        },
       ],
       [],
     );
@@ -151,6 +157,10 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
     const baselineResult = byId.get(4)?.result as { isError?: boolean; content?: Array<{ text: string }> } | undefined;
     assert.equal(baselineResult?.isError, true);
     assert.match(baselineResult?.content?.[0]?.text ?? "", /read-only/);
+
+    const mutateResult = byId.get(5)?.result as { isError?: boolean; content?: Array<{ text: string }> } | undefined;
+    assert.equal(mutateResult?.isError, true);
+    assert.match(mutateResult?.content?.[0]?.text ?? "", /read-only/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -286,6 +296,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(preflight.inputSchema.properties.fail_on_issue, "fail_on_issue missing on preflight");
     assert.ok(preflight.inputSchema.properties.no_sast, "no_sast missing on preflight");
     assert.ok(preflight.inputSchema.properties.no_authz, "no_authz missing on preflight");
+
+    const mutate = tools.find((tool) => tool.name === "mutate");
+    assert.ok(mutate, "mutate tool missing");
+    assert.ok(mutate.inputSchema.properties.max_mutants, "max_mutants missing on mutate");
+    assert.ok(mutate.inputSchema.properties.min_score, "min_score missing on mutate");
 
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
@@ -629,6 +644,73 @@ test("MCP authz returns route findings without a tool error", () => {
     const rules = (result?.structuredContent?.findings ?? []).map((finding) => finding.rule);
     assert.ok(rules.includes("route-no-auth"), `rules: ${rules.join(",")}`);
     assert.ok(rules.includes("idor"), `rules: ${rules.join(",")}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP mutate reports surviving mutants and restores the source", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-mutate-"));
+  try {
+    const source = "export function same(a, b) {\n  return a === b;\n}\n";
+    writeFileSync(join(dir, "app.js"), source, "utf8");
+    const diff = [
+      "diff --git a/app.js b/app.js",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/app.js",
+      "@@ -0,0 +1,3 @@",
+      "+export function same(a, b) {",
+      "+  return a === b;",
+      "+}",
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(
+      dir,
+      [
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+        },
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: {
+            name: "mutate",
+            arguments: {
+              diff,
+              command: 'node -e "process.exit(0)"',
+              max_mutants: 2,
+              min_score: 100,
+              verbosity: "compact",
+            },
+          },
+        },
+      ],
+      ["--allow-write"],
+    );
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: { survived?: number; score?: number; mutants?: unknown[] };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 1);
+    assert.equal(result?.structuredContent?.survived, 1);
+    assert.equal(result?.structuredContent?.score, 0);
+    assert.equal(result?.structuredContent?.mutants?.length, 1);
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /mutation score 0\/100, 1 survived/,
+    );
+    assert.equal(readFileSync(join(dir, "app.js"), "utf8"), source);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

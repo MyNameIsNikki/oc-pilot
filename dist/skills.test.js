@@ -48,6 +48,7 @@ test("skills document real commands and avoid placeholders", () => {
         "mcp",
         "version",
         "help",
+        "mutate",
     ]);
     for (const skill of skills) {
         for (const match of skill.body.matchAll(/oc-pilot ([a-z][a-z-]*)/g)) {
@@ -92,6 +93,8 @@ test("skills use only documented flags", () => {
         "--list",
         "--max-diff",
         "--max-file",
+        "--max-mutants",
+        "--min-score",
         "--model",
         "--no-cache",
         "--no-diff",

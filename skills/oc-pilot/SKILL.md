@@ -17,10 +17,12 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `test_fix` — root cause of a failing test plus a minimal fix.
 - `fix` — propose a unified diff; with `apply: true`, apply it and run tests, reverting on failure.
 - `docgen` — GoDoc/RustDoc/JSDoc/docstrings.
+- `slop` — offline Slop Index.
+- `mutate` — mutation testing: flips operators, runs tests, lists survivors; needs `--allow-write` because it rewrites sources temporarily.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
-- `ready` — offline agent readiness score 0-100 across tests, lockfile, hooks, slop, receipt, docs, CI and config.
+- `ready` — offline agent readiness score 0-100 across tests, lockfile, hooks, slop, receipt, docs, CI, config and security.
 - `receipt_verify` — verify the receipt for HEAD: its hash, recorded commit and whether its tests passed.
 - `custom` — any other code question with an optional diff.
 
@@ -36,6 +38,7 @@ oc-pilot scan --json
 oc-pilot test-fix
 oc-pilot fix --apply --command "npm test"
 oc-pilot docgen "src/**/*.ts"
+oc-pilot mutate --staged --min-score 80
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

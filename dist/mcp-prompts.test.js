@@ -47,6 +47,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
             "preflight-before-commit",
             "get-ready",
             "fix-security",
+            "prove-tests",
             "prove-done",
         ]);
         for (const prompt of list.prompts) {

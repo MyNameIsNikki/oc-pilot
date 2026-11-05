@@ -268,6 +268,38 @@ const TOOLS = [
     },
   },
   {
+    name: "mutate",
+    description:
+      "Offline mutation testing for changed code: flips comparison and boolean operators, runs the test command after each mutation, restores the file and reports survivors. Mutants are capped by max_mutants; a score below min_score returns exit code 1. Temporarily rewrites source files, so it is disabled in read-only mode.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs; defaults to all changed code files" },
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Mutate git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Mutate staged changes" },
+        unstaged: { type: "boolean", description: "Mutate unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files when diffing" },
+        command: { type: "string", description: "Test command; auto-detected when omitted" },
+        max_mutants: {
+          type: "integer",
+          minimum: 1,
+          maximum: 500,
+          description: "How many mutations to try (default 20)",
+        },
+        min_score: {
+          type: "integer",
+          minimum: 0,
+          maximum: 100,
+          description: "Return exit code 1 when the mutation score is below this value",
+        },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -491,6 +523,15 @@ const PROMPTS = [
       "Ask oc-pilot to repair SAST or route-authorization findings, then rescan until no high findings remain.",
     arguments: [
       { name: "context", description: "What the change does and which finding matters", required: false },
+    ],
+  },
+  {
+    name: "prove-tests",
+    title: "Prove the tests catch regressions",
+    description:
+      "Run mutation testing on the change, explain the surviving mutants and strengthen the tests until the mutation score is high enough.",
+    arguments: [
+      { name: "context", description: "What behavior the tests are supposed to protect", required: false },
     ],
   },
   {
@@ -989,6 +1030,30 @@ async function callFix(input: JsonObject, cwd: string): Promise<ToolResult> {
   }
 }
 
+async function callMutate(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["mutate", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    const command = stringArg(input, "command");
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    if (command) args.push("--command", command);
+    const maxMutants = integerArg(input, "max_mutants");
+    if (maxMutants !== undefined) args.push("--max-mutants", String(maxMutants));
+    const minScore = integerArg(input, "min_score");
+    if (minScore !== undefined) args.push("--min-score", String(minScore));
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -1169,6 +1234,9 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
     if ((name === "sast" || name === "authz") && booleanArg(input, "update_baseline")) {
       throw new ToolInputError("updating a baseline is disabled in read-only mode; start the MCP server with --allow-write");
     }
+    if (name === "mutate") {
+      throw new ToolInputError("mutation testing rewrites source files temporarily and is disabled in read-only mode; start the MCP server with --allow-write");
+    }
   }
   switch (name) {
     case "review":
@@ -1189,6 +1257,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callStats(input, cwd);
     case "slop":
       return callSlop(input, cwd);
+    case "mutate":
+      return callMutate(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -1273,6 +1343,11 @@ function summarizeResult(value: JsonObject): string {
     const truncated = value.patchTruncated === true ? ", patch truncated" : "";
     return `oc-pilot: fix ${files} file${files === 1 ? "" : "s"}, +${additions}/-${deletions} (${state})${truncated}`;
   }
+  if (typeof value.score === "number" && typeof value.survived === "number") {
+    const score = String(value.score);
+    const survived = String(value.survived);
+    return `oc-pilot: mutation score ${score}/100, ${survived} survived`;
+  }
   const findings = value.findings;
   if (Array.isArray(findings)) {
     const counts = new Map<string, number>();
@@ -1335,6 +1410,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
     case "fix-security":
       return `Call the oc-pilot "fix" tool with from_sast=true (or from_authz=true for route authorization) and apply=true. It asks the model for a patch that removes the findings, applies it, runs the tests and rescans; the result reports sast or authz as {before, after, remaining}. If the server is read-only, call the same tool without apply, show the patch and ask me to apply it. Do not add suppressions, do not edit .oc-pilot/baseline.json, and do not claim success while remaining is above zero. If high findings remain, report them with file:line and the smallest next step.${suffix}`;
+    case "prove-tests":
+      return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":
       return `Do not say the work is done yet. Call the oc-pilot "receipt_verify" tool. A valid proof has ok=true, hashOk=true, stale=false and tests.passed=true for the current HEAD. If the receipt is missing, stale or reports failing tests, run the suite and create a fresh receipt with oc-pilot receipt, then call "receipt_verify" again. Use oc-pilot receipt --no-run only when tests cannot run here, and say so explicitly. Never edit a receipt by hand and never claim completion while ok is false or tests.passed is false. Report the receipt path, the commit and what was verified.${suffix}`;
     default:
