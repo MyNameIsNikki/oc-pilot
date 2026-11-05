@@ -385,7 +385,7 @@ oc-pilot preflight --no-slop --fail-on-issue medium
 oc-pilot preflight --staged --no-sast
 ```
 
-Dependency issues are scoped: preflight reports only problems in files the diff changes or packages named in added lines, so a legacy repository does not fail on the first run. `--fail-on-issue` (default `high`) sets the gate for SAST, route authorization and dependency severity, and `--max-delta` (default 10 points) sets the Slop Index gate; each check can be disabled with `--no-secret-scan`, `--no-sast`, `--no-authz`, `--no-deps`, `--no-tests` or `--no-slop`. The exit code is 1 if any check fails and 0 otherwise, so one CI step replaces six.
+Dependency issues are scoped: preflight reports only problems in files the diff changes or packages named in added lines, so a legacy repository does not fail on the first run. Findings recorded in `.oc-pilot/baseline.json` are hidden by default, so the gate reports only new problems; `receipt` uses the same baseline. `--fail-on-issue` (default `high`) sets the gate for SAST, route authorization and dependency severity, and `--max-delta` (default 10 points) sets the Slop Index gate; each check can be disabled with `--no-secret-scan`, `--no-sast`, `--no-authz`, `--no-deps`, `--no-tests` or `--no-slop`. The exit code is 1 if any check fails and 0 otherwise, so one CI step replaces six.
 
 The JSON report is `{status, checks, diff}`, where each check carries `{id, label, status, summary, details}` with `status` equal to `pass`, `fail` or `skip`.
 
@@ -491,7 +491,9 @@ A suppression without a reason is ignored. `--ignore <rules>` skips whole rules 
 
 `--fail-on-issue <high|medium>` sets the exit threshold (default `high`). `--format sarif` emits SARIF 2.1.0 with the rule id, method and route.
 
-The JSON payload is `{files, routes, findings, suppressed, summary}`; each route is `{file, line, method, route, public}` and each finding adds `{rule, severity, method, route}` to the location.
+`--baseline <file>` hides findings already recorded in `.oc-pilot/baseline.json`, so only new findings fail the run; `--update-baseline` writes the current findings to that file and exits with code 0, which lets a legacy repository adopt the gate without fixing everything at once. The baseline stores SHA-256 fingerprints of the rule, file and snippet (or method and route for `authz`), so entries survive line moves. `preflight` and `receipt` read the same default baseline.
+
+The JSON payload is `{files, routes, findings, suppressed, summary}`; each route is `{file, line, method, route, public}` and each finding adds `{rule, severity, method, route}` to the location. With `--baseline` the payload adds `baselineSuppressed`; with `--update-baseline` it adds `baseline: {path, updated, entries}`.
 
 ### `sast`
 
@@ -516,7 +518,9 @@ A suppression without a reason is ignored. `--ignore <rules>` skips whole rules,
 
 `--fail-on-issue <high|medium|low>` sets the exit code threshold (default `high`). `--format sarif` emits SARIF 2.1.0 for GitHub code scanning and other SARIF consumers.
 
-The JSON payload is `{files, findings, suppressed, summary}`; each finding is `{rule, severity, file, line, column, message, snippet}` and `summary` counts `high`, `medium`, `low`.
+`--baseline <file>` hides findings already recorded in `.oc-pilot/baseline.json`, so only new findings fail the run; `--update-baseline` writes the current findings to that file and exits with code 0, which lets a legacy repository adopt the gate without fixing everything at once. The baseline stores SHA-256 fingerprints of the rule, file and snippet, so entries survive line moves. `preflight` and `receipt` read the same default baseline.
+
+The JSON payload is `{files, findings, suppressed, summary}`; each finding is `{rule, severity, file, line, column, message, snippet}` and `summary` counts `high`, `medium`, `low`. With `--baseline` the payload adds `baselineSuppressed`; with `--update-baseline` it adds `baseline: {path, updated, entries}`.
 
 ### `deps`
 
@@ -1112,7 +1116,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.49.0
+      - uses: MyNameIsNikki/oc-pilot@v0.50.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1135,7 +1139,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.49.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.50.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

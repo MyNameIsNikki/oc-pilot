@@ -30,6 +30,7 @@ export interface AuthzReport {
   findings: AuthzFinding[];
   suppressed: number;
   summary: Record<AuthzSeverity, number>;
+  baselineSuppressed?: number;
 }
 
 export interface AuthzScanResult {

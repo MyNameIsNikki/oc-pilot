@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { auditDependencies } from "./deps-health.js";
+import { authzFingerprint, loadFindingsBaseline, sastFingerprint } from "./findings-baseline.js";
 import { log } from "./log.js";
 import { buildPreflightReport, scopeDependencyIssues, } from "./preflight.js";
 import { scanSource } from "./sast.js";
@@ -41,6 +42,16 @@ export function collectPreflight(cwd, data, options = {}) {
             log.detail(`Дельта slop недоступна: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
+    let sastBaseline = new Set();
+    let authzBaseline = new Set();
+    try {
+        const baseline = loadFindingsBaseline(cwd);
+        sastBaseline = new Set(baseline.baseline.sast);
+        authzBaseline = new Set(baseline.baseline.authz);
+    }
+    catch (error) {
+        log.warn(`Baseline не прочитан: ${error instanceof Error ? error.message : String(error)}`);
+    }
     let sast = null;
     let sastSkip;
     if (!disabled.includes("sast")) {
@@ -54,6 +65,7 @@ export function collectPreflight(cwd, data, options = {}) {
                 const text = readFileSync(join(cwd, file), "utf8");
                 sast.push(...scanSource(file, text).findings);
             }
+            sast = sast.filter((finding) => !sastBaseline.has(sastFingerprint(finding)));
         }
     }
     let authz = null;
@@ -69,6 +81,7 @@ export function collectPreflight(cwd, data, options = {}) {
                 const text = readFileSync(join(cwd, file), "utf8");
                 authz.push(...scanAuthzSource(file, text).findings);
             }
+            authz = authz.filter((finding) => !authzBaseline.has(authzFingerprint(finding)));
         }
     }
     return buildPreflightReport({

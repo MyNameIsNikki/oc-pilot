@@ -7,6 +7,7 @@ import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
 import { asBoolean, asString } from "../core/parse.js";
+import { BASELINE_VERSION, DEFAULT_BASELINE_PATH, authzFingerprint, loadFindingsBaseline, saveFindingsBaseline } from "../core/findings-baseline.js";
 import { isCodeFile, isGeneratedPath } from "../core/slop/source.js";
 const OPTIONS = withCommon({
     diff: { type: "string" },
@@ -19,6 +20,8 @@ const OPTIONS = withCommon({
     ignore: { type: "string" },
     public: { type: "string" },
     "no-suppressions": { type: "boolean" },
+    baseline: { type: "string" },
+    "update-baseline": { type: "boolean" },
 });
 const HELP = `Использование:
   oc-pilot authz [пути] [опции]
@@ -34,6 +37,8 @@ pages/api/**). Модель не вызывается, сеть не испол�
       --ignore <rules>         пропустить правила (через запятую)
       --public <prefixes>      публичные префиксы маршрутов (через запятую)
       --no-suppressions        не учитывать комментарии oc-pilot:authz-ignore
+      --baseline <file>        скрыть находки, уже записанные в baseline
+      --update-baseline        записать текущие находки в baseline и выйти с кодом 0
       --diff <file>            готовый unified diff вместо git-состояния
       --staged                 взять staged-изменения
       --unstaged               взять unstaged-изменения
@@ -105,11 +110,44 @@ export async function runAuthz(argv) {
     }));
     const report = buildAuthzReport(files.length, results);
     const findings = report.findings.filter((finding) => !ignore.has(finding.rule));
+    const baselineFile = asString(values, "baseline") ?? DEFAULT_BASELINE_PATH;
+    const updateBaseline = asBoolean(values, "update-baseline");
+    let baselineSuppressed = 0;
+    let baselineInfo;
+    let finalFindings = findings;
+    if (updateBaseline) {
+        const existing = loadFindingsBaseline(ctx.cwd, baselineFile);
+        const path = saveFindingsBaseline(ctx.cwd, baselineFile, {
+            version: BASELINE_VERSION,
+            sast: existing.baseline.sast,
+            authz: findings.map(authzFingerprint),
+        });
+        baselineInfo = { path, updated: true, entries: findings.length };
+        log.success(`Baseline сохранён: ${path} (${String(findings.length)} находок).`);
+    }
+    else if (asString(values, "baseline")) {
+        const loaded = loadFindingsBaseline(ctx.cwd, baselineFile);
+        if (!loaded.exists) {
+            throw new PilotError(`Baseline не найден: ${baselineFile}`, {
+                hint: "Создайте его через --update-baseline.",
+                exitCode: 2,
+            });
+        }
+        const known = new Set(loaded.baseline.authz);
+        finalFindings = findings.filter((finding) => !known.has(authzFingerprint(finding)));
+        baselineSuppressed = findings.length - finalFindings.length;
+    }
     const summary = { high: 0, medium: 0 };
-    for (const finding of findings)
+    for (const finding of finalFindings)
         summary[finding.severity] += 1;
-    const finalReport = { ...report, findings, summary };
-    const failed = findings.some((finding) => severityAtLeast(finding.severity, gate));
+    const finalReport = {
+        ...report,
+        findings: finalFindings,
+        summary,
+        baselineSuppressed,
+        ...(baselineInfo ? { baseline: baselineInfo } : {}),
+    };
+    const failed = !updateBaseline && finalFindings.some((finding) => severityAtLeast(finding.severity, gate));
     const text = ctx.flags.format === "sarif"
         ? authzSarif(finalReport)
         : ctx.flags.json

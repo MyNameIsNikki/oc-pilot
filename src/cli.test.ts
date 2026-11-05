@@ -2107,3 +2107,91 @@ test("authz flags an unauthenticated IDOR route", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("sast baseline accepts known findings and catches new ones", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-baseline-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "base.txt"), "x\n", "utf8");
+    spawnSync("git", ["add", "base.txt"], { cwd: dir });
+    spawnSync(
+      "git",
+      ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"],
+      { cwd: dir },
+    );
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "app.js"),
+      'const { exec } = require("child_process");\nexec(`rm -rf ${req.query.dir}`);\n',
+      "utf8",
+    );
+    const firstDiff = join(dir, "first.diff");
+    writeFileSync(
+      firstDiff,
+      [
+        "diff --git a/src/app.js b/src/app.js",
+        "new file mode 100644",
+        "--- /dev/null",
+        "+++ b/src/app.js",
+        "@@ -0,0 +1,2 @@",
+        '+const { exec } = require("child_process");',
+        "+exec(`rm -rf ${req.query.dir}`);",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const updated = runCli(
+      ["sast", "--diff", firstDiff, "--update-baseline", "--baseline", ".oc-pilot/baseline.json", "--cwd", dir, "--json"],
+      dir,
+    );
+    assert.equal(updated.status, 0, updated.stderr);
+    const updatePayload = JSON.parse(updated.stdout) as { baseline?: { updated?: boolean; entries?: number } };
+    assert.equal(updatePayload.baseline?.updated, true);
+    assert.equal(updatePayload.baseline?.entries, 1);
+    assert.ok(existsSync(join(dir, ".oc-pilot", "baseline.json")));
+
+    const filtered = runCli(
+      ["sast", "--diff", firstDiff, "--baseline", ".oc-pilot/baseline.json", "--cwd", dir, "--json"],
+      dir,
+    );
+    assert.equal(filtered.status, 0, filtered.stderr);
+    const filteredPayload = JSON.parse(filtered.stdout) as { findings: unknown[]; baselineSuppressed?: number };
+    assert.deepEqual(filteredPayload.findings, []);
+    assert.equal(filteredPayload.baselineSuppressed, 1);
+
+    writeFileSync(join(dir, "src", "other.js"), "eval(req.query.code);\n", "utf8");
+    const secondDiff = join(dir, "second.diff");
+    writeFileSync(
+      secondDiff,
+      [
+        "diff --git a/src/app.js b/src/app.js",
+        "new file mode 100644",
+        "--- /dev/null",
+        "+++ b/src/app.js",
+        "@@ -0,0 +1,2 @@",
+        '+const { exec } = require("child_process");',
+        "+exec(`rm -rf ${req.query.dir}`);",
+        "diff --git a/src/other.js b/src/other.js",
+        "new file mode 100644",
+        "--- /dev/null",
+        "+++ b/src/other.js",
+        "@@ -0,0 +1 @@",
+        "+eval(req.query.code);",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fresh = runCli(
+      ["sast", "--diff", secondDiff, "--baseline", ".oc-pilot/baseline.json", "--cwd", dir, "--json"],
+      dir,
+    );
+    assert.equal(fresh.status, 1, fresh.stderr);
+    const freshPayload = JSON.parse(fresh.stdout) as { findings: Array<{ rule: string }>; baselineSuppressed?: number };
+    assert.equal(freshPayload.baselineSuppressed, 1);
+    assert.deepEqual(freshPayload.findings.map((finding) => finding.rule), ["code-injection"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

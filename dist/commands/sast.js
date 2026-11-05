@@ -7,6 +7,7 @@ import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
 import { asBoolean, asString } from "../core/parse.js";
 import { buildSastReport, parseSastSeverity, renderSast, sastSarif, scanSource, severityAtLeast, } from "../core/sast.js";
+import { BASELINE_VERSION, DEFAULT_BASELINE_PATH, loadFindingsBaseline, saveFindingsBaseline, sastFingerprint } from "../core/findings-baseline.js";
 import { isCodeFile, isGeneratedPath } from "../core/slop/source.js";
 const OPTIONS = withCommon({
     diff: { type: "string" },
@@ -18,6 +19,8 @@ const OPTIONS = withCommon({
     "fail-on-issue": { type: "string" },
     ignore: { type: "string" },
     "no-suppressions": { type: "boolean" },
+    baseline: { type: "string" },
+    "update-baseline": { type: "boolean" },
 });
 const HELP = `Использование:
   oc-pilot sast [пути] [опции]
@@ -31,6 +34,8 @@ path traversal, SSRF, выполнение кода, XSS, открытые ре�
       --fail-on-issue <level>  код 1 при находке не ниже high|medium|low (по умолчанию high)
       --ignore <rules>         пропустить правила (через запятую)
       --no-suppressions        не учитывать комментарии oc-pilot:sast-ignore
+      --baseline <file>        скрыть находки, уже записанные в baseline
+      --update-baseline        записать текущие находки в baseline и выйти с кодом 0
       --diff <file>            готовый unified diff вместо git-состояния
       --staged                 взять staged-изменения
       --unstaged               взять unstaged-изменения
@@ -100,8 +105,44 @@ export async function runSast(argv) {
     const summary = { high: 0, medium: 0, low: 0 };
     for (const finding of findings)
         summary[finding.severity] += 1;
-    const finalReport = { ...report, findings, summary };
-    const failed = findings.some((finding) => severityAtLeast(finding.severity, gate));
+    const baselineFile = asString(values, "baseline") ?? DEFAULT_BASELINE_PATH;
+    const updateBaseline = asBoolean(values, "update-baseline");
+    let finalFindings = findings;
+    let baselineSuppressed = 0;
+    let baselineInfo;
+    if (updateBaseline) {
+        const existing = loadFindingsBaseline(ctx.cwd, baselineFile);
+        const path = saveFindingsBaseline(ctx.cwd, baselineFile, {
+            version: BASELINE_VERSION,
+            sast: findings.map(sastFingerprint),
+            authz: existing.baseline.authz,
+        });
+        baselineInfo = { path, updated: true, entries: findings.length };
+        log.success(`Baseline сохранён: ${path} (${String(findings.length)} находок).`);
+    }
+    else if (asString(values, "baseline")) {
+        const loaded = loadFindingsBaseline(ctx.cwd, baselineFile);
+        if (!loaded.exists) {
+            throw new PilotError(`Baseline не найден: ${baselineFile}`, {
+                hint: "Создайте его через --update-baseline.",
+                exitCode: 2,
+            });
+        }
+        const known = new Set(loaded.baseline.sast);
+        finalFindings = findings.filter((finding) => !known.has(sastFingerprint(finding)));
+        baselineSuppressed = findings.length - finalFindings.length;
+    }
+    const finalSummary = { high: 0, medium: 0, low: 0 };
+    for (const finding of finalFindings)
+        finalSummary[finding.severity] += 1;
+    const finalReport = {
+        ...report,
+        findings: finalFindings,
+        summary: finalSummary,
+        baselineSuppressed,
+        ...(baselineInfo ? { baseline: baselineInfo } : {}),
+    };
+    const failed = !updateBaseline && finalFindings.some((finding) => severityAtLeast(finding.severity, gate));
     const text = ctx.flags.format === "sarif"
         ? sastSarif(finalReport)
         : ctx.flags.json

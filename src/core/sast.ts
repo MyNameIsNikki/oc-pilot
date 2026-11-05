@@ -18,6 +18,7 @@ export interface SastReport {
   findings: SastFinding[];
   suppressed: number;
   summary: Record<SastSeverity, number>;
+  baselineSuppressed?: number;
 }
 
 export interface SastScanResult {

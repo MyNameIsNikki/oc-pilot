@@ -257,6 +257,8 @@ const TOOLS = [
                 },
                 ignore: { type: "array", items: { type: "string" }, description: "Rule ids to ignore" },
                 no_suppressions: { type: "boolean", description: "Ignore oc-pilot:sast-ignore comments" },
+                baseline: { type: "string", description: "Baseline file with accepted findings (default .oc-pilot/baseline.json)" },
+                update_baseline: { type: "boolean", description: "Write current findings to the baseline and exit 0" },
                 ...RESULT_PROPERTIES,
             },
         },
@@ -291,6 +293,8 @@ const TOOLS = [
                     description: "Route prefixes that are public by design, e.g. /health",
                 },
                 no_suppressions: { type: "boolean", description: "Ignore oc-pilot:authz-ignore comments" },
+                baseline: { type: "string", description: "Baseline file with accepted findings (default .oc-pilot/baseline.json)" },
+                update_baseline: { type: "boolean", description: "Write current findings to the baseline and exit 0" },
                 ...RESULT_PROPERTIES,
             },
         },
@@ -1080,6 +1084,11 @@ async function callSast(input, cwd) {
             args.push("--ignore", ignore.join(","));
         if (booleanArg(input, "no_suppressions"))
             args.push("--no-suppressions");
+        const baseline = stringArg(input, "baseline");
+        if (baseline)
+            args.push("--baseline", baseline);
+        if (booleanArg(input, "update_baseline"))
+            args.push("--update-baseline");
         args.push(...projectPaths(input, "paths"));
         return toToolResult(await runCli(args, cwd));
     }
@@ -1114,6 +1123,11 @@ async function callAuthz(input, cwd) {
             args.push("--public", publicRoutes.join(","));
         if (booleanArg(input, "no_suppressions"))
             args.push("--no-suppressions");
+        const baseline = stringArg(input, "baseline");
+        if (baseline)
+            args.push("--baseline", baseline);
+        if (booleanArg(input, "update_baseline"))
+            args.push("--update-baseline");
         args.push(...projectPaths(input, "paths"));
         return toToolResult(await runCli(args, cwd));
     }

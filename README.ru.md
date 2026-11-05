@@ -374,7 +374,7 @@ oc-pilot preflight --no-slop --fail-on-issue medium
 oc-pilot preflight --staged --no-sast
 ```
 
-Проблемы зависимостей ограничены скоупом: preflight сообщает только о файлах, которые меняет дифф, и о пакетах, названных в добавленных строках, поэтому старый репозиторий не падает на первом же запуске. `--fail-on-issue` (по умолчанию `high`) задаёт порог и для находок SAST, и для авторизации маршрутов, и для severity зависимостей, а `--max-delta` (по умолчанию 10 пунктов) — порог Slop Index; каждую проверку можно отключить через `--no-secret-scan`, `--no-sast`, `--no-authz`, `--no-deps`, `--no-tests` или `--no-slop`. Код возврата 1, если хоть одна проверка упала, иначе 0 — один шаг CI заменяет шесть.
+Проблемы зависимостей ограничены скоупом: preflight сообщает только о файлах, которые меняет дифф, и о пакетах, названных в добавленных строках, поэтому старый репозиторий не падает на первом же запуске. Находки, записанные в `.oc-pilot/baseline.json`, по умолчанию скрываются, поэтому гейт сообщает только о новых проблемах; `receipt` использует тот же baseline. `--fail-on-issue` (по умолчанию `high`) задаёт порог и для находок SAST, и для авторизации маршрутов, и для severity зависимостей, а `--max-delta` (по умолчанию 10 пунктов) — порог Slop Index; каждую проверку можно отключить через `--no-secret-scan`, `--no-sast`, `--no-authz`, `--no-deps`, `--no-tests` или `--no-slop`. Код возврата 1, если хоть одна проверка упала, иначе 0 — один шаг CI заменяет шесть.
 
 JSON-отчёт — `{status, checks, diff}`, где каждая проверка содержит `{id, label, status, summary, details}`, а `status` равен `pass`, `fail` или `skip`.
 
@@ -480,7 +480,9 @@ router.get("/users/:id", handler);
 
 `--fail-on-issue <high|medium>` задаёт порог для кода возврата (по умолчанию `high`). `--format sarif` выдаёт SARIF 2.1.0 с правилом, методом и маршрутом.
 
-JSON: `{files, routes, findings, suppressed, summary}`; каждый маршрут — `{file, line, method, route, public}`, находка добавляет `{rule, severity, method, route}`.
+`--baseline <file>` скрывает находки, уже записанные в `.oc-pilot/baseline.json`, поэтому падают только новые; `--update-baseline` записывает текущие находки в файл и выходит с кодом 0 — так легаси-репозиторий может включить гейт, не исправляя всё сразу. Baseline хранит SHA-256-отпечатки правила, файла и фрагмента (или метода и маршрута для `authz`), поэтому записи переживают сдвиги строк. `preflight` и `receipt` читают тот же baseline по умолчанию.
+
+JSON: `{files, routes, findings, suppressed, summary}`; каждый маршрут — `{file, line, method, route, public}`, находка добавляет `{rule, severity, method, route}`. С `--baseline` в payload добавляется `baselineSuppressed`, с `--update-baseline` — `baseline: {path, updated, entries}`.
 
 ### `sast`
 
@@ -505,7 +507,9 @@ exec(req.query.cmd); // oc-pilot:sast-ignore command-injection: admin-only endpo
 
 `--fail-on-issue <high|medium|low>` задаёт порог для кода возврата (по умолчанию `high`). `--format sarif` выдаёт SARIF 2.1.0 для GitHub code scanning и других потребителей.
 
-JSON: `{files, findings, suppressed, summary}`, каждая находка — `{rule, severity, file, line, column, message, snippet}`, `summary` считает `high`, `medium`, `low`.
+`--baseline <file>` скрывает находки, уже записанные в `.oc-pilot/baseline.json`, поэтому падают только новые; `--update-baseline` записывает текущие находки в файл и выходит с кодом 0 — так легаси-репозиторий может включить гейт, не исправляя всё сразу. Baseline хранит SHA-256-отпечатки правила, файла и фрагмента, поэтому записи переживают сдвиги строк. `preflight` и `receipt` читают тот же baseline по умолчанию.
+
+JSON: `{files, findings, suppressed, summary}`, каждая находка — `{rule, severity, file, line, column, message, snippet}`, `summary` считает `high`, `medium`, `low`. С `--baseline` в payload добавляется `baselineSuppressed`, с `--update-baseline` — `baseline: {path, updated, entries}`.
 
 ### `deps`
 
@@ -938,7 +942,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.49.0
+      - uses: MyNameIsNikki/oc-pilot@v0.50.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

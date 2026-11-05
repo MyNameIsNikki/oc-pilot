@@ -281,11 +281,15 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
     assert.ok(sast.inputSchema.properties.ignore, "ignore missing on sast");
+    assert.ok(sast.inputSchema.properties.baseline, "baseline missing on sast");
+    assert.ok(sast.inputSchema.properties.update_baseline, "update_baseline missing on sast");
 
     const authz = tools.find((tool) => tool.name === "authz");
     assert.ok(authz, "authz tool missing");
     assert.ok(authz.inputSchema.properties.public, "public missing on authz");
     assert.ok(authz.inputSchema.properties.fail_on_issue, "fail_on_issue missing on authz");
+    assert.ok(authz.inputSchema.properties.baseline, "baseline missing on authz");
+    assert.ok(authz.inputSchema.properties.update_baseline, "update_baseline missing on authz");
 
     const ready = tools.find((tool) => tool.name === "ready");
     assert.ok(ready, "ready tool missing");
