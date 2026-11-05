@@ -27,6 +27,7 @@ import { runTestGen } from "./commands/test-gen.js";
 import { runFlaky } from "./commands/flaky.js";
 import { runMutate } from "./commands/mutate.js";
 import { runSast } from "./commands/sast.js";
+import { runAuthz } from "./commands/authz.js";
 import { PilotError, toPilotError } from "./core/errors.js";
 import { log } from "./core/log.js";
 import { COMMON_HELP } from "./core/options.js";
@@ -43,6 +44,7 @@ const HANDLERS: Record<string, Handler> = {
   flaky: runFlaky,
   mutate: runMutate,
   sast: runSast,
+  authz: runAuthz,
   fix: runFix,
   docgen: runDocgen,
   custom: runCustom,
@@ -79,6 +81,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   flaky       Найти нестабильные тесты: несколько прогонов и сравнение
   mutate      Мутационное тестирование: проверить, что тесты ловят баги
   sast        Детерминированный SAST: инъекции, SSRF, path traversal, XSS
+  authz       Проверка маршрутов: авторизация, IDOR, админ-доступ
   fix         Патч от модели, git apply и цикл тестов с откатом
   docgen      Генерация GoDoc/RustDoc/JSDoc/docstrings
   custom      Свободный запрос к oc-pilot
@@ -120,6 +123,7 @@ ${COMMON_HELP}
   oc-pilot flaky --runs 5
   oc-pilot mutate --staged --min-score 80
   oc-pilot sast --staged --fail-on-issue high
+  oc-pilot authz --staged
   oc-pilot deps --json
   oc-pilot preflight --staged
   oc-pilot receipt --staged
@@ -168,7 +172,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, flaky, mutate, sast, fix, docgen, custom, scan, deps, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }

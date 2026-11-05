@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.48.0
+
+- Команда `authz`: проверка авторизации HTTP-маршрутов — маршрут без сессии, IDOR (объект по id из запроса без проверки владельца) и админский путь без роли; Express/Fastify/Koa и Next.js `app/**/route.ts` / `pages/api/**`.
+- Публичные префиксы `--public`, подавления `oc-pilot:authz-ignore <rule>: причина` строкой выше маршрута, `--ignore <rules>` и `--no-suppressions`.
+- `--fail-on-issue <high|medium>` как порог кода возврата, SARIF 2.1.0 и JSON `{files, routes, findings, suppressed, summary}`.
+- Документация; 519 тестов; версия 0.48.0.
+
 ## 0.47.0
 
 - `preflight` теперь включает детерминированный SAST по изменённым файлам: инъекции команд и SQL, path traversal, SSRF, выполнение кода, XSS и остальные правила `sast`; `--no-sast` отключает проверку, а `--fail-on-issue` задаёт общий порог для SAST и зависимостей.

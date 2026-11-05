@@ -1509,4 +1509,50 @@ test("preflight runs SAST on the changed files", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("authz flags an unauthenticated IDOR route", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-authz-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "base.txt"), "base\n", "utf8");
+        spawnSync("git", ["add", "base.txt"], { cwd: dir });
+        spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+        const source = [
+            'router.get("/users/:id", async (req, res) => {',
+            "  const user = await db.user.findUnique({ where: { id: req.params.id } });",
+            "  res.json(user);",
+            "});",
+            "",
+        ].join("\n");
+        const patch = [
+            "diff --git a/src/routes.js b/src/routes.js",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/routes.js",
+            "@@ -0,0 +1,4 @@",
+            ...source.trimEnd().split("\n").map((line) => `+${line}`),
+            "",
+        ].join("\n");
+        const diffPath = join(dir, "changes.diff");
+        writeFileSync(diffPath, patch);
+        mkdirSync(join(dir, "src"), { recursive: true });
+        writeFileSync(join(dir, "src", "routes.js"), source, "utf8");
+        const result = runCli(["authz", "--diff", diffPath, "--json", "--cwd", dir], dir);
+        assert.equal(result.status, 1, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.routes.length, 1);
+        assert.deepEqual(payload.findings.map((finding) => finding.rule).sort(), ["idor", "route-no-auth"]);
+        assert.equal(payload.summary.high, 2);
+        const publicOnly = runCli(["authz", "--public", "/users", "--diff", diffPath, "--json", "--cwd", dir], dir);
+        const publicPayload = JSON.parse(publicOnly.stdout);
+        assert.deepEqual(publicPayload.findings.map((finding) => finding.rule), ["idor"]);
+        const sarif = runCli(["authz", "--diff", diffPath, "--format", "sarif", "--cwd", dir], dir);
+        assert.equal(sarif.status, 1, sarif.stderr);
+        const doc = JSON.parse(sarif.stdout);
+        assert.equal(doc.version, "2.1.0");
+        assert.ok(doc.runs[0]?.results.some((entry) => entry.ruleId === "oc-pilot/idor"));
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map

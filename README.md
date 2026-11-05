@@ -467,6 +467,32 @@ Per-test results are parsed from the Node test runner spec reporter, TAP, Go (`-
 
 The JSON payload is `{command, runs, completed, parsed, tests, flaky, failing, shuffle}`; each test is `{name, passes, failures, status}` with `status` equal to `flaky`, `failing` or `passing`. With `--shuffle`, `shuffle` is `{seed, files}`.
 
+### `authz`
+
+Authorization review of HTTP routes: a route that never checks the session, an object fetched by an id from the request without an ownership check (IDOR), and an admin path without a role guard. It reads the changed source files and never calls a model.
+
+```bash
+oc-pilot authz --staged
+oc-pilot authz --public /health,/login
+oc-pilot authz --staged --fail-on-issue medium
+oc-pilot authz --staged --format sarif -o authz.sarif
+```
+
+Express, Fastify and Koa route calls (`app.get`, `router.post`, ...) are recognized, plus Next.js `app/**/route.ts` and `pages/api/**`. A handler passed by reference (`router.get("/x", controller.list)`) is skipped because the guard may live in the controller. Routes under `/health`, `/login`, `/signup`, `/public`, `/webhooks`, `/oauth` and similar are treated as public; `--public <prefixes>` extends that list.
+
+Suppress a deliberate exception on the route line or the line above:
+
+```js
+// oc-pilot:authz-ignore idor: the gateway scopes the query by tenant
+router.get("/users/:id", handler);
+```
+
+A suppression without a reason is ignored. `--ignore <rules>` skips whole rules and `--no-suppressions` disables inline suppressions.
+
+`--fail-on-issue <high|medium>` sets the exit threshold (default `high`). `--format sarif` emits SARIF 2.1.0 with the rule id, method and route.
+
+The JSON payload is `{files, routes, findings, suppressed, summary}`; each route is `{file, line, method, route, public}` and each finding adds `{rule, severity, method, route}` to the location.
+
 ### `sast`
 
 Deterministic static analysis of the changed files: command and SQL injection, path traversal, SSRF, code execution, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT `none`. No model call, no network: the same diff always produces the same findings.
@@ -1086,7 +1112,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.47.0
+      - uses: MyNameIsNikki/oc-pilot@v0.48.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1109,7 +1135,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.47.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.48.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

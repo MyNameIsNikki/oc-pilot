@@ -456,6 +456,32 @@ oc-pilot flaky --fail-on-flaky
 
 JSON: `{command, runs, completed, parsed, tests, flaky, failing, shuffle}`, где каждый тест — `{name, passes, failures, status}` со `status` равным `flaky`, `failing` или `passing`. С `--shuffle` поле `shuffle` равно `{seed, files}`.
 
+### `authz`
+
+Проверка авторизации HTTP-маршрутов: маршрут без проверки сессии, объект, который достаётся по id из запроса без проверки владельца (IDOR), и админский путь без роли. Команда читает изменённые исходники и не вызывает модель.
+
+```bash
+oc-pilot authz --staged
+oc-pilot authz --public /health,/login
+oc-pilot authz --staged --fail-on-issue medium
+oc-pilot authz --staged --format sarif -o authz.sarif
+```
+
+Распознаются маршруты Express, Fastify и Koa (`app.get`, `router.post`, ...), а также Next.js `app/**/route.ts` и `pages/api/**`. Handler по ссылке (`router.get("/x", controller.list)`) пропускается: проверка может жить в контроллере. Пути `/health`, `/login`, `/signup`, `/public`, `/webhooks`, `/oauth` и подобные считаются публичными; `--public <prefixes>` расширяет список.
+
+Осознанное исключение подавляется на строке маршрута или строкой выше:
+
+```js
+// oc-pilot:authz-ignore idor: шлюз ограничивает запрос тенантом
+router.get("/users/:id", handler);
+```
+
+Подавление без причины игнорируется. `--ignore <rules>` отключает целые правила, `--no-suppressions` отключает inline-подавления.
+
+`--fail-on-issue <high|medium>` задаёт порог для кода возврата (по умолчанию `high`). `--format sarif` выдаёт SARIF 2.1.0 с правилом, методом и маршрутом.
+
+JSON: `{files, routes, findings, suppressed, summary}`; каждый маршрут — `{file, line, method, route, public}`, находка добавляет `{rule, severity, method, route}`.
+
 ### `sast`
 
 Детерминированный статический анализ изменённых файлов: инъекции команд и SQL, path traversal, SSRF, выполнение кода, XSS, открытые редиректы, отключённая проверка TLS, wildcard CORS, prototype pollution, слабые хеши и JWT `none`. Модель не вызывается, сеть не используется: один и тот же дифф всегда даёт одни и те же находки.
@@ -912,7 +938,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.47.0
+      - uses: MyNameIsNikki/oc-pilot@v0.48.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
