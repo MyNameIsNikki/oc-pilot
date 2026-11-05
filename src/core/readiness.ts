@@ -57,7 +57,7 @@ function readIfExists(path: string): string | undefined {
   }
 }
 
-function agentDocs(cwd: string): string | undefined {
+export function agentDocsFile(cwd: string): string | undefined {
   for (const name of ["AGENTS.md", "CLAUDE.md", ".cursorrules", join(".github", "copilot-instructions.md")]) {
     if (existsSync(join(cwd, name))) return name;
   }
@@ -148,7 +148,7 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
     );
   }
 
-  const docs = agentDocs(cwd);
+  const docs = agentDocsFile(cwd);
   checks.push(
     docs
       ? check("docs", "Инструкции для агента", 10, "pass", docs)

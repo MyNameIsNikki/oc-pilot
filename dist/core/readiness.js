@@ -29,7 +29,7 @@ function readIfExists(path) {
         return undefined;
     }
 }
-function agentDocs(cwd) {
+export function agentDocsFile(cwd) {
     for (const name of ["AGENTS.md", "CLAUDE.md", ".cursorrules", join(".github", "copilot-instructions.md")]) {
         if (existsSync(join(cwd, name)))
             return name;
@@ -112,7 +112,7 @@ export function assessReadiness(cwd, options = {}) {
             ? check("receipt", "Квитанция", 15, "pass", `действительна (${receipt.commit?.slice(0, 12) ?? "без коммита"})`)
             : check("receipt", "Квитанция", 15, "warn", verification.reason ?? "недействительна"));
     }
-    const docs = agentDocs(cwd);
+    const docs = agentDocsFile(cwd);
     checks.push(docs
         ? check("docs", "Инструкции для агента", 10, "pass", docs)
         : check("docs", "Инструкции для агента", 10, "warn", "AGENTS.md или CLAUDE.md не найден"));

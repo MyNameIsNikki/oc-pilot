@@ -412,11 +412,15 @@ oc-pilot ready
 oc-pilot ready --json
 oc-pilot ready --badge
 oc-pilot ready --fail-under 85
+oc-pilot ready --fix
+oc-pilot ready --fix --dry-run
 ```
 
 The score maps to a grade: 85 and above is `agent-ready`, 65 and above `almost`, 40 and above `risky`, anything lower `not-ready`. `--badge` prints a shields.io markdown badge for the README, and `--fail-under <n>` exits with code 1 below the threshold, so the score can gate a pull request.
 
-The JSON payload is `{score, grade, checks, commit}`; each check is `{id, label, status, points, max, detail}`, where `detail` names the file that earned or lost the points and the command that fixes it.
+`--fix` applies only safe, offline repairs: it installs the `pre-commit` hook when no hook exists, writes `.oc-pilot.json` with the detected test command, and creates `AGENTS.md` with the project commands. A foreign hook, an existing config or existing agent instructions are never overwritten; the report lists those as skipped together with checks that need a human, such as the receipt, the lockfile and the Slop Index. `--dry-run` prints the plan without touching the tree, and the score is recomputed after the fixes.
+
+The JSON payload is `{score, grade, checks, commit}`; each check is `{id, label, status, points, max, detail}`, where `detail` names the file that earned or lost the points and the command that fixes it. With `--fix` the payload also carries `fix: {applied, dryRun, fixes, skipped}`.
 
 ### `flaky`
 
@@ -1025,7 +1029,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.38.0
+      - uses: MyNameIsNikki/oc-pilot@v0.39.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1048,7 +1052,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.38.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.39.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

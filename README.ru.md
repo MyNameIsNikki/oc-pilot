@@ -401,11 +401,15 @@ oc-pilot ready
 oc-pilot ready --json
 oc-pilot ready --badge
 oc-pilot ready --fail-under 85
+oc-pilot ready --fix
+oc-pilot ready --fix --dry-run
 ```
 
 Оценка переводится в грейд: 85 и выше — `agent-ready`, 65 и выше — `almost`, 40 и выше — `risky`, ниже — `not-ready`. `--badge` печатает shields.io-бейдж в markdown для README, а `--fail-under <n>` возвращает код 1 ниже порога, поэтому оценкой можно гейтить pull request.
 
-JSON-результат — `{score, grade, checks, commit}`; каждая проверка — `{id, label, status, points, max, detail}`, где `detail` называет файл, который принёс или потерял очки, и команду, которая это исправляет.
+`--fix` применяет только безопасные офлайн-исправления: ставит хук `pre-commit`, если хука нет, пишет `.oc-pilot.json` с найденной тестовой командой и создаёт `AGENTS.md` с командами проекта. Чужой хук, существующий конфиг или готовые инструкции для агента не перезаписываются — они попадают в список пропущенных вместе с проверками, которые требуют человека: квитанция, lockfile и Slop Index. `--dry-run` печатает план, не трогая дерево, а после исправлений оценка пересчитывается.
+
+JSON-результат — `{score, grade, checks, commit}`; каждая проверка — `{id, label, status, points, max, detail}`, где `detail` называет файл, который принёс или потерял очки, и команду, которая это исправляет. С `--fix` в payload добавляется `fix: {applied, dryRun, fixes, skipped}`.
 
 ### `flaky`
 
@@ -851,7 +855,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.38.0
+      - uses: MyNameIsNikki/oc-pilot@v0.39.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

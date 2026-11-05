@@ -1169,4 +1169,53 @@ test("flaky --shuffle runs test files in a seeded order", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("ready --fix installs the hook, config and instructions", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-ready-fix-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", private: true, scripts: { test: 'node -e "process.exit(0)"' } }), "utf8");
+        writeFileSync(join(dir, "package-lock.json"), JSON.stringify({ name: "demo", lockfileVersion: 3, packages: { "": { name: "demo" } } }), "utf8");
+        const before = runCli(["ready", "--cwd", dir, "--json"], dir);
+        assert.equal(before.status, 0, before.stderr);
+        const baseline = JSON.parse(before.stdout);
+        const fixed = runCli(["ready", "--cwd", dir, "--fix", "--json"], dir);
+        assert.equal(fixed.status, 0, fixed.stderr);
+        const payload = JSON.parse(fixed.stdout);
+        assert.equal(payload.fix.applied, true);
+        assert.equal(payload.fix.dryRun, false);
+        assert.deepEqual(payload.fix.fixes.map((fix) => fix.action).sort(), ["install-hook", "write-agents", "write-config"]);
+        assert.ok(payload.score > baseline.score);
+        assert.ok(existsSync(join(dir, ".git", "hooks", "pre-commit")));
+        assert.ok(existsSync(join(dir, ".oc-pilot.json")));
+        assert.ok(existsSync(join(dir, "AGENTS.md")));
+        const after = runCli(["ready", "--cwd", dir, "--json"], dir);
+        const checks = JSON.parse(after.stdout).checks;
+        const status = new Map(checks.map((check) => [check.id, check.status]));
+        assert.equal(status.get("hooks"), "pass");
+        assert.equal(status.get("docs"), "pass");
+        assert.equal(status.get("config"), "pass");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("ready --fix --dry-run leaves the repository untouched", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-ready-dry-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", private: true }), "utf8");
+        const result = runCli(["ready", "--cwd", dir, "--fix", "--dry-run", "--json"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.fix.applied, false);
+        assert.equal(payload.fix.dryRun, true);
+        assert.equal(payload.fix.fixes.length, 3);
+        assert.equal(existsSync(join(dir, ".git", "hooks", "pre-commit")), false);
+        assert.equal(existsSync(join(dir, ".oc-pilot.json")), false);
+        assert.equal(existsSync(join(dir, "AGENTS.md")), false);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map
