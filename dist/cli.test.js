@@ -1661,4 +1661,47 @@ test("sast baseline accepts known findings and catches new ones", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("fix --from-sast repairs a vulnerable line", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-fix-sast-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "base.txt"), "x\n", "utf8");
+        spawnSync("git", ["add", "base.txt"], { cwd: dir });
+        spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+        mkdirSync(join(dir, "src"), { recursive: true });
+        writeFileSync(join(dir, "src", "app.js"), 'const { exec } = require("child_process");\nexec(req.query.cmd);\n', "utf8");
+        const diff = [
+            "diff --git a/src/app.js b/src/app.js",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/app.js",
+            "@@ -0,0 +1,2 @@",
+            '+const { exec } = require("child_process");',
+            "+exec(req.query.cmd);",
+            "",
+        ].join("\n");
+        const diffPath = join(dir, "changes.diff");
+        writeFileSync(diffPath, diff, "utf8");
+        const patch = [
+            "diff --git a/src/app.js b/src/app.js",
+            "--- a/src/app.js",
+            "+++ b/src/app.js",
+            "@@ -1,2 +1 @@",
+            '-const { exec } = require("child_process");',
+            "-exec(req.query.cmd);",
+            "+console.log(req.query.cmd);",
+            "",
+        ].join("\n");
+        const fake = installFakeOpenCode(dir);
+        const result = runCli(["fix", "--from-sast", "--diff", diffPath, "--apply", "--no-tests", "--cwd", dir, "--json"], dir, { ...fake, FAKE_PATCH_TEXT: patch });
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.applied, true);
+        assert.deepEqual(payload.sast, { before: 1, after: 0, remaining: 0 });
+        assert.match(readFileSync(join(dir, "src", "app.js"), "utf8"), /console\.log/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 //# sourceMappingURL=cli.test.js.map

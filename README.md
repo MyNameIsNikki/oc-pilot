@@ -321,6 +321,9 @@ oc-pilot fix --apply --command "npm test"
 # Apply but keep the patch even when tests fail
 oc-pilot fix --apply --command "go test ./..." --keep-on-test-failure
 
+# Fix SAST findings in the changed files
+oc-pilot fix --from-sast --staged --apply
+
 # Emit GitHub Actions annotations for the findings
 oc-pilot review --github
 ```
@@ -332,10 +335,13 @@ oc-pilot review --github
 | `--no-tests` | Apply without running tests |
 | `--keep-on-test-failure` | Do not revert a patch when tests fail |
 | `--no-snapshot` | Skip the safety snapshot before applying |
+| `--from-sast` | Fix high-severity SAST findings in the changed files, then rescan |
 
 `fix` never commits or pushes. The patch is reverted when tests fail unless `--keep-on-test-failure` is used. Unrelated working-tree changes are not reverted.
 
 Before applying, `fix` saves a snapshot under `.git/oc-pilot/snapshots/` (tracked changes as a binary patch plus copies of untracked files). Snapshots stay local: they are never committed or pushed. Restore the snapshot with `oc-pilot restore`; skip it with `--no-snapshot`.
+
+With `--from-sast`, `fix` scans the changed files with the built-in SAST rules, asks the model for a patch that removes those findings, applies it, and rescans. The JSON payload gains `sast: {before, after, remaining}`; the exit code is 1 when high-severity findings remain.
 
 ### `docgen`
 
@@ -1116,7 +1122,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.50.1
+      - uses: MyNameIsNikki/oc-pilot@v0.51.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1139,7 +1145,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.50.1.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.51.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

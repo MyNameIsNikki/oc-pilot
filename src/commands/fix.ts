@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, type OptionSpec } from "../core/options.js";
@@ -7,6 +9,8 @@ import { runShellCommand } from "../core/command.js";
 import { describeDiffSource, loadDiff } from "../core/diff-source.js";
 import { detectProjectType, detectTestCommand } from "../core/project.js";
 import { parseFindings } from "../core/findings.js";
+import { scanSource, type SastFinding } from "../core/sast.js";
+import { isCodeFile, isGeneratedPath } from "../core/slop/source.js";
 import { executeRecipeDetailed, githubAnnotations } from "../core/run.js";
 import { loadSecretIgnore, scanDiff } from "../core/secrets.js";
 import { createSnapshot, type SnapshotInfo } from "../core/snapshot.js";
@@ -24,6 +28,7 @@ const OPTIONS: OptionSpec = withCommon({
   apply: { type: "boolean" },
   "no-tests": { type: "boolean" },
   "keep-on-test-failure": { type: "boolean" },
+  "from-sast": { type: "boolean" },
   rounds: { type: "string" },
   "no-secret-scan": { type: "boolean" },
   "no-snapshot": { type: "boolean" },
@@ -41,6 +46,7 @@ git apply --check и по желанию применяет. С --apply и те�
       --command <cmd>        команда тестов (по умолчанию автоопределение)
       --no-tests             не запускать тесты после применения
       --keep-on-test-failure оставить патч, даже если тесты упали
+      --from-sast            исправить SAST-находки в изменённых файлах
       --rounds <n>           попыток исправления, 1..5 (по умолчанию 2)
       --staged               только staged-изменения
       --unstaged             только unstaged-изменения
@@ -57,6 +63,7 @@ ${COMMON_HELP}
   oc-pilot fix
   oc-pilot fix --apply
   oc-pilot fix --apply --command "npm test" --rounds 3
+  oc-pilot fix --from-sast --staged --apply
   oc-pilot fix src/wallet.go --apply
   oc-pilot restore            # откат к снимку последнего fix --apply
 `;
@@ -104,6 +111,17 @@ export async function runFix(argv: string[]): Promise<number> {
   const detectedTest = detectTestCommand(ctx.cwd);
   const testCommand = asString(values, "command") ?? detectedTest?.command;
   const userContext = asString(values, "context");
+  const fromSast = asBoolean(values, "from-sast");
+  const sastFiles = fromSast
+    ? data.changedFiles.filter((file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(ctx.cwd, file)))
+    : [];
+  const sastBefore = fromSast
+    ? sastFiles.flatMap((file) => scanSource(file, readFileSync(join(ctx.cwd, file), "utf8")).findings)
+    : [];
+  if (fromSast && sastBefore.length === 0) {
+    log.info("SAST-находок нет — исправлять нечего.");
+    return 0;
+  }
 
   let snapshot: SnapshotInfo | undefined;
   if (apply && !ctx.flags.dryRun && !asBoolean(values, "no-snapshot")) {
@@ -129,6 +147,16 @@ export async function runFix(argv: string[]): Promise<number> {
     baseParts.push(`UNTRACKED_FILES (в diff):\n${data.untracked.map((file) => `- ${file}`).join("\n")}`);
   }
   if (userContext?.trim()) baseParts.push(`USER_CONTEXT:\n${userContext.trim()}`);
+  if (fromSast) {
+    baseParts[0] = "FIX_MODE: fix the SAST findings listed in SAST_FINDINGS. Propose the smallest safe unified diff.";
+    baseParts.push(
+      "Do not introduce new SAST findings. Keep the behavior unchanged and add no dependencies.",
+      `SAST_FINDINGS:\n${sastBefore.map((finding) => `- ${finding.severity} ${finding.rule} ${finding.file}:${finding.line} — ${finding.message}`).join("\n")}`,
+    );
+  }
+
+  const rescanSast = (): SastFinding[] =>
+    sastFiles.flatMap((file) => scanSource(file, readFileSync(join(ctx.cwd, file), "utf8")).findings);
 
   const captureCtx = {
     ...ctx,
@@ -233,18 +261,28 @@ export async function runFix(argv: string[]): Promise<number> {
 
     if (noTests || !testCommand) {
       if (!noTests) log.warn("Команда тестов не найдена; патч оставлен без проверки.");
+      const sastAfter = fromSast ? rescanSast() : [];
+      const sastRemaining = sastAfter.filter((finding) => finding.severity === "high");
+      const sastInfo = fromSast
+        ? { before: sastBefore.length, after: sastAfter.length, remaining: sastRemaining.length }
+        : undefined;
       const payload = {
         applied: true,
         patch,
         tests: null,
         analysis: execution.analysis,
         meta: execution.meta,
+        ...(sastInfo ? { sast: sastInfo } : {}),
       };
       if (ctx.flags.json) {
         const path = writeOutput(JSON.stringify(payload, null, 2), ctx.flags.output);
         if (path) log.success(`Результат записан: ${path}`);
       } else {
         process.stdout.write(`${execution.analysis.trim()}\n\n### Patch (applied)\n\n\`\`\`diff\n${patch}\n\`\`\`\n`);
+      }
+      if (sastRemaining.length > 0) {
+        log.warn(`SAST: осталось ${String(sastRemaining.length)} high-находок.`);
+        return 1;
       }
       return 0;
     }
@@ -258,18 +296,28 @@ export async function runFix(argv: string[]): Promise<number> {
 
     if (test.exitCode === 0 && !test.timedOut) {
       log.success(`Тесты прошли (${Math.round(test.durationMs / 1000)} с). Патч оставлен.`);
+      const sastAfter = fromSast ? rescanSast() : [];
+      const sastRemaining = sastAfter.filter((finding) => finding.severity === "high");
+      const sastInfo = fromSast
+        ? { before: sastBefore.length, after: sastAfter.length, remaining: sastRemaining.length }
+        : undefined;
       const payload = {
         applied: true,
         patch,
         tests: lastTest,
         analysis: execution.analysis,
         meta: execution.meta,
+        ...(sastInfo ? { sast: sastInfo } : {}),
       };
       if (ctx.flags.json) {
         const path = writeOutput(JSON.stringify(payload, null, 2), ctx.flags.output);
         if (path) log.success(`Результат записан: ${path}`);
       } else {
         process.stdout.write(`${execution.analysis.trim()}\n\n### Patch (applied, tests passed)\n\n\`\`\`diff\n${patch}\n\`\`\`\n`);
+      }
+      if (sastRemaining.length > 0) {
+        log.warn(`SAST: осталось ${String(sastRemaining.length)} high-находок.`);
+        return 1;
       }
       return 0;
     }
