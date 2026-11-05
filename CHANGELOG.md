@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.47.0
+
+- `preflight` теперь включает детерминированный SAST по изменённым файлам: инъекции команд и SQL, path traversal, SSRF, выполнение кода, XSS и остальные правила `sast`; `--no-sast` отключает проверку, а `--fail-on-issue` задаёт общий порог для SAST и зависимостей.
+- Квитанция `receipt` фиксирует SAST-проверку в отчёте `preflight`; `--no-sast` исключает её из прогона.
+- MCP: инструмент `sast` (read-only, `paths`, `fail_on_issue`, `ignore`, `no_suppressions`) и `no_sast` у `preflight`; офлайн-список дополнен.
+- Документация; 510 тестов; версия 0.47.0.
+
 ## 0.46.0
 
 - Команда `sast`: детерминированный статический анализ изменённых файлов — инъекции команд и SQL, path traversal, SSRF, выполнение кода, XSS, открытые редиректы, отключённый TLS, wildcard CORS, prototype pollution, слабые хеши и JWT `none`.

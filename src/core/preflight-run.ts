@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { auditDependencies, type DepSeverity } from "./deps-health.js";
 import type { DiffData } from "./diff-source.js";
@@ -9,12 +9,15 @@ import {
   type PreflightCheckId,
   type PreflightReport,
 } from "./preflight.js";
+import { scanSource, type SastFinding, type SastSeverity } from "./sast.js";
 import { analyzeAgainst } from "./slop/index.js";
+import { isCodeFile, isGeneratedPath } from "./slop/source.js";
 import { analyzeTestWeakness } from "./test-weakening.js";
 
 export interface CollectPreflightOptions {
   disabled?: PreflightCheckId[];
   depsGate?: DepSeverity;
+  sastGate?: SastSeverity;
   maxSlopDelta?: number;
   since?: string;
 }
@@ -56,9 +59,28 @@ export function collectPreflight(
     }
   }
 
+  let sast: SastFinding[] | null = null;
+  let sastSkip: string | undefined;
+  if (!disabled.includes("sast")) {
+    const files = data.changedFiles.filter(
+      (file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(cwd, file)),
+    );
+    if (files.length === 0) {
+      sastSkip = "нет изменённых файлов для анализа";
+    } else {
+      sast = [];
+      for (const file of files) {
+        const text = readFileSync(join(cwd, file), "utf8");
+        sast.push(...scanSource(file, text).findings);
+      }
+    }
+  }
+
   return buildPreflightReport({
     diff: { source: data.source, stats: data.stats },
     secrets: disabled.includes("secrets") ? null : data.findings,
+    sast,
+    sastSkip,
     deps,
     depsSkip,
     weaknesses: disabled.includes("tests") ? null : analyzeTestWeakness(data.diff),
@@ -66,6 +88,7 @@ export function collectPreflight(
     slopSkip,
     disabled,
     depsGate: options.depsGate,
+    sastGate: options.sastGate,
     maxSlopDelta: options.maxSlopDelta,
   });
 }

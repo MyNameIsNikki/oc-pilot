@@ -1,6 +1,8 @@
 import { issueFailsGate } from "./deps-health.js";
+import { severityAtLeast } from "./sast.js";
 const LABELS = {
     secrets: "секреты",
+    sast: "sast",
     deps: "зависимости",
     tests: "тесты",
     slop: "slop",
@@ -59,6 +61,22 @@ export function buildPreflightReport(input) {
     }
     else {
         checks.push(check("secrets", "skip", "сканирование не выполнялось"));
+    }
+    if (disabled.has("sast")) {
+        checks.push(check("sast", "skip", "отключено (--no-sast)"));
+    }
+    else if (input.sast) {
+        const findings = input.sast;
+        const gate = input.sastGate ?? "high";
+        const high = findings.filter((finding) => finding.severity === "high").length;
+        const medium = findings.filter((finding) => finding.severity === "medium").length;
+        const low = findings.length - high - medium;
+        checks.push(check("sast", findings.some((finding) => severityAtLeast(finding.severity, gate)) ? "fail" : "pass", findings.length === 0
+            ? "опасных паттернов не найдено"
+            : `${String(findings.length)} находок: high ${String(high)}, medium ${String(medium)}, low ${String(low)}`, findings.map((finding) => `${finding.severity} ${finding.rule} ${finding.file}:${String(finding.line)} — ${finding.message}`)));
+    }
+    else {
+        checks.push(check("sast", "skip", input.sastSkip ?? "анализ не выполнялся"));
     }
     if (disabled.has("deps")) {
         checks.push(check("deps", "skip", "отключено (--no-deps)"));

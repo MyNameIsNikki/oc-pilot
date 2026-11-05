@@ -1014,7 +1014,7 @@ test("preflight can skip every check", () => {
         assert.equal(result.status, 0, result.stderr);
         const payload = JSON.parse(result.stdout);
         assert.equal(payload.status, "pass");
-        assert.deepEqual(payload.checks.map((check) => check.status), ["skip", "skip", "skip", "skip"]);
+        assert.deepEqual(payload.checks.map((check) => check.status), ["skip", "skip", "skip", "skip", "skip"]);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
@@ -1468,6 +1468,42 @@ test("sast passes clean code and emits SARIF", () => {
         const report = JSON.parse(sarif.stdout);
         assert.equal(report.version, "2.1.0");
         assert.deepEqual(report.runs[0]?.results, []);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("preflight runs SAST on the changed files", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-preflight-sast-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        writeFileSync(join(dir, "base.txt"), "x\n", "utf8");
+        spawnSync("git", ["add", "base.txt"], { cwd: dir });
+        spawnSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"], { cwd: dir });
+        const patch = [
+            "diff --git a/src/app.js b/src/app.js",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/app.js",
+            "@@ -0,0 +1,2 @@",
+            '+const { exec } = require("child_process");',
+            "+exec(`rm -rf ${req.query.dir}`);",
+            "",
+        ].join("\n");
+        mkdirSync(join(dir, "src"), { recursive: true });
+        writeFileSync(join(dir, "src", "app.js"), 'const { exec } = require("child_process");\nexec(`rm -rf ${req.query.dir}`);\n', "utf8");
+        const diffPath = join(dir, "changes.diff");
+        writeFileSync(diffPath, patch, "utf8");
+        const result = runCli(["preflight", "--diff", diffPath, "--no-deps", "--no-slop", "--json", "--cwd", dir], dir);
+        assert.equal(result.status, 1, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        const sast = payload.checks.find((check) => check.id === "sast");
+        assert.equal(sast?.status, "fail");
+        assert.match(sast?.summary ?? "", /command-injection|1 находок/);
+        const skipped = runCli(["preflight", "--diff", diffPath, "--no-deps", "--no-slop", "--no-sast", "--json", "--cwd", dir], dir);
+        assert.equal(skipped.status, 0, skipped.stderr);
+        const skippedPayload = JSON.parse(skipped.stdout);
+        assert.equal(skippedPayload.checks.find((check) => check.id === "sast")?.status, "skip");
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

@@ -1,9 +1,11 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { auditDependencies } from "./deps-health.js";
 import { log } from "./log.js";
 import { buildPreflightReport, scopeDependencyIssues, } from "./preflight.js";
+import { scanSource } from "./sast.js";
 import { analyzeAgainst } from "./slop/index.js";
+import { isCodeFile, isGeneratedPath } from "./slop/source.js";
 import { analyzeTestWeakness } from "./test-weakening.js";
 /**
  * Runs every offline preflight check against an already loaded diff.
@@ -38,9 +40,26 @@ export function collectPreflight(cwd, data, options = {}) {
             log.detail(`Дельта slop недоступна: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
+    let sast = null;
+    let sastSkip;
+    if (!disabled.includes("sast")) {
+        const files = data.changedFiles.filter((file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(cwd, file)));
+        if (files.length === 0) {
+            sastSkip = "нет изменённых файлов для анализа";
+        }
+        else {
+            sast = [];
+            for (const file of files) {
+                const text = readFileSync(join(cwd, file), "utf8");
+                sast.push(...scanSource(file, text).findings);
+            }
+        }
+    }
     return buildPreflightReport({
         diff: { source: data.source, stats: data.stats },
         secrets: disabled.includes("secrets") ? null : data.findings,
+        sast,
+        sastSkip,
         deps,
         depsSkip,
         weaknesses: disabled.includes("tests") ? null : analyzeTestWeakness(data.diff),
@@ -48,6 +67,7 @@ export function collectPreflight(cwd, data, options = {}) {
         slopSkip,
         disabled,
         depsGate: options.depsGate,
+        sastGate: options.sastGate,
         maxSlopDelta: options.maxSlopDelta,
     });
 }

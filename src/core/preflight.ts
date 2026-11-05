@@ -2,9 +2,10 @@ import type { DiffStats, SecretFinding } from "../types.js";
 import type { DepIssue, DepSeverity, DependencyAudit } from "./deps-health.js";
 import { issueFailsGate } from "./deps-health.js";
 import type { SlopDelta, SlopReport } from "./slop/model.js";
+import { severityAtLeast, type SastFinding, type SastSeverity } from "./sast.js";
 import type { TestWeakness } from "./test-weakening.js";
 
-export type PreflightCheckId = "secrets" | "deps" | "tests" | "slop";
+export type PreflightCheckId = "secrets" | "sast" | "deps" | "tests" | "slop";
 export type PreflightStatus = "pass" | "fail" | "skip";
 
 export interface PreflightCheck {
@@ -24,6 +25,8 @@ export interface PreflightReport {
 export interface PreflightInput {
   diff: { source: string; stats: DiffStats };
   secrets?: SecretFinding[] | null;
+  sast?: SastFinding[] | null;
+  sastSkip?: string;
   deps?: { audit: DependencyAudit; issues: DepIssue[] } | null;
   depsSkip?: string;
   weaknesses?: TestWeakness[] | null;
@@ -32,12 +35,14 @@ export interface PreflightInput {
   disabled?: PreflightCheckId[];
   /** Minimum dependency severity that fails the gate. Default: high. */
   depsGate?: DepSeverity;
+  sastGate?: SastSeverity;
   /** Maximum allowed Slop Index growth. Default: 10. */
   maxSlopDelta?: number;
 }
 
 const LABELS: Record<PreflightCheckId, string> = {
   secrets: "секреты",
+  sast: "sast",
   deps: "зависимости",
   tests: "тесты",
   slop: "slop",
@@ -112,6 +117,30 @@ export function buildPreflightReport(input: PreflightInput): PreflightReport {
     }
   } else {
     checks.push(check("secrets", "skip", "сканирование не выполнялось"));
+  }
+
+  if (disabled.has("sast")) {
+    checks.push(check("sast", "skip", "отключено (--no-sast)"));
+  } else if (input.sast) {
+    const findings = input.sast;
+    const gate = input.sastGate ?? "high";
+    const high = findings.filter((finding) => finding.severity === "high").length;
+    const medium = findings.filter((finding) => finding.severity === "medium").length;
+    const low = findings.length - high - medium;
+    checks.push(
+      check(
+        "sast",
+        findings.some((finding) => severityAtLeast(finding.severity, gate)) ? "fail" : "pass",
+        findings.length === 0
+          ? "опасных паттернов не найдено"
+          : `${String(findings.length)} находок: high ${String(high)}, medium ${String(medium)}, low ${String(low)}`,
+        findings.map(
+          (finding) => `${finding.severity} ${finding.rule} ${finding.file}:${String(finding.line)} — ${finding.message}`,
+        ),
+      ),
+    );
+  } else {
+    checks.push(check("sast", "skip", input.sastSkip ?? "анализ не выполнялся"));
   }
 
   if (disabled.has("deps")) {

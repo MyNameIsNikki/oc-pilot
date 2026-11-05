@@ -375,25 +375,27 @@ Exit 1 means critical secrets were found. `--strict` also fails on warnings. `--
 
 ### `preflight`
 
-One offline verdict before a commit. Four checks run without a model and without network: secrets in the diff, dependency health scoped to the files the diff touches, weakened tests (`it.skip`, removed assertions, raised timeouts), and the Slop Index delta against a base ref.
+One offline verdict before a commit. Five checks run without a model and without network: secrets in the diff, a deterministic SAST pass over the changed source files (command and SQL injection, path traversal, SSRF, code injection, XSS and more), dependency health scoped to the files the diff touches, weakened tests (`it.skip`, removed assertions, raised timeouts), and the Slop Index delta against a base ref.
 
 ```bash
 oc-pilot preflight
 oc-pilot preflight --staged
 oc-pilot preflight --base main --max-delta 0
 oc-pilot preflight --no-slop --fail-on-issue medium
+oc-pilot preflight --staged --no-sast
 ```
 
-Dependency issues are scoped: preflight reports only problems in files the diff changes or packages named in added lines, so a legacy repository does not fail on the first run. `--fail-on-issue` (default `high`) and `--max-delta` (default 10 points) set the gates; each check can be disabled with `--no-secret-scan`, `--no-deps`, `--no-tests` or `--no-slop`. The exit code is 1 if any check fails and 0 otherwise, so one CI step replaces four.
+Dependency issues are scoped: preflight reports only problems in files the diff changes or packages named in added lines, so a legacy repository does not fail on the first run. `--fail-on-issue` (default `high`) sets the gate for both SAST findings and dependency severity, and `--max-delta` (default 10 points) sets the Slop Index gate; each check can be disabled with `--no-secret-scan`, `--no-sast`, `--no-deps`, `--no-tests` or `--no-slop`. The exit code is 1 if any check fails and 0 otherwise, so one CI step replaces five.
 
 The JSON report is `{status, checks, diff}`, where each check carries `{id, label, status, summary, details}` with `status` equal to `pass`, `fail` or `skip`.
 
 ### `receipt`
 
-Turns "it works on my machine" into a checked claim. A receipt runs the tests and the preflight, then records the result together with the commit SHA, branch, dirty state, diff stats, and the exact commands. It is written to `.git/oc-pilot/receipt.json`, so it never ends up in the working tree.
+Turns "it works on my machine" into a checked claim. A receipt runs the tests and the preflight (including SAST), then records the result together with the commit SHA, branch, dirty state, diff stats, and the exact commands. It is written to `.git/oc-pilot/receipt.json`, so it never ends up in the working tree. Pass `--no-sast` to skip the SAST check for a change where it does not apply.
 
 ```bash
 oc-pilot receipt --staged
+oc-pilot receipt --staged --no-sast
 oc-pilot receipt --json
 oc-pilot receipt --verify
 oc-pilot receipt --verify --receipt path/to/receipt.json
@@ -886,9 +888,9 @@ Environment variables: `OC_PILOT_ENGINE`, `OC_PILOT_BASE_URL`, `OC_PILOT_API_KEY
 
 Besides tools, the server exposes read-only MCP resources: `oc-pilot://config` (resolved configuration), `oc-pilot://rules` (project rules with secrets redacted), `oc-pilot://prompt/en` and `oc-pilot://prompt/ru` (the built-in system prompts), and `oc-pilot://version`. `oc-pilot://slop` returns the Slop Index as JSON without calling a model. Resource templates cover live data: `oc-pilot://diff/{mode}` (staged/unstaged/head diff, secrets redacted), `oc-pilot://scan/{mode}` (offline secret scan as JSON) and `oc-pilot://file/{+path}` (any project file up to 2 MB with detected secrets redacted). Hosts can list them with `resources/list` and `resources/templates/list`.
 
-Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`, `preflight`, `ready`, `receipt_verify`. `scan` accepts `all: true` to sweep the whole repository instead of the diff. `slop` runs the offline Slop Index and accepts `since`, `since_days`, `limit`, `exclude` and `no_blame`. `preflight` returns one offline verdict over the planned change and accepts the same source flags (`diff`, `base`, `staged`, `unstaged`, `include_untracked`), plus `since`, `max_delta`, `fail_on_issue`, `no_secret_scan`, `no_deps`, `no_tests` and `no_slop`; a failed check is a normal result with `status: "fail"` and exit code 1, so the agent sees the failing check instead of a tool error. `ready` returns the offline agent readiness score 0-100 and accepts `fail_under`; a score below the threshold is also a normal result with exit code 1. `receipt_verify` recomputes the SHA-256 hash of the receipt, compares the recorded commit with HEAD and reports `ok`, `hashOk` and `stale`; a missing, edited or stale receipt is a normal result with `ok: false` and exit code 1, so an agent can see why the proof failed. The server is read-only by default; start it with `--allow-write` to permit `fix` with `apply: true`, `commit` with `apply: true`, `test_fix` with a command and `stats` with `clear: true`. The `fix` result carries the unified `patch`, its `files` and `patchStats` (`additions`, `deletions`, `hunks`, `bytes`); patches over 200 000 characters are cut and marked with `patchTruncated` and `patchBytes`, so a host can show or apply the change without parsing the diff again.
+Tools: `review`, `test_fix`, `fix`, `docgen`, `custom`, `scan`, `commit`, `stats`, `slop`, `sast`, `preflight`, `ready`, `receipt_verify`. `scan` accepts `all: true` to sweep the whole repository instead of the diff. `slop` runs the offline Slop Index and accepts `since`, `since_days`, `limit`, `exclude` and `no_blame`. `sast` runs the deterministic static analysis over the change or over explicit `paths` and accepts `fail_on_issue`, `ignore` and `no_suppressions`; a finding at or above the gate is a normal result with exit code 1. `preflight` returns one offline verdict over the planned change and accepts the same source flags (`diff`, `base`, `staged`, `unstaged`, `include_untracked`), plus `since`, `max_delta`, `fail_on_issue`, `no_secret_scan`, `no_sast`, `no_deps`, `no_tests` and `no_slop`; a failed check is a normal result with `status: "fail"` and exit code 1, so the agent sees the failing check instead of a tool error. `ready` returns the offline agent readiness score 0-100 and accepts `fail_under`; a score below the threshold is also a normal result with exit code 1. `receipt_verify` recomputes the SHA-256 hash of the receipt, compares the recorded commit with HEAD and reports `ok`, `hashOk` and `stale`; a missing, edited or stale receipt is a normal result with `ok: false` and exit code 1, so an agent can see why the proof failed. The server is read-only by default; start it with `--allow-write` to permit `fix` with `apply: true`, `commit` with `apply: true`, `test_fix` with a command and `stats` with `clear: true`. The `fix` result carries the unified `patch`, its `files` and `patchStats` (`additions`, `deletions`, `hunks`, `bytes`); patches over 200 000 characters are cut and marked with `patchTruncated` and `patchBytes`, so a host can show or apply the change without parsing the diff again.
 
-Every tool accepts `max_findings` (default 50; a capped result also carries `truncated` and `totalFindings`) and `verbosity` (`full` returns the JSON payload, `compact` returns a one-line summary and keeps the same data in `structuredContent`). When a client sends `_meta.progressToken`, the server emits `notifications/progress`; after `logging/setLevel` it also emits `notifications/message` per call. `--max-calls <n>` (or `OC_PILOT_MCP_MAX_CALLS`) caps model-backed calls per session, `0` disables the cap, and the offline tools `scan`, `stats`, `slop`, `preflight`, `ready` and `receipt_verify` keep working after the budget is exhausted.
+Every tool accepts `max_findings` (default 50; a capped result also carries `truncated` and `totalFindings`) and `verbosity` (`full` returns the JSON payload, `compact` returns a one-line summary and keeps the same data in `structuredContent`). When a client sends `_meta.progressToken`, the server emits `notifications/progress`; after `logging/setLevel` it also emits `notifications/message` per call. `--max-calls <n>` (or `OC_PILOT_MCP_MAX_CALLS`) caps model-backed calls per session, `0` disables the cap, and the offline tools `scan`, `stats`, `slop`, `sast`, `preflight`, `ready` and `receipt_verify` keep working after the budget is exhausted.
 
 Ready-made prompts are advertised through `prompts/list` and rendered by `prompts/get`, so a host can offer them in its own menu: `review-my-diff` (optional `context`), `fix-failing-tests` (optional `log`), `pre-commit-gate` (scan, review and commit in one pass), `secure-change` (security-focused review), `slop-check` (entropy check for vibe-coded changes) and `preflight-before-commit` (run the offline gate, fix the cheapest failing check, rerun until the verdict is pass), `get-ready` (score the repository, fix the safe gaps, prove the result with a receipt and rerun until the score is at least 85) and `prove-done` (verify the receipt for HEAD, create a fresh one when it is missing or stale, and refuse to claim completion until `ok` is true and the tests in the receipt passed).
 
@@ -1084,7 +1086,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.46.0
+      - uses: MyNameIsNikki/oc-pilot@v0.47.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1107,7 +1109,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.46.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.47.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

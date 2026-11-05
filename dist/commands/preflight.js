@@ -17,6 +17,7 @@ const OPTIONS = withCommon({
     "max-delta": { type: "string" },
     "fail-on-issue": { type: "string" },
     "no-secret-scan": { type: "boolean" },
+    "no-sast": { type: "boolean" },
     "no-deps": { type: "boolean" },
     "no-tests": { type: "boolean" },
     "no-slop": { type: "boolean" },
@@ -24,9 +25,9 @@ const OPTIONS = withCommon({
 const HELP = `Использование:
   oc-pilot preflight [пути] [опции]
 
-Офлайн-проверка изменения перед коммитом: секреты, здоровье зависимостей,
-ослабление тестов и дельта Slop Index. Модель не вызывается, сеть не
-используется. Один вердикт и один код возврата для CI.
+Офлайн-проверка изменения перед коммитом: секреты, SAST, здоровье
+зависимостей, ослабление тестов и дельта Slop Index. Модель не вызывается,
+сеть не используется. Один вердикт и один код возврата для CI.
 
 Опции:
       --base <ref>          сравнить с ref (git diff ref...HEAD)
@@ -36,8 +37,9 @@ const HELP = `Использование:
       --diff <file>         готовый unified diff вместо git-состояния
       --since <ref>         база для дельты slop (по умолчанию HEAD)
       --max-delta <n>       допустимый рост Slop Index (по умолчанию 10)
-      --fail-on-issue <lvl> порог зависимостей: high, medium или low (по умолчанию high)
+      --fail-on-issue <lvl> порог SAST и зависимостей: high, medium или low (по умолчанию high)
       --no-secret-scan      не проверять секреты
+      --no-sast             не запускать SAST
       --no-deps             не проверять зависимости
       --no-tests            не искать ослабление тестов
       --no-slop             не считать дельту Slop Index
@@ -82,6 +84,8 @@ export async function runPreflight(argv) {
     const disabled = [];
     if (asBoolean(values, "no-secret-scan"))
         disabled.push("secrets");
+    if (asBoolean(values, "no-sast"))
+        disabled.push("sast");
     if (asBoolean(values, "no-deps"))
         disabled.push("deps");
     if (asBoolean(values, "no-tests"))
@@ -89,9 +93,11 @@ export async function runPreflight(argv) {
     if (asBoolean(values, "no-slop"))
         disabled.push("slop");
     const data = await loadDiff(values, ctx, positionals, { optionalGit: true });
+    const gate = parseGate(asString(values, "fail-on-issue"));
     const report = collectPreflight(ctx.cwd, data, {
         disabled,
-        depsGate: parseGate(asString(values, "fail-on-issue")),
+        depsGate: gate,
+        sastGate: gate,
         maxSlopDelta: optionalNumber(values, "max-delta"),
         since: asString(values, "since"),
     });
