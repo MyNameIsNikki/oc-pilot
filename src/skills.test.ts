@@ -83,6 +83,7 @@ test("skills document real commands and avoid placeholders", () => {
     "env-sync",
     "mock-leak",
     "ecosystem-verify",
+    "pack",
   ]);
   for (const skill of skills) {
     for (const match of skill.body.matchAll(/oc-pilot ([a-z][a-z-]*)/g)) {
@@ -166,6 +167,8 @@ test("skills use only documented flags", () => {
     "--rounds",
     "--runs",
     "--rules",
+    "--budget",
+    "--test-log",
     "--second-opinion",
     "--second-opinion-api-key-env",
     "--second-opinion-base-url",

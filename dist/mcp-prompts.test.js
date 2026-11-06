@@ -57,6 +57,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
             "sync-env",
             "remove-mocks",
             "verify-ecosystem",
+            "pack-context",
             "prove-tests",
             "prove-done",
         ]);

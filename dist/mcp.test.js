@@ -313,6 +313,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(ecosystem.inputSchema.properties.online, "online missing on ecosystem_verify");
         assert.ok(ecosystem.inputSchema.properties.min_age_days, "min_age_days missing on ecosystem_verify");
         assert.ok(ecosystem.inputSchema.properties.fail_on_issue, "fail_on_issue missing on ecosystem_verify");
+        const pack = tools.find((tool) => tool.name === "pack");
+        assert.ok(pack, "pack tool missing");
+        assert.ok(pack.inputSchema.properties.task, "task missing on pack");
+        assert.ok(pack.inputSchema.properties.budget, "budget missing on pack");
+        assert.ok(pack.inputSchema.properties.test_log, "test_log missing on pack");
+        assert.ok(pack.inputSchema.properties.rules, "rules missing on pack");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -916,6 +922,54 @@ test("MCP mock_leak finds hardcoded paths and always-true branches", () => {
         assert.ok(kinds.includes("local-path"), `kinds: ${kinds.join(", ")}`);
         assert.ok(kinds.includes("always-true"), `kinds: ${kinds.join(", ")}`);
         assert.match(result?.content?.[0]?.text ?? "", /2 mock leaks, 2 high, 0 medium/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP pack returns a compact context bundle", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-pack-"));
+    try {
+        mkdirSync(join(dir, "src"), { recursive: true });
+        writeFileSync(join(dir, "src", "wallet.ts"), "export function chargeCard(amount: number) {\n  return amount;\n}\n", "utf8");
+        const diff = [
+            "diff --git a/src/wallet.ts b/src/wallet.ts",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/wallet.ts",
+            "@@ -0,0 +1,3 @@",
+            "+export function chargeCard(amount: number) {",
+            "+  return amount;",
+            "+}",
+            "",
+        ].join("\n");
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: {
+                    name: "pack",
+                    arguments: { task: "fix login", diff, budget: 4000, verbosity: "compact" },
+                },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 0);
+        assert.equal(result?.structuredContent?.task, "fix login");
+        assert.ok((result?.structuredContent?.files?.length ?? 0) >= 1, "pack files missing");
+        assert.ok((result?.structuredContent?.chars ?? 0) <= 4000, "pack exceeded the budget");
+        assert.equal(result?.structuredContent?.truncated, false);
+        assert.match(result?.structuredContent?.content ?? "", /fix login/);
+        assert.match(result?.structuredContent?.content ?? "", /chargeCard/);
+        assert.match(result?.content?.[0]?.text ?? "", /1 file, \d+ chars \(within budget\)/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

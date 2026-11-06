@@ -13,7 +13,7 @@ skill checks all four before the change leaves the machine.
 ## Setup
 
 ```bash
-npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.65.0.tar.gz
+npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.66.0.tar.gz
 oc-pilot init --preset security,devops
 ```
 

@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -516,6 +516,29 @@ const TOOLS = [
         },
     },
     {
+        name: "pack",
+        description: "Build a compact Markdown context bundle for a task: project rules, changed-file signatures, related references and an optional test failure excerpt, capped by budget characters. Offline and free of model calls.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["task"],
+            properties: {
+                task: { type: "string", description: "What the agent is trying to do" },
+                diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+                base: { type: "string", description: "Use git diff <base>...HEAD, e.g. origin/main" },
+                staged: { type: "boolean", description: "Use staged changes" },
+                unstaged: { type: "boolean", description: "Use unstaged changes" },
+                include_untracked: { type: "boolean", description: "Include untracked files when diffing" },
+                budget: { type: "integer", minimum: 200, description: "Maximum bundle size in characters (default 20000)" },
+                test_log: { type: "string", description: "Path to captured test output to append" },
+                rules: { type: "string", description: "Path to a rules file; defaults to .oc-pilot/rules.md" },
+                paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -804,6 +827,14 @@ const PROMPTS = [
         description: "Check that imported names exist in installed packages, then verify newly added npm packages against registry age and downloads before trusting them.",
         arguments: [
             { name: "context", description: "Which dependency or import is suspicious", required: false },
+        ],
+    },
+    {
+        name: "pack-context",
+        title: "Pack the task context",
+        description: "Build a compact bundle of project rules, changed-file signatures, related references and the last test failure instead of dumping whole files into the prompt.",
+        arguments: [
+            { name: "context", description: "What the task is supposed to change", required: false },
         ],
     },
     {
@@ -1663,6 +1694,39 @@ async function callEcosystemVerify(input, cwd) {
         temp.cleanup();
     }
 }
+async function callPack(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const task = stringArg(input, "task", true);
+        const args = ["pack", task, "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        const budget = integerArg(input, "budget");
+        if (budget !== undefined)
+            args.push("--budget", String(budget));
+        const testLog = stringArg(input, "test_log");
+        if (testLog)
+            args.push("--test-log", testLog);
+        const rules = stringArg(input, "rules");
+        if (rules)
+            args.push("--rules", rules);
+        args.push(...projectPaths(input, "paths"));
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -1950,6 +2014,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callMockLeak(input, cwd);
         case "ecosystem_verify":
             return callEcosystemVerify(input, cwd);
+        case "pack":
+            return callPack(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -2014,6 +2080,11 @@ export function applyResultOptions(result, input) {
 function summarizeResult(value) {
     if (typeof value.index === "number") {
         return `oc-pilot: Slop Index ${value.index}/100 (${String(value.grade ?? "unknown")})`;
+    }
+    if (typeof value.chars === "number" && typeof value.budget === "number" && Array.isArray(value.files)) {
+        const files = String(value.files.length);
+        const state = value.truncated === true ? "truncated" : "within budget";
+        return `oc-pilot: ${files} file${files === "1" ? "" : "s"}, ${String(value.chars)} chars (${state})`;
     }
     if (Array.isArray(value.references) && Array.isArray(value.missing) && Array.isArray(value.undocumented)) {
         const references = String(value.references.length);
@@ -2166,6 +2237,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "mock_leak" tool on the current diff with fail_on_leak=medium. For every finding, replace the stub with the real implementation: wire the actual request or service, take the local path and host from configuration, load the secret from the environment, and delete always-true or always-false branches instead of keeping dead code. Never move a mock into a comment, rename it to hide it, add an ignore marker or delete the production call to silence the report. Rerun "mock_leak" until status is pass, then report each finding, the file and the real behavior that replaced it.${suffix}`;
         case "verify-ecosystem":
             return `Call the oc-pilot "ecosystem_verify" tool on the current diff with fail_on_issue=high, and add online=true when the change introduces a new package. For a missing export, correct the call to the real API of the installed version or install and declare the package that actually provides it; never replace the import with any or a local shim only to silence the report. For a package that is missing, too new or has too few downloads, stop and ask me before installing it. Rerun offline until status is pass, then report each package, the missing names, the files and the online evidence you used.${suffix}`;
+        case "pack-context":
+            return `Call the oc-pilot "pack" tool with the task and the current diff. Use only the returned bundle instead of dumping whole files into the prompt, and ask for more context only when a named signature or file is missing. Do not treat the pack as proof that the code is correct; run the checks after the change.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":

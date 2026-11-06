@@ -29,6 +29,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `env_sync` — environment variables added by the diff against `.env` and `.env.example`: missing definitions and undocumented keys.
 - `mock_leak` - forgotten stubs and hardcode in production code: local paths, test tokens, always-true conditions, mock identifiers and localhost URLs.
 - `ecosystem_verify` - named imports against installed packages and `.d.ts`, plus age and downloads of newly added npm packages.
+- `pack` - compact task context: rules, changed-file signatures, related references and an optional test log, capped by `budget` characters; read-only.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -59,6 +60,7 @@ oc-pilot test-guard --staged --fail-on-weakening
 oc-pilot env-sync --staged --fail-on-missing
 oc-pilot mock-leak --staged --fail-on-leak high
 oc-pilot ecosystem-verify --staged --fail-on-issue high
+oc-pilot pack "fix the login redirect" --staged --budget 12000
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.
