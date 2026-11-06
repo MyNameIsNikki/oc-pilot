@@ -2,6 +2,7 @@
 import { runCache } from "./commands/cache.js";
 import { runDay } from "./commands/day.js";
 import { runDeps } from "./commands/deps.js";
+import { runEcosystemVerify } from "./commands/ecosystem-verify.js";
 import { runEnvSync } from "./commands/env-sync.js";
 import { runMockLeak } from "./commands/mock-leak.js";
 import { runCoverage } from "./commands/coverage.js";
@@ -52,6 +53,7 @@ const HANDLERS = {
     custom: runCustom,
     scan: runScan,
     deps: runDeps,
+    "ecosystem-verify": runEcosystemVerify,
     "env-sync": runEnvSync,
     "mock-leak": runMockLeak,
     coverage: runCoverage,
@@ -92,6 +94,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   custom      Свободный запрос к oc-pilot
   scan        Офлайн-поиск секретов в diff (без LLM)
   deps        Аудит зависимостей: фантомные импорты, лишние пакеты, lockfile
+  ecosystem-verify  Проверить импорты и новые пакеты: выдуманные API, свежие зависимости
   env-sync    Переменные окружения из diff против .env и .env.example
   mock-leak   Заглушки и хардкод в прод-коде: пути, токены, if (true)
   coverage    Покрытие изменённых строк: непокрытые строки и гейт
@@ -133,10 +136,11 @@ ${COMMON_HELP}
   oc-pilot mutate --staged --min-score 80
   oc-pilot coverage --staged --coverage-file coverage/lcov.info --fail-under 80
   oc-pilot env-sync --staged --fail-on-missing
-  oc-pilot mock-leak --staged --fail-on high
+  oc-pilot mock-leak --staged --fail-on-leak high
   oc-pilot sast --staged --fail-on-issue high
   oc-pilot authz --staged
   oc-pilot deps --json
+  oc-pilot ecosystem-verify --staged --fail-on-issue high
   oc-pilot preflight --staged
   oc-pilot receipt --staged
   oc-pilot docgen "src/**/*.ts" --symbol buildPrompt
@@ -180,7 +184,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, env-sync, mock-leak, coverage, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

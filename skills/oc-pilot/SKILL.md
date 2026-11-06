@@ -27,7 +27,8 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `reviewers` — authors who touched the changed files plus CODEOWNERS owners; accepts `limit`, `depth` and `exclude`.
 - `test_guard` — offline test-weakening guard: skipped/focused/deleted tests, removed assertions, matcher downgrades, `@ts-ignore`, empty catch.
 - `env_sync` — environment variables added by the diff against `.env` and `.env.example`: missing definitions and undocumented keys.
-- `mock_leak` — forgotten stubs and hardcode in production code: local paths, test tokens, always-true conditions, mock identifiers and localhost URLs.
+- `mock_leak` - forgotten stubs and hardcode in production code: local paths, test tokens, always-true conditions, mock identifiers and localhost URLs.
+- `ecosystem_verify` - named imports against installed packages and `.d.ts`, plus age and downloads of newly added npm packages.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -57,6 +58,7 @@ oc-pilot reviewers --base main
 oc-pilot test-guard --staged --fail-on-weakening
 oc-pilot env-sync --staged --fail-on-missing
 oc-pilot mock-leak --staged --fail-on-leak high
+oc-pilot ecosystem-verify --staged --fail-on-issue high
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

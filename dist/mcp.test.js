@@ -308,6 +308,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(mockLeak, "mock_leak tool missing");
         assert.ok(mockLeak.inputSchema.properties.fail_on_leak, "fail_on_leak missing on mock_leak");
         assert.ok(mockLeak.inputSchema.properties.staged, "staged missing on mock_leak");
+        const ecosystem = tools.find((tool) => tool.name === "ecosystem_verify");
+        assert.ok(ecosystem, "ecosystem_verify tool missing");
+        assert.ok(ecosystem.inputSchema.properties.online, "online missing on ecosystem_verify");
+        assert.ok(ecosystem.inputSchema.properties.min_age_days, "min_age_days missing on ecosystem_verify");
+        assert.ok(ecosystem.inputSchema.properties.fail_on_issue, "fail_on_issue missing on ecosystem_verify");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -911,6 +916,58 @@ test("MCP mock_leak finds hardcoded paths and always-true branches", () => {
         assert.ok(kinds.includes("local-path"), `kinds: ${kinds.join(", ")}`);
         assert.ok(kinds.includes("always-true"), `kinds: ${kinds.join(", ")}`);
         assert.match(result?.content?.[0]?.text ?? "", /2 mock leaks, 2 high, 0 medium/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP ecosystem_verify flags an invented export", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-ecosystem-"));
+    try {
+        mkdirSync(join(dir, "src"), { recursive: true });
+        mkdirSync(join(dir, "node_modules", "left-pad"), { recursive: true });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", dependencies: { "left-pad": "^1.3.0" } }), "utf8");
+        writeFileSync(join(dir, "node_modules", "left-pad", "package.json"), JSON.stringify({ name: "left-pad", version: "1.3.0", types: "index.d.ts" }), "utf8");
+        writeFileSync(join(dir, "node_modules", "left-pad", "index.d.ts"), "export function leftPad(text: string, width: number): string;\n", "utf8");
+        writeFileSync(join(dir, "src", "app.ts"), 'import { leftPad, invented } from "left-pad";\n\nleftPad("x", 3);\ninvented();\n', "utf8");
+        const diff = [
+            "diff --git a/src/app.ts b/src/app.ts",
+            "--- a/src/app.ts",
+            "+++ b/src/app.ts",
+            "@@ -1,1 +1,4 @@",
+            '+import { leftPad, invented } from "left-pad";',
+            "+",
+            '+leftPad("x", 3);',
+            "+invented();",
+            "",
+        ].join("\n");
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: {
+                    name: "ecosystem_verify",
+                    arguments: { diff, fail_on_issue: "high", verbosity: "compact" },
+                },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 1);
+        assert.equal(result?.structuredContent?.status, "fail");
+        assert.equal(result?.structuredContent?.counts?.total, 1);
+        assert.equal(result?.structuredContent?.counts?.high, 1);
+        assert.equal(result?.structuredContent?.packages?.[0]?.name, "left-pad");
+        assert.deepEqual(result?.structuredContent?.packages?.[0]?.missingExports, ["invented"]);
+        assert.equal(result?.structuredContent?.issues?.[0]?.kind, "missing-export");
+        assert.match(result?.content?.[0]?.text ?? "", /1 ecosystem issue, 1 high, 0 medium/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -485,6 +485,37 @@ const TOOLS = [
         },
     },
     {
+        name: "ecosystem_verify",
+        description: "Check that named imports from changed files exist in the installed package entry or type declarations, and flag packages that are neither installed nor declared. With online=true it also checks newly added npm packages for first-publish age and weekly downloads. Offline by default; findings at or above fail_on_issue return exit code 1.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+                base: { type: "string", description: "Check git diff <base>...HEAD, e.g. origin/main" },
+                staged: { type: "boolean", description: "Only staged changes" },
+                unstaged: { type: "boolean", description: "Only unstaged changes" },
+                include_untracked: { type: "boolean", description: "Include untracked files" },
+                online: { type: "boolean", description: "Check age and downloads of newly added npm packages" },
+                min_age_days: { type: "integer", minimum: 1, maximum: 3650, description: "Minimum package age in days (default 30)" },
+                min_downloads: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 1_000_000_000,
+                    description: "Minimum weekly downloads (default 1000)",
+                },
+                fail_on_issue: {
+                    type: "string",
+                    enum: ["high", "medium", "low"],
+                    description: "Lowest severity that returns exit code 1",
+                },
+                paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -765,6 +796,14 @@ const PROMPTS = [
         description: "Find forgotten mocks, local paths, test tokens and always-true conditions in production code, replace them with the real implementation and rerun until the leak report is clean.",
         arguments: [
             { name: "context", description: "What the code should do in production", required: false },
+        ],
+    },
+    {
+        name: "verify-ecosystem",
+        title: "Verify imports and new packages",
+        description: "Check that imported names exist in installed packages, then verify newly added npm packages against registry age and downloads before trusting them.",
+        arguments: [
+            { name: "context", description: "Which dependency or import is suspicious", required: false },
         ],
     },
     {
@@ -1590,6 +1629,40 @@ async function callMockLeak(input, cwd) {
         temp.cleanup();
     }
 }
+async function callEcosystemVerify(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["ecosystem-verify", "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        if (booleanArg(input, "online"))
+            args.push("--online");
+        const minAgeDays = integerArg(input, "min_age_days");
+        if (minAgeDays !== undefined)
+            args.push("--min-age-days", String(minAgeDays));
+        const minDownloads = integerArg(input, "min_downloads");
+        if (minDownloads !== undefined)
+            args.push("--min-downloads", String(minDownloads));
+        const failOn = stringArg(input, "fail_on_issue");
+        if (failOn)
+            args.push("--fail-on-issue", failOn);
+        args.push(...projectPaths(input, "paths"));
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -1875,6 +1948,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callEnvSync(input, cwd);
         case "mock_leak":
             return callMockLeak(input, cwd);
+        case "ecosystem_verify":
+            return callEcosystemVerify(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -1947,6 +2022,14 @@ function summarizeResult(value) {
         return `oc-pilot: ${references} env reference${references === "1" ? "" : "s"}, ${missing} missing, ${undocumented} undocumented`;
     }
     const counts = asObject(value.counts);
+    if (counts &&
+        typeof counts.high === "number" &&
+        typeof counts.medium === "number" &&
+        typeof counts.low === "number" &&
+        Array.isArray(value.issues)) {
+        const total = String(value.issues.length);
+        return `oc-pilot: ${total} ecosystem issue${total === "1" ? "" : "s"}, ${String(counts.high)} high, ${String(counts.medium)} medium`;
+    }
     if (counts &&
         typeof counts.high === "number" &&
         typeof counts.medium === "number" &&
@@ -2081,6 +2164,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "env_sync" tool on the current diff with fail_on_missing=true. Add every missing variable to the real configuration and every new variable to .env.example (and .env.sample or .env.template when the project uses them). Document what each variable configures and which value a human must supply; never invent production secrets, never commit a real .env with secrets, and never delete a reference only to silence the report. Rerun "env_sync" until status is pass, then report the variables, files and any value the human still has to provide.${suffix}`;
         case "remove-mocks":
             return `Call the oc-pilot "mock_leak" tool on the current diff with fail_on_leak=medium. For every finding, replace the stub with the real implementation: wire the actual request or service, take the local path and host from configuration, load the secret from the environment, and delete always-true or always-false branches instead of keeping dead code. Never move a mock into a comment, rename it to hide it, add an ignore marker or delete the production call to silence the report. Rerun "mock_leak" until status is pass, then report each finding, the file and the real behavior that replaced it.${suffix}`;
+        case "verify-ecosystem":
+            return `Call the oc-pilot "ecosystem_verify" tool on the current diff with fail_on_issue=high, and add online=true when the change introduces a new package. For a missing export, correct the call to the real API of the installed version or install and declare the package that actually provides it; never replace the import with any or a local shim only to silence the report. For a package that is missing, too new or has too few downloads, stop and ask me before installing it. Rerun offline until status is pass, then report each package, the missing names, the files and the online evidence you used.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":

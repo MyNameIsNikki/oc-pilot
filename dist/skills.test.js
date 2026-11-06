@@ -58,6 +58,7 @@ test("skills document real commands and avoid placeholders", () => {
         "test-guard",
         "env-sync",
         "mock-leak",
+        "ecosystem-verify",
     ]);
     for (const skill of skills) {
         for (const match of skill.body.matchAll(/oc-pilot ([a-z][a-z-]*)/g)) {
@@ -92,6 +93,7 @@ test("skills use only documented flags", () => {
         "--exclude",
         "--exit-code",
         "--fail-on",
+        "--fail-on-issue",
         "--fail-on-flaky",
         "--fail-on-leak",
         "--fail-on-weakening",
@@ -114,6 +116,8 @@ test("skills use only documented flags", () => {
         "--max-file",
         "--max-mutants",
         "--max-uncovered",
+        "--min-age-days",
+        "--min-downloads",
         "--min-score",
         "--model",
         "--no-cache",
@@ -122,6 +126,7 @@ test("skills use only documented flags", () => {
         "--no-secret-scan",
         "--no-snapshot",
         "--no-tests",
+        "--online",
         "--output",
         "--preset",
         "--pre-push",
