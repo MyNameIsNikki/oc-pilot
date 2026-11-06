@@ -668,6 +668,31 @@ const TOOLS = [
         },
     },
     {
+        name: "battle",
+        description: "Run an experimental two-agent hardening loop: the coder proposes a patch (and applies it with apply=true), then the hacker reviews it and runs SAST, authorization and test-weakening checks. Repeats until no high findings remain and tests pass. Needs a configured model; apply=true needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["task"],
+            properties: {
+                task: { type: "string", description: "What the coder should implement or fix" },
+                apply: { type: "boolean", description: "Apply each patch and run tests (default false)" },
+                rounds: { type: "integer", minimum: 1, maximum: 5, description: "Maximum coder/hacker rounds (default 2)" },
+                command: { type: "string", description: "Test command; auto-detected when omitted" },
+                context: { type: "string", description: "Extra context for both agents" },
+                diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                model: { type: "string" },
+                timeout: { type: "integer", minimum: 1 },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1004,6 +1029,14 @@ const PROMPTS = [
         description: "Verify the signed compliance manifest for HEAD, explain any broken hash, chain or signature, and refuse to claim completion while the proof is invalid.",
         arguments: [
             { name: "context", description: "What was shipped and what the audit must prove", required: false },
+        ],
+    },
+    {
+        name: "battle-hardening",
+        title: "Harden the change with two agents",
+        description: "Run the coder and hacker loop: the coder patches, the hacker attacks with review and offline security checks, and the loop repeats until no high findings remain and tests pass.",
+        arguments: [
+            { name: "context", description: "What the task should achieve", required: false },
         ],
     },
     {
@@ -2042,6 +2075,46 @@ async function callBrag(input, cwd) {
         args.push("--svg");
     return toToolResult(await runCli(args, cwd));
 }
+async function callBattle(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const task = stringArg(input, "task", true);
+        const args = ["battle", task, "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        const command = stringArg(input, "command");
+        const context = stringArg(input, "context");
+        const rounds = integerArg(input, "rounds");
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        if (command)
+            args.push("--command", command);
+        if (context)
+            args.push("--context", context);
+        if (rounds !== undefined)
+            args.push("--rounds", String(rounds));
+        if (booleanArg(input, "apply"))
+            args.push("--apply");
+        const model = stringArg(input, "model");
+        if (model)
+            args.push("--model", model);
+        const timeout = integerArg(input, "timeout");
+        if (timeout !== undefined)
+            args.push("--timeout", String(timeout));
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -2281,6 +2354,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "mutate") {
             throw new ToolInputError("mutation testing rewrites source files temporarily and is disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name === "battle" && booleanArg(input, "apply")) {
+            throw new ToolInputError("battle apply rewrites the working tree and is disabled in read-only mode; start the MCP server with --allow-write");
+        }
         if (name === "test_gen" && booleanArg(input, "apply")) {
             throw new ToolInputError("test_gen apply writes test files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
@@ -2343,6 +2419,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callComplianceVerify(input, cwd);
         case "brag":
             return callBrag(input, cwd);
+        case "battle":
+            return callBattle(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -2407,6 +2485,10 @@ export function applyResultOptions(result, input) {
 function summarizeResult(value) {
     if (typeof value.index === "number") {
         return `oc-pilot: Slop Index ${value.index}/100 (${String(value.grade ?? "unknown")})`;
+    }
+    if (typeof value.status === "string" && Array.isArray(value.rounds)) {
+        const rounds = String(value.rounds.length);
+        return `oc-pilot: battle ${value.status}, ${rounds} round${rounds === "1" ? "" : "s"}`;
     }
     if (typeof value.chars === "number" && typeof value.budget === "number" && Array.isArray(value.files)) {
         const files = String(value.files.length);
@@ -2620,6 +2702,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "test_plan" tool with strategy=affected and fail_on_uncovered=true on the current change. Run only the returned test files, not the whole suite. For every file in uncovered, add the smallest test that exercises the changed behavior or explain why it cannot be tested here. Do not lower the strategy, delete a test, or run the full suite just to hide an uncovered file. Rerun "test_plan" after adding tests and report the selected files, the reasons, the tests you ran and any remaining uncovered files.${suffix}`;
         case "prove-compliance":
             return `Call the oc-pilot "compliance_verify" tool for HEAD. A valid proof has ok=true, hashOk=true, chainOk=true, commitOk=true and a signature that is valid or unchecked because no public key is available. If the manifest is missing, create one with oc-pilot compliance (and sign it when a key exists), then verify again. Never edit a manifest, never reorder the chain and never claim completion while ok is false; report the exact reason and the commit.${suffix}`;
+        case "battle-hardening":
+            return `Call the oc-pilot "battle" tool with the task and apply=true when the server has write access. It alternates a coder patch with a hacker review plus SAST, authorization and test-weakening checks, and stops only when no high findings remain and the tests pass. Do not lower rounds, skip the hacker, or hide findings to reach a pass. If the status is fail or stopped, report the round, the finding source and the smallest next step. If the server is read-only, call battle without apply and show the proposed patch.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":

@@ -13,6 +13,7 @@ import { runBoundaries } from "./commands/boundaries.js";
 import { runTestPlan } from "./commands/test-plan.js";
 import { runCompliance } from "./commands/compliance.js";
 import { runBrag } from "./commands/brag.js";
+import { runBattleCommand } from "./commands/battle.js";
 import { runImpact } from "./commands/impact.js";
 import { runExplain } from "./commands/explain.js";
 import { runStats } from "./commands/stats.js";
@@ -71,6 +72,7 @@ const HANDLERS = {
     "test-plan": runTestPlan,
     compliance: runCompliance,
     brag: runBrag,
+    battle: runBattleCommand,
     preflight: runPreflight,
     receipt: runReceipt,
     ready: runReady,
@@ -119,6 +121,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   test-plan   Выбрать тесты, затронутые изменением, по графу импортов
   compliance  Подписанный аудит-манифест коммита: квитанция, проверки, SBOM
   brag        Локальная HTML-страница о работе: коммиты, запуски, находки
+  battle      Два агента: Coder чинит, Hacker ищет дыры, до чистого состояния
   preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
   ready       Оценить готовность репозитория к работе с ИИ-агентом
@@ -165,7 +168,8 @@ ${COMMON_HELP}
   oc-pilot boundaries --staged --fail-on-violation
   oc-pilot test-plan --staged --fail-on-uncovered
   oc-pilot compliance --sign --key receipt.key
-  oc-pilot brag --since-days 30 --out brag.html
+  oc-pilot brag --since-days 30 --output brag.html
+  oc-pilot battle "fix the retry logic" --apply --rounds 3
   oc-pilot sast --staged --fail-on-issue high
   oc-pilot authz --staged
   oc-pilot deps --json
@@ -213,7 +217,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

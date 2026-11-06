@@ -36,6 +36,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `test_plan` — select the test files affected by the diff from the import graph; report uncovered changed files and gate with `fail_on_uncovered`.
 - `compliance_verify` — verify the signed audit manifest for HEAD: hash, commit, previous-manifest chain and Ed25519 signature.
 - `brag` - self-contained HTML/SVG session report from stats, git history, last review and receipt; inline assets only, no model or network.
+- `battle` - experimental coder/hacker loop: the coder patches, the hacker reviews and runs SAST, authz and test-weakening checks until no high findings remain and tests pass.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -73,6 +74,7 @@ oc-pilot boundaries --staged --fail-on-violation
 oc-pilot test-plan --staged --fail-on-uncovered
 oc-pilot compliance --verify
 oc-pilot brag --since-days 30 --output brag.html
+oc-pilot battle "fix the retry logic" --apply --rounds 3
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

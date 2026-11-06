@@ -118,6 +118,12 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
                 method: "tools/call",
                 params: { name: "test_gen", arguments: { apply: true } },
             },
+            {
+                jsonrpc: "2.0",
+                id: 8,
+                method: "tools/call",
+                params: { name: "battle", arguments: { task: "x", apply: true } },
+            },
         ], []);
         assert.equal(status, 0, stderr);
         const byId = new Map(responses.map((response) => [response.id, response]));
@@ -142,6 +148,9 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
         const testGenResult = byId.get(7)?.result;
         assert.equal(testGenResult?.isError, true);
         assert.match(testGenResult?.content?.[0]?.text ?? "", /read-only/);
+        const battleResult = byId.get(8)?.result;
+        assert.equal(battleResult?.isError, true);
+        assert.match(battleResult?.content?.[0]?.text ?? "", /read-only/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
@@ -346,6 +355,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(brag.inputSchema.properties.since_days, "since_days missing on brag");
         assert.ok(brag.inputSchema.properties.no_paths, "no_paths missing on brag");
         assert.ok(brag.inputSchema.properties.svg, "svg missing on brag");
+        const battle = tools.find((tool) => tool.name === "battle");
+        assert.ok(battle, "battle tool missing");
+        assert.ok(battle.inputSchema.properties.task, "task missing on battle");
+        assert.ok(battle.inputSchema.properties.rounds, "rounds missing on battle");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
