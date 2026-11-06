@@ -73,6 +73,7 @@ test("skills document real commands and avoid placeholders", () => {
         "cinema",
         "bounty",
         "autopsy",
+        "echo",
     ]);
     for (const skill of skills) {
         for (const match of skill.body.matchAll(/oc-pilot ([a-z][a-z-]*)/g)) {
@@ -105,6 +106,7 @@ test("skills use only documented flags", () => {
         "--diff",
         "--dry-run",
         "--engine",
+        "--endpoint",
         "--exclude",
         "--exit-code",
         "--fail-on",
@@ -144,6 +146,7 @@ test("skills use only documented flags", () => {
         "--min-downloads",
         "--min-score",
         "--model",
+        "--name",
         "--no-cache",
         "--no-diff",
         "--no-paths",
@@ -171,8 +174,10 @@ test("skills use only documented flags", () => {
         "--since-days",
         "--staged",
         "--stats",
+        "--svg",
         "--stdin",
         "--strict",
+        "--submit",
         "--timeout",
         "--uninstall",
         "--unstaged",

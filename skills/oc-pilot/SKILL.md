@@ -42,6 +42,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `roast` — model-backed comedy roast with linus/ramsay/corporate/default personas; every joke cites file:line and ends with one real fix.
 - `cinema` — terminal timelapse of the session from commits, runs, API calls, last review and receipt; self-contained HTML player or asciinema v2 cast.
 - `autopsy` — forensic post-mortem for a commit: diff stats, SAST on added lines, weakened tests, mock leaks, ranked suspects and a before/after timeline; `--fail-on-risk` exits 1 on a dangerous verdict.
+- `echo` — self-contained SVG badges from local stats/git/receipt, with opt-in anonymous aggregate submit to an explicit endpoint; no network by default.
 - `bounty` — ASCII WANTED poster for the worst file scored from SAST, duplicates, dead exports, aged task comments and churn; deterministic and offline.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
@@ -87,6 +88,7 @@ oc-pilot roast --staged --persona linus
 oc-pilot cinema --since-days 30 --output cinema.html
 oc-pilot bounty --limit 10 --since-days 90
 oc-pilot autopsy HEAD~1 --depth 10
+oc-pilot echo --name my-team --svg --output badges.svg
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

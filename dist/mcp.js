@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "brag", "arch_diff", "cinema", "bounty", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "brag", "arch_diff", "cinema", "bounty", "autopsy", "echo", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -807,6 +807,23 @@ const TOOLS = [
         },
     },
     {
+        name: "echo",
+        description: "Build self-contained SVG badges from local stats, git history and the receipt: commits, agent runs, API calls, cache hits, findings and test status. With submit=true and an explicit endpoint it sends an anonymous aggregate payload containing only the nickname, window and stats; no paths, diffs or secrets. No network by default, no model call.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                name: { type: "string", description: "Nickname for the badges and the leaderboard payload (default anonymous)" },
+                since_days: { type: "integer", minimum: 1, maximum: 365, description: "History window in days (default 30)" },
+                submit: { type: "boolean", description: "Send the anonymous payload; requires endpoint and --allow-write" },
+                endpoint: { type: "string", description: "Explicit leaderboard endpoint for submit" },
+                svg: { type: "boolean", description: "Return only the combined SVG sheet" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1199,6 +1216,14 @@ const PROMPTS = [
         description: "Autopsy a commit: list the signals it introduced, rank the suspect files and read the before/after timeline to find where the protection was lost.",
         arguments: [
             { name: "context", description: "Which commit or failure to investigate", required: false },
+        ],
+    },
+    {
+        name: "share-progress",
+        title: "Share local progress",
+        description: "Build self-contained SVG badges from real local stats and the receipt, then submit the anonymous aggregate only after the user explicitly approves the endpoint.",
+        arguments: [
+            { name: "context", description: "What to highlight and where it may be shared", required: false },
         ],
     },
     {
@@ -2397,6 +2422,23 @@ async function callAutopsy(input, cwd) {
         args.push("--fail-on-risk");
     return toToolResult(await runCli(args, cwd));
 }
+async function callEcho(input, cwd) {
+    const args = ["echo", "--json"];
+    const name = stringArg(input, "name");
+    const sinceDays = integerArg(input, "since_days");
+    const endpoint = stringArg(input, "endpoint");
+    if (name)
+        args.push("--name", name);
+    if (sinceDays !== undefined)
+        args.push("--since-days", String(sinceDays));
+    if (booleanArg(input, "submit"))
+        args.push("--submit");
+    if (endpoint)
+        args.push("--endpoint", endpoint);
+    if (booleanArg(input, "svg"))
+        args.push("--svg");
+    return toToolResult(await runCli(args, cwd));
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -2642,6 +2684,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "cleanup" && booleanArg(input, "apply")) {
             throw new ToolInputError("cleanup apply rewrites package.json and is disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name === "echo" && booleanArg(input, "submit")) {
+            throw new ToolInputError("echo submit sends telemetry and is disabled in read-only mode; start the MCP server with --allow-write");
+        }
         if (name === "test_gen" && booleanArg(input, "apply")) {
             throw new ToolInputError("test_gen apply writes test files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
@@ -2718,6 +2763,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callBounty(input, cwd);
         case "autopsy":
             return callAutopsy(input, cwd);
+        case "echo":
+            return callEcho(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -2780,6 +2827,11 @@ export function applyResultOptions(result, input) {
 }
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value) {
+    if (Array.isArray(value.badges) && asObject(value.stats)) {
+        const stats = asObject(value.stats);
+        const name = typeof value.name === "string" ? value.name : "anonymous";
+        return `oc-pilot: ${String(value.badges.length)} badge(s) for ${name}, ${String(stats.commits ?? 0)} commits, ${String(stats.runs ?? 0)} runs`;
+    }
     if (typeof value.verdict === "string" && Array.isArray(value.signals) && asObject(value.commit)) {
         const commit = asObject(value.commit);
         const short = typeof commit.shortHash === "string" ? commit.shortHash : "unknown";
@@ -3039,6 +3091,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "bounty" tool with limit=5 and since_days=30. Present the WANTED poster as a playful but factual ranking, then explain the reasons behind the worst file in plain language and name the single highest-weight reason to fix first. Do not invent issues, shame people or paste the poster into a public channel without checking the file names; do not rewrite production code just to lower the score. After a fix, call "bounty" again and compare the score.${suffix}`;
         case "autopsy-commit":
             return `Call the oc-pilot "autopsy" tool for the commit (default HEAD) with depth=5 and fail_on_risk=true. Read the signals, the ranked suspects and the before/after timeline: identify which added line introduced each signal and which earlier commit removed a protection. Propose the smallest fix and the test that would have caught it. Do not blame authors, rewrite git history, hide signals or change the timeline; after the fix, call "autopsy" again and compare. Report the commit, verdict, signal file:line and timeline evidence.${suffix}`;
+        case "share-progress":
+            return `Call the oc-pilot "echo" tool with since_days=30 and the nickname the user chose. Show the SVG badges and the exact aggregate payload. Do not call submit=true unless the user explicitly approved the endpoint; the payload must contain only nickname, window and aggregates, never paths, diffs, secrets or finding text. If the user approves, call "echo" again with submit=true and that endpoint, then report the status. Never invent numbers, inflate badges or claim a leaderboard rank you did not receive.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":

@@ -130,6 +130,12 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
                 method: "tools/call",
                 params: { name: "cleanup", arguments: { apply: true } },
             },
+            {
+                jsonrpc: "2.0",
+                id: 10,
+                method: "tools/call",
+                params: { name: "echo", arguments: { submit: true, endpoint: "https://example.com/echo" } },
+            },
         ], []);
         assert.equal(status, 0, stderr);
         const byId = new Map(responses.map((response) => [response.id, response]));
@@ -160,6 +166,9 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
         const cleanupResult = byId.get(9)?.result;
         assert.equal(cleanupResult?.isError, true);
         assert.match(cleanupResult?.content?.[0]?.text ?? "", /read-only/);
+        const echoResult = byId.get(10)?.result;
+        assert.equal(echoResult?.isError, true);
+        assert.match(echoResult?.content?.[0]?.text ?? "", /read-only/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
@@ -394,6 +403,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(autopsy.inputSchema.properties.commit, "commit missing on autopsy");
         assert.ok(autopsy.inputSchema.properties.depth, "depth missing on autopsy");
         assert.ok(autopsy.inputSchema.properties.fail_on_risk, "fail_on_risk missing on autopsy");
+        const echo = tools.find((tool) => tool.name === "echo");
+        assert.ok(echo, "echo tool missing");
+        assert.ok(echo.inputSchema.properties.name, "name missing on echo");
+        assert.ok(echo.inputSchema.properties.submit, "submit missing on echo");
+        assert.ok(echo.inputSchema.properties.endpoint, "endpoint missing on echo");
+        assert.ok(echo.inputSchema.properties.svg, "svg missing on echo");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1222,6 +1237,43 @@ test("MCP autopsy finds a dangerous commit", () => {
         assert.equal(result?.structuredContent?.verdict, "dangerous");
         assert.ok((result?.structuredContent?.signals?.length ?? 0) >= 1);
         assert.match(result?.content?.[0]?.text ?? "", /autopsy dangerous for/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP echo builds badges without submitting", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-echo-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+        spawnSync("git", ["config", "user.name", "Test"], { cwd: dir });
+        writeFileSync(join(dir, "app.ts"), "export const value = 1;\n", "utf8");
+        spawnSync("git", ["add", "."], { cwd: dir });
+        spawnSync("git", ["commit", "-m", "init"], { cwd: dir });
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: { name: "echo", arguments: { name: "tester", since_days: 30, verbosity: "compact" } },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 0);
+        assert.equal(result?.structuredContent?.name, "tester");
+        assert.equal(result?.structuredContent?.badges?.length, 6);
+        assert.equal(result?.structuredContent?.stats?.commits, 1);
+        assert.equal(result?.structuredContent?.submitted, false);
+        assert.match(result?.structuredContent?.content ?? "", /<svg/);
+        assert.match(result?.content?.[0]?.text ?? "", /6 badge\(s\) for tester, 1 commits, 0 runs/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
