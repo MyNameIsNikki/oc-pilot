@@ -11,6 +11,7 @@ import { runContractDrift } from "./commands/contract-drift.js";
 import { runAntiRegression } from "./commands/anti-regression.js";
 import { runBoundaries } from "./commands/boundaries.js";
 import { runTestPlan } from "./commands/test-plan.js";
+import { runCompliance } from "./commands/compliance.js";
 import { runImpact } from "./commands/impact.js";
 import { runExplain } from "./commands/explain.js";
 import { runStats } from "./commands/stats.js";
@@ -67,6 +68,7 @@ const HANDLERS = {
     "anti-regression": runAntiRegression,
     boundaries: runBoundaries,
     "test-plan": runTestPlan,
+    compliance: runCompliance,
     preflight: runPreflight,
     receipt: runReceipt,
     ready: runReady,
@@ -113,6 +115,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   anti-regression  Повторно добавленные строки, которые человек уже удалял
   boundaries  Границы слоёв: запрещённые импорты между модулями
   test-plan   Выбрать тесты, затронутые изменением, по графу импортов
+  compliance  Подписанный аудит-манифест коммита: квитанция, проверки, SBOM
   preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
   ready       Оценить готовность репозитория к работе с ИИ-агентом
@@ -158,6 +161,7 @@ ${COMMON_HELP}
   oc-pilot boundaries --init
   oc-pilot boundaries --staged --fail-on-violation
   oc-pilot test-plan --staged --fail-on-uncovered
+  oc-pilot compliance --sign --key receipt.key
   oc-pilot sast --staged --fail-on-issue high
   oc-pilot authz --staged
   oc-pilot deps --json
@@ -205,7 +209,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, contract-drift, anti-regression, boundaries, test-plan, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, contract-drift, anti-regression, boundaries, test-plan, compliance, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

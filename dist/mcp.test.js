@@ -337,6 +337,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(testPlan.inputSchema.properties.strategy, "strategy missing on test_plan");
         assert.ok(testPlan.inputSchema.properties.max_tests, "max_tests missing on test_plan");
         assert.ok(testPlan.inputSchema.properties.fail_on_uncovered, "fail_on_uncovered missing on test_plan");
+        const complianceVerify = tools.find((tool) => tool.name === "compliance_verify");
+        assert.ok(complianceVerify, "compliance_verify tool missing");
+        assert.ok(complianceVerify.inputSchema.properties.manifest, "manifest missing on compliance_verify");
+        assert.ok(complianceVerify.inputSchema.properties.public_key, "public_key missing on compliance_verify");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1090,6 +1094,43 @@ test("MCP test_plan selects tests from the import graph", () => {
         assert.ok(files.includes("src/wallet.test.ts"), `tests: ${files.join(", ")}`);
         assert.ok(files.includes("src/checkout.test.ts"), `tests: ${files.join(", ")}`);
         assert.match(result?.content?.[0]?.text ?? "", /2 test files selected, 0 uncovered changed files/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP compliance_verify accepts a manifest for HEAD", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-compliance-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+        spawnSync("git", ["config", "user.name", "Test"], { cwd: dir });
+        writeFileSync(join(dir, "app.ts"), "export const value = 1;\n", "utf8");
+        spawnSync("git", ["add", "."], { cwd: dir });
+        spawnSync("git", ["commit", "-m", "init"], { cwd: dir });
+        const created = spawnSync(process.execPath, [CLI, "compliance", "--json"], { cwd: dir, encoding: "utf8" });
+        assert.equal(created.status, 0, created.stderr);
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: { name: "compliance_verify", arguments: { verbosity: "compact" } },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 0);
+        assert.equal(result?.structuredContent?.verification?.ok, true);
+        assert.equal(result?.structuredContent?.verification?.hashOk, true);
+        assert.equal(result?.structuredContent?.verification?.chainOk, true);
+        assert.match(result?.content?.[0]?.text ?? "", /compliance ok for/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -680,6 +680,21 @@ const TOOLS = [
     },
   },
   {
+    name: "compliance_verify",
+    description:
+      "Verify the signed compliance manifest for the current commit: recompute its SHA-256 hash, compare the recorded commit with HEAD, check the previous-manifest hash chain and the Ed25519 signature. Read-only and offline. A missing, edited or broken-chain manifest returns exit code 1 with ok=false, not a tool error.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        manifest: { type: "string", description: "Path to a manifest; defaults to .oc-pilot/compliance/latest.json" },
+        public_key: { type: "string", description: "Public key file for the signature check; defaults to .oc-pilot/receipt.pub" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -1038,6 +1053,15 @@ const PROMPTS = [
       "Select only the test files the change can affect using the import graph, then run them and cover any changed file the plan marks as untested.",
     arguments: [
       { name: "context", description: "What changed and what risk the tests should cover", required: false },
+    ],
+  },
+  {
+    name: "prove-compliance",
+    title: "Prove the audit trail",
+    description:
+      "Verify the signed compliance manifest for HEAD, explain any broken hash, chain or signature, and refuse to claim completion while the proof is invalid.",
+    arguments: [
+      { name: "context", description: "What was shipped and what the audit must prove", required: false },
     ],
   },
   {
@@ -1899,6 +1923,15 @@ async function callTestPlan(input: JsonObject, cwd: string): Promise<ToolResult>
   }
 }
 
+async function callComplianceVerify(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const args = ["compliance", "--verify", "--json"];
+  const manifest = stringArg(input, "manifest");
+  const publicKey = stringArg(input, "public_key");
+  if (manifest) args.push("--manifest", manifest);
+  if (publicKey) args.push("--public-key", publicKey);
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2140,6 +2173,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callBoundaries(input, cwd);
     case "test_plan":
       return callTestPlan(input, cwd);
+    case "compliance_verify":
+      return callComplianceVerify(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -2219,6 +2254,12 @@ function summarizeResult(value: JsonObject): string {
     const files = String(value.files.length);
     const state = value.truncated === true ? "truncated" : "within budget";
     return `oc-pilot: ${files} file${files === "1" ? "" : "s"}, ${String(value.chars)} chars (${state})`;
+  }
+  const verification = asObject(value.verification);
+  if (verification && typeof verification.ok === "boolean") {
+    const state = verification.ok ? "ok" : "failed";
+    const commit = typeof verification.commit === "string" ? verification.commit.slice(0, 12) : "unknown";
+    return `oc-pilot: compliance ${state} for ${commit}`;
   }
   if (typeof value.strategy === "string" && Array.isArray(value.tests) && Array.isArray(value.uncovered)) {
     const tests = String(value.tests.length);
@@ -2419,6 +2460,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "boundaries" tool with fail_on_violation=true. If it reports violations, fix the dependency direction instead of widening the rule: move shared logic behind a service or interface, inject the dependency, or move the file into the allowed layer. Change .oc-pilot/architecture.json only when the architecture intentionally changed, and say why. Never rename or ignore an import just to dodge the check. Rerun until it passes and report each violation, the file:line and the fix.${suffix}`;
     case "plan-tests":
       return `Call the oc-pilot "test_plan" tool with strategy=affected and fail_on_uncovered=true on the current change. Run only the returned test files, not the whole suite. For every file in uncovered, add the smallest test that exercises the changed behavior or explain why it cannot be tested here. Do not lower the strategy, delete a test, or run the full suite just to hide an uncovered file. Rerun "test_plan" after adding tests and report the selected files, the reasons, the tests you ran and any remaining uncovered files.${suffix}`;
+    case "prove-compliance":
+      return `Call the oc-pilot "compliance_verify" tool for HEAD. A valid proof has ok=true, hashOk=true, chainOk=true, commitOk=true and a signature that is valid or unchecked because no public key is available. If the manifest is missing, create one with oc-pilot compliance (and sign it when a key exists), then verify again. Never edit a manifest, never reorder the chain and never claim completion while ok is false; report the exact reason and the commit.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":
