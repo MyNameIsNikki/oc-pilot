@@ -59,6 +59,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
             "verify-ecosystem",
             "pack-context",
             "check-contracts",
+            "guard-regressions",
             "prove-tests",
             "prove-done",
         ]);

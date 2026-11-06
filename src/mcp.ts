@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -602,6 +602,33 @@ const TOOLS = [
     },
   },
   {
+    name: "anti_regression",
+    description:
+      "Compare added lines with lines a human explicitly deleted in git history and cite the deleting commit. Skips tests and generated files, so it catches logic and imports re-added against an earlier decision. Offline and free of model calls; fail_on_regression returns exit code 1 when a match is found.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Check git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Only staged changes" },
+        unstaged: { type: "boolean", description: "Only unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files" },
+        max_commits: {
+          type: "integer",
+          minimum: 1,
+          maximum: 5000,
+          description: "How far back to read git history (default 200)",
+        },
+        since: { type: "string", description: "Only inspect deletions since this date, e.g. 2025-01-01" },
+        fail_on_regression: { type: "boolean", description: "Return exit code 1 when a re-added line is found" },
+        paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -933,6 +960,15 @@ const PROMPTS = [
       "Find removed or narrowed fields in changed types and schemas, inspect every remaining consumer and update the contract without silently breaking callers.",
     arguments: [
       { name: "context", description: "Which API or schema changed", required: false },
+    ],
+  },
+  {
+    name: "guard-regressions",
+    title: "Do not re-add deleted code",
+    description:
+      "Compare added lines with code a human explicitly deleted, inspect the deleting commit and reintroduce a line only with an explicit reason.",
+    arguments: [
+      { name: "context", description: "Why the line is being added again", required: false },
     ],
   },
   {
@@ -1725,6 +1761,29 @@ async function callContractDrift(input: JsonObject, cwd: string): Promise<ToolRe
   }
 }
 
+async function callAntiRegression(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["anti-regression", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    const maxCommits = integerArg(input, "max_commits");
+    if (maxCommits !== undefined) args.push("--max-commits", String(maxCommits));
+    const since = stringArg(input, "since");
+    if (since) args.push("--since", since);
+    if (booleanArg(input, "fail_on_regression")) args.push("--fail-on-regression");
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -1960,6 +2019,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callPack(input, cwd);
     case "contract_drift":
       return callContractDrift(input, cwd);
+    case "anti_regression":
+      return callAntiRegression(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -2045,6 +2106,16 @@ function summarizeResult(value: JsonObject): string {
     const missing = String(value.missing.length);
     const undocumented = String(value.undocumented.length);
     return `oc-pilot: ${references} env reference${references === "1" ? "" : "s"}, ${missing} missing, ${undocumented} undocumented`;
+  }
+  if (Array.isArray(value.findings) && typeof value.checkedLines === "number") {
+    const hashes = new Set<string>();
+    for (const finding of value.findings) {
+      const commit = asObject(asObject(finding)?.commit);
+      if (typeof commit?.hash === "string") hashes.add(commit.hash);
+    }
+    const lines = String(value.findings.length);
+    const commits = String(hashes.size);
+    return `oc-pilot: ${lines} re-added line${lines === "1" ? "" : "s"}, ${commits} commit${commits === "1" ? "" : "s"}`;
   }
   const counts = asObject(value.counts);
   if (
@@ -2213,6 +2284,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "pack" tool with the task and the current diff. Use only the returned bundle instead of dumping whole files into the prompt, and ask for more context only when a named signature or file is missing. Do not treat the pack as proof that the code is correct; run the checks after the change.${suffix}`;
     case "check-contracts":
       return `Call the oc-pilot "contract_drift" tool on the current diff with fail_on_drift=high. For every finding, inspect the listed consumers and either update them to the new shape or keep a compatible field, alias or migration. Do not silently rename or delete a field, and do not edit the contract only to make the report empty. Rerun "contract_drift" until no high findings remain, then report each contract, field, consumer and the compatibility decision.${suffix}`;
+    case "guard-regressions":
+      return `Call the oc-pilot "anti_regression" tool on the current diff with fail_on_regression=true. Every finding is a line a human already deleted, with the commit that removed it. Read that commit and the surrounding change before deciding: reintroduce the line only when the original reason no longer applies or the task explicitly requires it, and say why. Never rewrite the line only to dodge the exact match, never rewrite git history, and never suppress the finding. Rerun until status is pass, then report each commit, file:line and the decision.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":

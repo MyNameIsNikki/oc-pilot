@@ -323,6 +323,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(contractDrift, "contract_drift tool missing");
         assert.ok(contractDrift.inputSchema.properties.fail_on_drift, "fail_on_drift missing on contract_drift");
         assert.ok(contractDrift.inputSchema.properties.staged, "staged missing on contract_drift");
+        const antiRegression = tools.find((tool) => tool.name === "anti_regression");
+        assert.ok(antiRegression, "anti_regression tool missing");
+        assert.ok(antiRegression.inputSchema.properties.max_commits, "max_commits missing on anti_regression");
+        assert.ok(antiRegression.inputSchema.properties.since, "since missing on anti_regression");
+        assert.ok(antiRegression.inputSchema.properties.fail_on_regression, "fail_on_regression missing on anti_regression");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1026,6 +1031,64 @@ test("MCP contract_drift flags a removed field still used by a consumer", () => 
         assert.equal(finding?.severity, "high");
         assert.equal(finding?.references?.[0]?.file, "src/billing.ts");
         assert.match(result?.content?.[0]?.text ?? "", /1 contract drift, 1 high, 0 medium/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP anti_regression cites the commit that deleted a re-added line", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-regression-"));
+    try {
+        const git = (args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+        git(["init", "-q"]);
+        git(["config", "user.email", "test@example.com"]);
+        git(["config", "user.name", "Test"]);
+        mkdirSync(join(dir, "src"), { recursive: true });
+        const file = join(dir, "src", "wallet.ts");
+        writeFileSync(file, "export function charge(amount: number) {\n  return amount * 2;\n}\n", "utf8");
+        git(["add", "."]);
+        git(["commit", "-m", "add doubling"]);
+        writeFileSync(file, "export function charge(amount: number) {\n  return amount;\n}\n", "utf8");
+        git(["add", "."]);
+        git(["commit", "-m", "stop doubling"]);
+        const diff = [
+            "diff --git a/src/wallet.ts b/src/wallet.ts",
+            "--- a/src/wallet.ts",
+            "+++ b/src/wallet.ts",
+            "@@ -1,3 +1,3 @@",
+            " export function charge(amount: number) {",
+            "-  return amount;",
+            "+  return amount * 2;",
+            " }",
+            "",
+        ].join("\n");
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: {
+                    name: "anti_regression",
+                    arguments: { diff, fail_on_regression: true, verbosity: "compact" },
+                },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 1);
+        assert.equal(result?.structuredContent?.status, "fail");
+        const finding = result?.structuredContent?.findings?.[0];
+        assert.equal(finding?.kind, "readded-line");
+        assert.equal(finding?.file, "src/wallet.ts");
+        assert.equal(finding?.line, 2);
+        assert.match(finding?.commit?.subject ?? "", /stop doubling/);
+        assert.match(result?.content?.[0]?.text ?? "", /1 re-added line, 1 commit/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

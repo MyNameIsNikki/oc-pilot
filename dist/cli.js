@@ -8,6 +8,7 @@ import { runMockLeak } from "./commands/mock-leak.js";
 import { runCoverage } from "./commands/coverage.js";
 import { runPack } from "./commands/pack.js";
 import { runContractDrift } from "./commands/contract-drift.js";
+import { runAntiRegression } from "./commands/anti-regression.js";
 import { runImpact } from "./commands/impact.js";
 import { runExplain } from "./commands/explain.js";
 import { runStats } from "./commands/stats.js";
@@ -61,6 +62,7 @@ const HANDLERS = {
     coverage: runCoverage,
     pack: runPack,
     "contract-drift": runContractDrift,
+    "anti-regression": runAntiRegression,
     preflight: runPreflight,
     receipt: runReceipt,
     ready: runReady,
@@ -104,6 +106,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   coverage    Покрытие изменённых строк: непокрытые строки и гейт
   pack        Собрать компактный контекст задачи: подписи, связи, правила
   contract-drift  Дрейф контрактов: удалённые поля, типы, потребители
+  anti-regression  Повторно добавленные строки, которые человек уже удалял
   preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
   ready       Оценить готовность репозитория к работе с ИИ-агентом
@@ -144,7 +147,8 @@ ${COMMON_HELP}
   oc-pilot env-sync --staged --fail-on-missing
   oc-pilot mock-leak --staged --fail-on-leak high
   oc-pilot pack "fix the login redirect" --staged --budget 12000
-oc-pilot contract-drift --staged --fail-on-drift high
+  oc-pilot contract-drift --staged --fail-on-drift high
+  oc-pilot anti-regression --staged --fail-on-regression
   oc-pilot sast --staged --fail-on-issue high
   oc-pilot authz --staged
   oc-pilot deps --json
@@ -192,7 +196,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, contract-drift, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, contract-drift, anti-regression, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }
