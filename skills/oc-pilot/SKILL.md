@@ -35,6 +35,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `boundaries` - added imports checked against `.oc-pilot/architecture.json` layer rules, with file, line and rule reason.
 - `test_plan` — select the test files affected by the diff from the import graph; report uncovered changed files and gate with `fail_on_uncovered`.
 - `compliance_verify` — verify the signed audit manifest for HEAD: hash, commit, previous-manifest chain and Ed25519 signature.
+- `brag` - self-contained HTML/SVG session report from stats, git history, last review and receipt; inline assets only, no model or network.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -71,6 +72,7 @@ oc-pilot anti-regression --staged --fail-on-regression
 oc-pilot boundaries --staged --fail-on-violation
 oc-pilot test-plan --staged --fail-on-uncovered
 oc-pilot compliance --verify
+oc-pilot brag --since-days 30 --output brag.html
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

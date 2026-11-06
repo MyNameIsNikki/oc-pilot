@@ -416,6 +416,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(complianceVerify.inputSchema.properties.manifest, "manifest missing on compliance_verify");
     assert.ok(complianceVerify.inputSchema.properties.public_key, "public_key missing on compliance_verify");
 
+    const brag = tools.find((tool) => tool.name === "brag");
+    assert.ok(brag, "brag tool missing");
+    assert.ok(brag.inputSchema.properties.since_days, "since_days missing on brag");
+    assert.ok(brag.inputSchema.properties.no_paths, "no_paths missing on brag");
+    assert.ok(brag.inputSchema.properties.svg, "svg missing on brag");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1419,6 +1425,52 @@ test("MCP test_plan selects tests from the import graph", () => {
     assert.match(
       (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
       /2 test files selected, 0 uncovered changed files/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP brag returns a self-contained session report", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-brag-"));
+  try {
+    const git = (args: string[]) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    git(["init", "-q"]);
+    git(["config", "user.email", "test@example.com"]);
+    git(["config", "user.name", "Test"]);
+    writeFileSync(join(dir, "app.ts"), "export const answer = 42;\n", "utf8");
+    git(["add", "."]);
+    git(["commit", "-m", "init"]);
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "brag", arguments: { title: "demo", since_days: 30, verbosity: "compact" } },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: { content?: string; stats?: { commits?: number } };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 0);
+    assert.match(result?.structuredContent?.content ?? "", /<html/i);
+    assert.equal(result?.structuredContent?.stats?.commits, 1);
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /1 commits, 0 runs, 0 findings \(HTML\)/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

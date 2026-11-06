@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "brag", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -690,6 +690,24 @@ const TOOLS = [
       properties: {
         manifest: { type: "string", description: "Path to a manifest; defaults to .oc-pilot/compliance/latest.json" },
         public_key: { type: "string", description: "Public key file for the signature check; defaults to .oc-pilot/receipt.pub" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
+    name: "brag",
+    description:
+      "Build a self-contained HTML or SVG session report from local stats, git history, the last review and the receipt: commits, lines, runs, model calls, cache hits, findings and proof. No network, no external assets, no model call. With no_paths it hides file paths and finding locations.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        title: { type: "string", description: "Report title" },
+        watermark: { type: "string", description: "Footer watermark" },
+        no_paths: { type: "boolean", description: "Hide file paths and finding locations" },
+        since_days: { type: "integer", minimum: 1, maximum: 365, description: "History window in days (default 7)" },
+        svg: { type: "boolean", description: "Return standalone SVG instead of HTML" },
         ...RESULT_PROPERTIES,
       },
     },
@@ -1932,6 +1950,19 @@ async function callComplianceVerify(input: JsonObject, cwd: string): Promise<Too
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callBrag(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const args = ["brag", "--json"];
+  const title = stringArg(input, "title");
+  const watermark = stringArg(input, "watermark");
+  const sinceDays = integerArg(input, "since_days");
+  if (title) args.push("--title", title);
+  if (watermark) args.push("--watermark", watermark);
+  if (booleanArg(input, "no_paths")) args.push("--no-paths");
+  if (sinceDays !== undefined) args.push("--since-days", String(sinceDays));
+  if (booleanArg(input, "svg")) args.push("--svg");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2175,6 +2206,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callTestPlan(input, cwd);
     case "compliance_verify":
       return callComplianceVerify(input, cwd);
+    case "brag":
+      return callBrag(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -2254,6 +2287,16 @@ function summarizeResult(value: JsonObject): string {
     const files = String(value.files.length);
     const state = value.truncated === true ? "truncated" : "within budget";
     return `oc-pilot: ${files} file${files === "1" ? "" : "s"}, ${String(value.chars)} chars (${state})`;
+  }
+  const reportStats = asObject(value.stats);
+  if (reportStats && typeof reportStats.commits === "number" && typeof reportStats.runs === "number" && typeof value.content === "string") {
+    const findings = asObject(reportStats.findings);
+    const total =
+      (typeof findings?.critical === "number" ? findings.critical : 0) +
+      (typeof findings?.warning === "number" ? findings.warning : 0) +
+      (typeof findings?.style === "number" ? findings.style : 0);
+    const format = value.content.trimStart().startsWith("<svg") ? "SVG" : "HTML";
+    return `oc-pilot: ${String(reportStats.commits)} commits, ${String(reportStats.runs)} runs, ${String(total)} findings (${format})`;
   }
   const verification = asObject(value.verification);
   if (verification && typeof verification.ok === "boolean") {
