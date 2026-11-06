@@ -372,6 +372,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(cleanup, "cleanup tool missing");
         assert.ok(cleanup.inputSchema.properties.apply, "apply missing on cleanup");
         assert.ok(cleanup.inputSchema.properties.fail_on_task, "fail_on_task missing on cleanup");
+        const archDiff = tools.find((tool) => tool.name === "arch_diff");
+        assert.ok(archDiff, "arch_diff tool missing");
+        assert.ok(archDiff.inputSchema.properties.max_edges, "max_edges missing on arch_diff");
+        assert.ok(archDiff.inputSchema.properties.fail_on_removed, "fail_on_removed missing on arch_diff");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1356,6 +1360,54 @@ test("MCP ecosystem_verify flags an invented export", () => {
         assert.deepEqual(result?.structuredContent?.packages?.[0]?.missingExports, ["invented"]);
         assert.equal(result?.structuredContent?.issues?.[0]?.kind, "missing-export");
         assert.match(result?.content?.[0]?.text ?? "", /1 ecosystem issue, 1 high, 0 medium/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP arch_diff renders added and removed internal imports", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-arch-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        mkdirSync(join(dir, "src"), { recursive: true });
+        writeFileSync(join(dir, "src", "a.ts"), 'import { c } from "./c";\n\nexport const a = c;\n', "utf8");
+        writeFileSync(join(dir, "src", "b.ts"), "export const b = 1;\n", "utf8");
+        writeFileSync(join(dir, "src", "c.ts"), "export const c = 1;\n", "utf8");
+        const diff = [
+            "diff --git a/src/a.ts b/src/a.ts",
+            "--- a/src/a.ts",
+            "+++ b/src/a.ts",
+            "@@ -1,3 +1,3 @@",
+            '-import { c } from "./c";',
+            '+import { b } from "./b";',
+            " ",
+            " export const a = c;",
+            "",
+        ].join("\n");
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: {
+                    name: "arch_diff",
+                    arguments: { diff, fail_on_removed: true, verbosity: "compact" },
+                },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 1);
+        assert.equal(result?.structuredContent?.added?.[0]?.to, "src/b.ts");
+        assert.equal(result?.structuredContent?.removed?.[0]?.to, "src/c.ts");
+        assert.match(result?.structuredContent?.diagram ?? "", /flowchart LR/);
+        assert.match(result?.content?.[0]?.text ?? "", /1 added edge, 1 removed edge/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

@@ -147,6 +147,11 @@ export function buildImportGraph(cwd, sourceFiles) {
     }
     return { files: [...paths].sort(), edges, reverse };
 }
+/** Resolves one specifier from a file, including tsconfig aliases. */
+export function resolveImportSpecifier(cwd, file, specifier, files) {
+    const paths = files ?? new Set(readRepository(cwd).files.map((entry) => entry.path));
+    return resolveSpecifier(file, specifier, paths, readAliases(cwd));
+}
 /** All files that transitively import one of the changed files. */
 export function reverseClosure(graph, changed) {
     const result = new Set();

@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "brag", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "brag", "arch_diff", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -764,6 +764,27 @@ const TOOLS = [
     },
   },
   {
+    name: "arch_diff",
+    description:
+      "Render a Mermaid diagram of architectural import changes in the diff: added internal dependencies in green and removed ones in red. Uses the static import graph, never calls a model, and is safe in read-only mode.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Analyze git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Analyze staged changes" },
+        unstaged: { type: "boolean", description: "Analyze unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files when diffing" },
+        max_edges: { type: "integer", minimum: 1, maximum: 2000, description: "Cap the rendered edges (default 200)" },
+        fail_on_removed: { type: "boolean", description: "Return exit code 1 when an internal dependency was removed" },
+        paths: { type: "array", items: { type: "string" } },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -1149,6 +1170,15 @@ const PROMPTS = [
       "Build an offline cleanup plan from dependency issues, safe package.json fixes, Slop Index, environment variables and weakened tests, then fix the cheapest high tasks first.",
     arguments: [
       { name: "context", description: "What area should be cleaned up first", required: false },
+    ],
+  },
+  {
+    name: "show-arch-diff",
+    title: "Show the architecture change",
+    description:
+      "Render a Mermaid diagram of added and removed internal dependencies, include it in the pull request and explain every removed edge instead of hiding it.",
+    arguments: [
+      { name: "context", description: "What the architectural change is supposed to do", required: false },
     ],
   },
   {
@@ -2082,6 +2112,27 @@ async function callCleanup(input: JsonObject, cwd: string): Promise<ToolResult> 
   }
 }
 
+async function callArchDiff(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["arch-diff", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    const maxEdges = integerArg(input, "max_edges");
+    if (maxEdges !== undefined) args.push("--max-edges", String(maxEdges));
+    if (booleanArg(input, "fail_on_removed")) args.push("--fail-on-removed");
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2337,6 +2388,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callBattle(input, cwd);
     case "cleanup":
       return callCleanup(input, cwd);
+    case "arch_diff":
+      return callArchDiff(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -2411,6 +2464,11 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 function summarizeResult(value: JsonObject): string {
   if (typeof value.index === "number") {
     return `oc-pilot: Slop Index ${value.index}/100 (${String(value.grade ?? "unknown")})`;
+  }
+  if (Array.isArray(value.added) && Array.isArray(value.removed) && typeof value.diagram === "string") {
+    const added = String(value.added.length);
+    const removed = String(value.removed.length);
+    return `oc-pilot: ${added} added edge${added === "1" ? "" : "s"}, ${removed} removed edge${removed === "1" ? "" : "s"}`;
   }
   if (Array.isArray(value.tasks) && asObject(value.counts)) {
     const counts = asObject(value.counts)!;
@@ -2646,6 +2704,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "battle" tool with the task and apply=true when the server has write access. It alternates a coder patch with a hacker review plus SAST, authorization and test-weakening checks, and stops only when no high findings remain and the tests pass. Do not lower rounds, skip the hacker, or hide findings to reach a pass. If the status is fail or stopped, report the round, the finding source and the smallest next step. If the server is read-only, call battle without apply and show the proposed patch.${suffix}`;
     case "cleanup-plan":
       return `Call the oc-pilot "cleanup" tool with fail_on_task=high. Fix the high and medium tasks in order: dependency issues and safe package.json fixes first, then environment variables, weakened tests and the Slop Index. Use apply=true only for the safe dependency fixes and only when the server is writable; for code changes make the smallest real fix yourself. Do not delete tests, suppress environment variables, ignore dependencies or lower the gate to get a pass. Rerun "cleanup" and report the applied fixes and the tasks that still need a human.${suffix}`;
+    case "show-arch-diff":
+      return `Call the oc-pilot "arch_diff" tool on the current diff. Put the returned Mermaid block into the pull request description so reviewers see the architecture change: green edges were added, red dashed edges were removed. For every removed edge, explain why the dependency disappeared and whether the behavior moved elsewhere. Do not hide a removed edge, hand-edit the diagram or widen max_edges only to make the picture look smaller. If the tool reports truncation, say so.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":
