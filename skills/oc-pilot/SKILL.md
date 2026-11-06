@@ -26,6 +26,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `coverage` - changed lines missing from a local lcov, Istanbul, Cobertura or Go coverage report, with an optional gate.
 - `reviewers` — authors who touched the changed files plus CODEOWNERS owners; accepts `limit`, `depth` and `exclude`.
 - `test_guard` — offline test-weakening guard: skipped/focused/deleted tests, removed assertions, matcher downgrades, `@ts-ignore`, empty catch.
+- `env_sync` — environment variables added by the diff against `.env` and `.env.example`: missing definitions and undocumented keys.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -53,6 +54,7 @@ oc-pilot deps --audit
 oc-pilot coverage --staged --coverage-file coverage/lcov.info --fail-under 80
 oc-pilot reviewers --base main
 oc-pilot test-guard --staged --fail-on-weakening
+oc-pilot env-sync --staged --fail-on-missing
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

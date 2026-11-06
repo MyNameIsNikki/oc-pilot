@@ -366,6 +366,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(testGuard.inputSchema.properties.fail_on_weakening, "fail_on_weakening missing on test_guard");
     assert.ok(testGuard.inputSchema.properties.staged, "staged missing on test_guard");
 
+    const envSync = tools.find((tool) => tool.name === "env_sync");
+    assert.ok(envSync, "env_sync tool missing");
+    assert.ok(envSync.inputSchema.properties.fail_on_missing, "fail_on_missing missing on env_sync");
+    assert.ok(envSync.inputSchema.properties.staged, "staged missing on env_sync");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1036,6 +1041,69 @@ test("MCP test_guard flags a weakened matcher", () => {
     assert.match(
       (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
       /1 test weakening finding, status fail/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP env_sync reports a missing environment variable", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-env-"));
+  try {
+    writeFileSync(join(dir, ".env"), "EXISTING_KEY=value\n", "utf8");
+    writeFileSync(join(dir, ".env.example"), "EXISTING_KEY=\n", "utf8");
+    const diff = [
+      "diff --git a/src/config.ts b/src/config.ts",
+      "--- a/src/config.ts",
+      "+++ b/src/config.ts",
+      "@@ -1,2 +1,3 @@",
+      " const existing = process.env.EXISTING_KEY;",
+      "+const missing = process.env.MISSING_KEY;",
+      " export { existing, missing };",
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "env_sync",
+          arguments: { diff, fail_on_missing: true, verbosity: "compact" },
+        },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: {
+            status?: string;
+            references?: Array<{ name?: string; line?: number }>;
+            missing?: string[];
+            undocumented?: string[];
+          };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 1);
+    assert.equal(result?.structuredContent?.status, "fail");
+    assert.deepEqual(result?.structuredContent?.missing, ["MISSING_KEY"]);
+    assert.deepEqual(result?.structuredContent?.undocumented, []);
+    assert.equal(result?.structuredContent?.references?.length, 1);
+    assert.equal(result?.structuredContent?.references?.[0]?.name, "MISSING_KEY");
+    assert.equal(result?.structuredContent?.references?.[0]?.line, 2);
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /1 env reference, 1 missing, 0 undocumented/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

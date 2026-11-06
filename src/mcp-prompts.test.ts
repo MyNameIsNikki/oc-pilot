@@ -75,6 +75,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
       "generate-tests",
       "pick-reviewers",
       "guard-tests",
+      "sync-env",
       "prove-tests",
       "prove-done",
     ]);

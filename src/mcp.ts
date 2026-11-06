@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -478,6 +478,26 @@ const TOOLS = [
     },
   },
   {
+    name: "env_sync",
+    description:
+      "Offline audit of environment variables added by the diff: every process.env, import.meta.env, Deno.env and Bun.env reference is checked against the local .env files and the .env.example/.sample/.template documentation. Reports variables that are referenced but not defined and ones defined but not documented. Read-only and free of model calls; missing variables return exit code 1 only when fail_on_missing is set.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Check git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Only staged changes" },
+        unstaged: { type: "boolean", description: "Only unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files" },
+        fail_on_missing: { type: "boolean", description: "Return exit code 1 when a referenced variable is not defined" },
+        paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -764,6 +784,15 @@ const PROMPTS = [
       "Find skipped, focused or deleted tests, removed assertions, weakened matchers, suppressed type checks and swallowed assertions, then fix the cause without hiding it.",
     arguments: [
       { name: "context", description: "Why the tests changed and what they should protect", required: false },
+    ],
+  },
+  {
+    name: "sync-env",
+    title: "Sync the environment variables",
+    description:
+      "Check every environment variable added by the change against .env and .env.example, then add the missing configuration and documentation without inventing secrets.",
+    arguments: [
+      { name: "context", description: "What the new variable configures and where it is read", required: false },
     ],
   },
   {
@@ -1447,6 +1476,25 @@ async function callTestGuard(input: JsonObject, cwd: string): Promise<ToolResult
   }
 }
 
+async function callEnvSync(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["env-sync", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    if (booleanArg(input, "fail_on_missing")) args.push("--fail-on-missing");
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -1672,6 +1720,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callReviewers(input, cwd);
     case "test_guard":
       return callTestGuard(input, cwd);
+    case "env_sync":
+      return callEnvSync(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -1746,6 +1796,12 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 function summarizeResult(value: JsonObject): string {
   if (typeof value.index === "number") {
     return `oc-pilot: Slop Index ${value.index}/100 (${String(value.grade ?? "unknown")})`;
+  }
+  if (Array.isArray(value.references) && Array.isArray(value.missing) && Array.isArray(value.undocumented)) {
+    const references = String(value.references.length);
+    const missing = String(value.missing.length);
+    const undocumented = String(value.undocumented.length);
+    return `oc-pilot: ${references} env reference${references === "1" ? "" : "s"}, ${missing} missing, ${undocumented} undocumented`;
   }
   const counts = asObject(value.counts);
   if (counts && typeof counts.total === "number" && Array.isArray(value.findings)) {
@@ -1874,6 +1930,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "reviewers" tool on the current diff. Use the candidates and CODEOWNERS owners to choose the smallest set of reviewers who actually know the changed files. Do not add bots or people only because they committed once; explain each choice with the files and commit counts, and say when the history is too thin to be useful.${suffix}`;
     case "guard-tests":
       return `Call the oc-pilot "test_guard" tool on the current diff with fail_on_weakening=true. For every finding, restore the protection or fix the production cause: remove skips and focus, restore deleted assertions, replace existence checks with the original strict matcher, remove @ts-ignore and empty catch blocks, and bring timeouts back. Never add skip/focus, delete a test, weaken a matcher, suppress a type error or swallow an assertion to get a pass. Rerun "test_guard" until status is pass, then report each finding and the real fix.${suffix}`;
+    case "sync-env":
+      return `Call the oc-pilot "env_sync" tool on the current diff with fail_on_missing=true. Add every missing variable to the real configuration and every new variable to .env.example (and .env.sample or .env.template when the project uses them). Document what each variable configures and which value a human must supply; never invent production secrets, never commit a real .env with secrets, and never delete a reference only to silence the report. Rerun "env_sync" until status is pass, then report the variables, files and any value the human still has to provide.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":
