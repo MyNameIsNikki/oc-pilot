@@ -17,6 +17,7 @@ import { runBattleCommand } from "./commands/battle.js";
 import { runCleanup } from "./commands/cleanup.js";
 import { runArchDiff } from "./commands/arch-diff.js";
 import { runRoast } from "./commands/roast.js";
+import { runCinema } from "./commands/cinema.js";
 import { runImpact } from "./commands/impact.js";
 import { runExplain } from "./commands/explain.js";
 import { runStats } from "./commands/stats.js";
@@ -82,6 +83,7 @@ const HANDLERS: Record<string, Handler> = {
   cleanup: runCleanup,
   "arch-diff": runArchDiff,
   roast: runRoast,
+  cinema: runCinema,
   preflight: runPreflight,
   receipt: runReceipt,
   ready: runReady,
@@ -135,6 +137,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   cleanup     План уборки: зависимости, slop, env, тесты
   roast       Прожарка diff: токсичный сеньор с конкретными претензиями
   arch-diff   Mermaid-схема добавленных и удалённых архитектурных связей
+  cinema      Терминальный таймлапс сессии: коммиты, запуски, находки
   preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
   ready       Оценить готовность репозитория к работе с ИИ-агентом
@@ -186,6 +189,7 @@ ${COMMON_HELP}
   oc-pilot cleanup --staged --fail-on-task high
   oc-pilot arch-diff --staged --fail-on-removed
   oc-pilot roast --staged --persona linus
+  oc-pilot cinema --since-days 30 --output cinema.html
   oc-pilot sast --staged --fail-on-issue high
   oc-pilot authz --staged
   oc-pilot deps --json
@@ -237,7 +241,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }

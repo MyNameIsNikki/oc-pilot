@@ -462,6 +462,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(roast.inputSchema.properties.persona, "persona missing on roast");
     assert.ok(roast.inputSchema.properties.context, "context missing on roast");
 
+    const cinema = tools.find((tool) => tool.name === "cinema");
+    assert.ok(cinema, "cinema tool missing");
+    assert.ok(cinema.inputSchema.properties.since_days, "since_days missing on cinema");
+    assert.ok(cinema.inputSchema.properties.max_frames, "max_frames missing on cinema");
+    assert.ok(cinema.inputSchema.properties.cast, "cast missing on cinema");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");

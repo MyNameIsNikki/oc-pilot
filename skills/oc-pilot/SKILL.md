@@ -40,6 +40,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `cleanup` - offline cleanup plan from dependency issues, Slop Index, environment variables and weakened tests; `apply` performs only safe dependency fixes and needs `--allow-write`.
 - `arch_diff` — Mermaid diagram of added (green) and removed (red) internal imports, with an optional `fail_on_removed` gate.
 - `roast` — model-backed comedy roast with linus/ramsay/corporate/default personas; every joke cites file:line and ends with one real fix.
+- `cinema` — terminal timelapse of the session from commits, runs, API calls, last review and receipt; self-contained HTML player or asciinema v2 cast.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -81,6 +82,7 @@ oc-pilot battle "fix the retry logic" --apply --rounds 3
 oc-pilot cleanup --staged --fail-on-task high
 oc-pilot arch-diff --staged --fail-on-removed
 oc-pilot roast --staged --persona linus
+oc-pilot cinema --since-days 30 --output cinema.html
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

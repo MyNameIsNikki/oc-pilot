@@ -67,6 +67,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
             "cleanup-plan",
             "show-arch-diff",
             "roast-my-code",
+            "play-session",
             "prove-tests",
             "prove-done",
         ]);

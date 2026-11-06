@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "brag", "arch_diff", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "brag", "arch_diff", "cinema", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -810,6 +810,24 @@ const TOOLS = [
     },
   },
   {
+    name: "cinema",
+    description:
+      "Build a terminal timelapse of local activity: commits, agent runs, API calls, the last review and the receipt, rendered as a self-contained HTML player or an asciinema v2 cast. No network, no external assets, no model call. With no_paths it hides commit subjects and finding locations.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        title: { type: "string", description: "Player title" },
+        since_days: { type: "integer", minimum: 1, maximum: 365, description: "History window in days (default 7)" },
+        max_frames: { type: "integer", minimum: 1, maximum: 500, description: "Cap the number of frames (default 120)" },
+        no_paths: { type: "boolean", description: "Hide commit subjects and finding locations" },
+        cast: { type: "boolean", description: "Return an asciinema v2 cast instead of HTML" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -1213,6 +1231,15 @@ const PROMPTS = [
       "Roast the current diff in the voice of a toxic senior, keep every joke tied to real code, then give one actionable fix.",
     arguments: [
       { name: "context", description: "What the change was supposed to do", required: false },
+    ],
+  },
+  {
+    name: "play-session",
+    title: "Play the session back",
+    description:
+      "Build a terminal timelapse of recent commits, agent runs, API calls, findings and the receipt as a self-contained HTML player or asciinema cast.",
+    arguments: [
+      { name: "context", description: "Which session window to replay", required: false },
     ],
   },
   {
@@ -2188,6 +2215,19 @@ async function callRoast(input: JsonObject, cwd: string): Promise<ToolResult> {
   }
 }
 
+async function callCinema(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const args = ["cinema", "--json"];
+  const title = stringArg(input, "title");
+  const sinceDays = integerArg(input, "since_days");
+  const maxFrames = integerArg(input, "max_frames");
+  if (title) args.push("--title", title);
+  if (sinceDays !== undefined) args.push("--since-days", String(sinceDays));
+  if (maxFrames !== undefined) args.push("--max-frames", String(maxFrames));
+  if (booleanArg(input, "no_paths")) args.push("--no-paths");
+  if (booleanArg(input, "cast")) args.push("--cast");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2447,6 +2487,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callArchDiff(input, cwd);
     case "roast":
       return callRoast(input, cwd);
+    case "cinema":
+      return callCinema(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -2519,6 +2561,12 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value: JsonObject): string {
+  if (Array.isArray(value.frames) && typeof value.sinceDays === "number" && typeof value.format === "string") {
+    const frames = String(value.frames.length);
+    const days = String(value.sinceDays);
+    const format = value.format === "cast" ? "cast" : "HTML";
+    return `oc-pilot: ${frames} frame${frames === "1" ? "" : "s"} over ${days} day${days === "1" ? "" : "s"} (${format})`;
+  }
   if (typeof value.index === "number") {
     return `oc-pilot: Slop Index ${value.index}/100 (${String(value.grade ?? "unknown")})`;
   }
@@ -2765,6 +2813,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "arch_diff" tool on the current diff. Put the returned Mermaid block into the pull request description so reviewers see the architecture change: green edges were added, red dashed edges were removed. For every removed edge, explain why the dependency disappeared and whether the behavior moved elsewhere. Do not hide a removed edge, hand-edit the diagram or widen max_edges only to make the picture look smaller. If the tool reports truncation, say so.${suffix}`;
     case "roast-my-code":
       return `Call the oc-pilot "roast" tool on the current diff with the persona the user asked for (default linus). Use the returned roast as-is, or sharpen the wording without inventing code that is not in the diff. Keep every joke tied to file:line and finish with the single most valuable fix. Never turn the roast into personal harassment, slurs or threats.${suffix}`;
+    case "play-session":
+      return `Call the oc-pilot "cinema" tool with since_days=30 and max_frames=120 (or cast=true for asciinema). Present the returned player as a replay of real local activity: commits, agent runs, API calls, findings and the receipt. Do not invent frames, hide failed runs or claim the timelapse proves correctness; it is a report, not a test. Report the format, the frame count, the window and any gaps in the history.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":
