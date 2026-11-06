@@ -154,6 +154,12 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
           method: "tools/call",
           params: { name: "battle", arguments: { task: "x", apply: true } },
         },
+        {
+          jsonrpc: "2.0",
+          id: 9,
+          method: "tools/call",
+          params: { name: "cleanup", arguments: { apply: true } },
+        },
       ],
       [],
     );
@@ -191,6 +197,10 @@ test("MCP is read-only by default and rejects paths outside the project", () => 
     const battleResult = byId.get(8)?.result as { isError?: boolean; content?: Array<{ text: string }> } | undefined;
     assert.equal(battleResult?.isError, true);
     assert.match(battleResult?.content?.[0]?.text ?? "", /read-only/);
+
+    const cleanupResult = byId.get(9)?.result as { isError?: boolean; content?: Array<{ text: string }> } | undefined;
+    assert.equal(cleanupResult?.isError, true);
+    assert.match(cleanupResult?.content?.[0]?.text ?? "", /read-only/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -436,6 +446,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(battle, "battle tool missing");
     assert.ok(battle.inputSchema.properties.task, "task missing on battle");
     assert.ok(battle.inputSchema.properties.rounds, "rounds missing on battle");
+
+    const cleanup = tools.find((tool) => tool.name === "cleanup");
+    assert.ok(cleanup, "cleanup tool missing");
+    assert.ok(cleanup.inputSchema.properties.apply, "apply missing on cleanup");
+    assert.ok(cleanup.inputSchema.properties.fail_on_task, "fail_on_task missing on cleanup");
 
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");

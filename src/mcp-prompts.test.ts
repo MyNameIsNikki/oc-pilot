@@ -85,6 +85,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
       "plan-tests",
       "prove-compliance",
       "battle-hardening",
+      "cleanup-plan",
       "prove-tests",
       "prove-done",
     ]);

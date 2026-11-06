@@ -693,6 +693,30 @@ const TOOLS = [
         },
     },
     {
+        name: "cleanup",
+        description: "Build an offline cleanup plan from dependency issues and safe package.json fixes, Slop Index, environment variables missing from .env/.env.example, and weakened tests. With apply=true it applies only the safe dependency fixes. No model call; apply needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                apply: { type: "boolean", description: "Apply only the safe dependency fixes (default false)" },
+                fail_on_task: {
+                    type: "string",
+                    enum: ["high", "medium", "low"],
+                    description: "Return exit code 1 when a task at or above this severity remains",
+                },
+                diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                paths: { type: "array", items: { type: "string" } },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1037,6 +1061,14 @@ const PROMPTS = [
         description: "Run the coder and hacker loop: the coder patches, the hacker attacks with review and offline security checks, and the loop repeats until no high findings remain and tests pass.",
         arguments: [
             { name: "context", description: "What the task should achieve", required: false },
+        ],
+    },
+    {
+        name: "cleanup-plan",
+        title: "Plan the cleanup",
+        description: "Build an offline cleanup plan from dependency issues, safe package.json fixes, Slop Index, environment variables and weakened tests, then fix the cheapest high tasks first.",
+        arguments: [
+            { name: "context", description: "What area should be cleaned up first", required: false },
         ],
     },
     {
@@ -2115,6 +2147,34 @@ async function callBattle(input, cwd) {
         temp.cleanup();
     }
 }
+async function callCleanup(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["cleanup", "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        const failOnTask = stringArg(input, "fail_on_task");
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        if (failOnTask)
+            args.push("--fail-on-task", failOnTask);
+        if (booleanArg(input, "apply"))
+            args.push("--apply");
+        args.push(...projectPaths(input, "paths"));
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -2357,6 +2417,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "battle" && booleanArg(input, "apply")) {
             throw new ToolInputError("battle apply rewrites the working tree and is disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name === "cleanup" && booleanArg(input, "apply")) {
+            throw new ToolInputError("cleanup apply rewrites package.json and is disabled in read-only mode; start the MCP server with --allow-write");
+        }
         if (name === "test_gen" && booleanArg(input, "apply")) {
             throw new ToolInputError("test_gen apply writes test files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
@@ -2421,6 +2484,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callBrag(input, cwd);
         case "battle":
             return callBattle(input, cwd);
+        case "cleanup":
+            return callCleanup(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -2485,6 +2550,10 @@ export function applyResultOptions(result, input) {
 function summarizeResult(value) {
     if (typeof value.index === "number") {
         return `oc-pilot: Slop Index ${value.index}/100 (${String(value.grade ?? "unknown")})`;
+    }
+    if (Array.isArray(value.tasks) && asObject(value.counts)) {
+        const counts = asObject(value.counts);
+        return `oc-pilot: ${String(counts.total)} cleanup task(s), ${String(counts.high)} high, ${String(counts.medium)} medium`;
     }
     if (typeof value.status === "string" && Array.isArray(value.rounds)) {
         const rounds = String(value.rounds.length);
@@ -2704,6 +2773,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "compliance_verify" tool for HEAD. A valid proof has ok=true, hashOk=true, chainOk=true, commitOk=true and a signature that is valid or unchecked because no public key is available. If the manifest is missing, create one with oc-pilot compliance (and sign it when a key exists), then verify again. Never edit a manifest, never reorder the chain and never claim completion while ok is false; report the exact reason and the commit.${suffix}`;
         case "battle-hardening":
             return `Call the oc-pilot "battle" tool with the task and apply=true when the server has write access. It alternates a coder patch with a hacker review plus SAST, authorization and test-weakening checks, and stops only when no high findings remain and the tests pass. Do not lower rounds, skip the hacker, or hide findings to reach a pass. If the status is fail or stopped, report the round, the finding source and the smallest next step. If the server is read-only, call battle without apply and show the proposed patch.${suffix}`;
+        case "cleanup-plan":
+            return `Call the oc-pilot "cleanup" tool with fail_on_task=high. Fix the high and medium tasks in order: dependency issues and safe package.json fixes first, then environment variables, weakened tests and the Slop Index. Use apply=true only for the safe dependency fixes and only when the server is writable; for code changes make the smallest real fix yourself. Do not delete tests, suppress environment variables, ignore dependencies or lower the gate to get a pass. Rerun "cleanup" and report the applied fixes and the tasks that still need a human.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":
