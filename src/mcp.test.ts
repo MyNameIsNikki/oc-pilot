@@ -389,6 +389,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(pack.inputSchema.properties.test_log, "test_log missing on pack");
     assert.ok(pack.inputSchema.properties.rules, "rules missing on pack");
 
+    const contractDrift = tools.find((tool) => tool.name === "contract_drift");
+    assert.ok(contractDrift, "contract_drift tool missing");
+    assert.ok(contractDrift.inputSchema.properties.fail_on_drift, "fail_on_drift missing on contract_drift");
+    assert.ok(contractDrift.inputSchema.properties.staged, "staged missing on contract_drift");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1253,6 +1258,81 @@ test("MCP pack returns a compact context bundle", () => {
     assert.match(
       (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
       /1 file, \d+ chars \(within budget\)/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP contract_drift flags a removed field still used by a consumer", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-contract-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "types.ts"),
+      "export interface Account {\n  id: string;\n  role: string;\n}\n",
+      "utf8",
+    );
+    writeFileSync(
+      join(dir, "src", "billing.ts"),
+      "export function bill(account: Account) {\n  return account.billingEmail;\n}\n",
+      "utf8",
+    );
+    const diff = [
+      "diff --git a/src/types.ts b/src/types.ts",
+      "--- a/src/types.ts",
+      "+++ b/src/types.ts",
+      "@@ -1,4 +1,3 @@",
+      " export interface Account {",
+      "   id: string;",
+      "-  billingEmail: string;",
+      "   role: string;",
+      " }",
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "contract_drift",
+          arguments: { diff, fail_on_drift: "high", verbosity: "compact" },
+        },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: {
+            findings?: Array<{ kind?: string; field?: string; severity?: string; references?: Array<{ file?: string }> }>;
+            counts?: { total?: number; high?: number };
+            status?: string;
+          };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 1);
+    assert.equal(result?.structuredContent?.status, "fail");
+    assert.equal(result?.structuredContent?.counts?.total, 1);
+    const finding = result?.structuredContent?.findings?.[0];
+    assert.equal(finding?.kind, "removed-field");
+    assert.equal(finding?.field, "billingEmail");
+    assert.equal(finding?.severity, "high");
+    assert.equal(finding?.references?.[0]?.file, "src/billing.ts");
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /1 contract drift, 1 high, 0 medium/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
