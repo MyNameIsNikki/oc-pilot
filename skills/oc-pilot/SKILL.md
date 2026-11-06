@@ -39,6 +39,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `battle` - experimental coder/hacker loop: the coder patches, the hacker reviews and runs SAST, authz and test-weakening checks until no high findings remain and tests pass.
 - `cleanup` - offline cleanup plan from dependency issues, Slop Index, environment variables and weakened tests; `apply` performs only safe dependency fixes and needs `--allow-write`.
 - `arch_diff` — Mermaid diagram of added (green) and removed (red) internal imports, with an optional `fail_on_removed` gate.
+- `roast` — model-backed comedy roast with linus/ramsay/corporate/default personas; every joke cites file:line and ends with one real fix.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -79,6 +80,7 @@ oc-pilot brag --since-days 30 --output brag.html
 oc-pilot battle "fix the retry logic" --apply --rounds 3
 oc-pilot cleanup --staged --fail-on-task high
 oc-pilot arch-diff --staged --fail-on-removed
+oc-pilot roast --staged --persona linus
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

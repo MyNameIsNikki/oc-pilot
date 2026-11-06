@@ -737,6 +737,30 @@ const TOOLS = [
         },
     },
     {
+        name: "roast",
+        description: "Roast the diff with a toxic senior persona: technically grounded jokes about complexity, naming, needless abstraction and blind trust in AI. Every joke cites file:line and the answer ends with one real fix. It attacks code, never the author. Model-backed; no file changes.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                persona: { type: "string", enum: ["linus", "ramsay", "corporate", "default"], description: "Roast persona (default linus)" },
+                context: { type: "string", description: "What happened and what deserves the roast" },
+                diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                ...RESULT_PROPERTIES,
+                lang: { type: "string", enum: ["en", "ru"] },
+                model: { type: "string" },
+                timeout: { type: "integer", minimum: 1 },
+                repo_context: { type: "boolean" },
+                no_secret_scan: { type: "boolean" },
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1097,6 +1121,14 @@ const PROMPTS = [
         description: "Render a Mermaid diagram of added and removed internal dependencies, include it in the pull request and explain every removed edge instead of hiding it.",
         arguments: [
             { name: "context", description: "What the architectural change is supposed to do", required: false },
+        ],
+    },
+    {
+        name: "roast-my-code",
+        title: "Roast my code",
+        description: "Roast the current diff in the voice of a toxic senior, keep every joke tied to real code, then give one actionable fix.",
+        arguments: [
+            { name: "context", description: "What the change was supposed to do", required: false },
         ],
     },
     {
@@ -2231,6 +2263,34 @@ async function callArchDiff(input, cwd) {
         temp.cleanup();
     }
 }
+async function callRoast(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["roast", ...commonArgs(input, { repoContext: true, secrets: true, failOn: false }), "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        const context = contextArg(input);
+        const persona = stringArg(input, "persona");
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        if (context)
+            args.push("--context", context);
+        if (persona)
+            args.push("--persona", persona);
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -2544,6 +2604,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callCleanup(input, cwd);
         case "arch_diff":
             return callArchDiff(input, cwd);
+        case "roast":
+            return callRoast(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -2840,6 +2902,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "cleanup" tool with fail_on_task=high. Fix the high and medium tasks in order: dependency issues and safe package.json fixes first, then environment variables, weakened tests and the Slop Index. Use apply=true only for the safe dependency fixes and only when the server is writable; for code changes make the smallest real fix yourself. Do not delete tests, suppress environment variables, ignore dependencies or lower the gate to get a pass. Rerun "cleanup" and report the applied fixes and the tasks that still need a human.${suffix}`;
         case "show-arch-diff":
             return `Call the oc-pilot "arch_diff" tool on the current diff. Put the returned Mermaid block into the pull request description so reviewers see the architecture change: green edges were added, red dashed edges were removed. For every removed edge, explain why the dependency disappeared and whether the behavior moved elsewhere. Do not hide a removed edge, hand-edit the diagram or widen max_edges only to make the picture look smaller. If the tool reports truncation, say so.${suffix}`;
+        case "roast-my-code":
+            return `Call the oc-pilot "roast" tool on the current diff with the persona the user asked for (default linus). Use the returned roast as-is, or sharpen the wording without inventing code that is not in the diff. Keep every joke tied to file:line and finish with the single most valuable fix. Never turn the roast into personal harassment, slurs or threats.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":

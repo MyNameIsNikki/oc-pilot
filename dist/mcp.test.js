@@ -376,6 +376,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(archDiff, "arch_diff tool missing");
         assert.ok(archDiff.inputSchema.properties.max_edges, "max_edges missing on arch_diff");
         assert.ok(archDiff.inputSchema.properties.fail_on_removed, "fail_on_removed missing on arch_diff");
+        const roast = tools.find((tool) => tool.name === "roast");
+        assert.ok(roast, "roast tool missing");
+        assert.ok(roast.inputSchema.properties.persona, "persona missing on roast");
+        assert.ok(roast.inputSchema.properties.context, "context missing on roast");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
