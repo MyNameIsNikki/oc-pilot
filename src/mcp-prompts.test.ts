@@ -90,6 +90,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
       "roast-my-code",
       "play-session",
       "wanted-poster",
+      "autopsy-commit",
       "prove-tests",
       "prove-done",
     ]);

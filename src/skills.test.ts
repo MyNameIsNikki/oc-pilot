@@ -96,6 +96,7 @@ test("skills document real commands and avoid placeholders", () => {
     "roast",
     "cinema",
     "bounty",
+    "autopsy",
   ]);
   for (const skill of skills) {
     for (const match of skill.body.matchAll(/oc-pilot ([a-z][a-z-]*)/g)) {
@@ -143,6 +144,7 @@ test("skills use only documented flags", () => {
     "--fail-on-leak",
     "--fail-on-drift",
     "--fail-on-regression",
+    "--fail-on-risk",
     "--fail-on-removed",
     "--max-edges",
     "--fail-on-task",

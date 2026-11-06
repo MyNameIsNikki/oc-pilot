@@ -843,6 +843,22 @@ const TOOLS = [
     },
   },
   {
+    name: "autopsy",
+    description:
+      "Forensic post-mortem for a commit: diff stats, SAST findings on added lines, weakened tests and mock leaks, ranked suspect files and a before/after commit timeline. Uses local git and files only, never calls a model, so it is free and safe in read-only mode. With fail_on_risk a dangerous verdict returns exit code 1, not a tool error.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        commit: { type: "string", description: "Commit or revision to autopsy (default HEAD)" },
+        depth: { type: "integer", minimum: 1, maximum: 50, description: "Timeline commits to inspect (default 5)" },
+        fail_on_risk: { type: "boolean", description: "Return exit code 1 when the verdict is dangerous" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -1264,6 +1280,15 @@ const PROMPTS = [
       "Rank the most problematic files by SAST findings, duplication, dead exports, old TODOs and churn, then turn the worst one into an ASCII WANTED poster with concrete reasons.",
     arguments: [
       { name: "context", description: "Which area or file to investigate", required: false },
+    ],
+  },
+  {
+    name: "autopsy-commit",
+    title: "Run a post-mortem on a commit",
+    description:
+      "Autopsy a commit: list the signals it introduced, rank the suspect files and read the before/after timeline to find where the protection was lost.",
+    arguments: [
+      { name: "context", description: "Which commit or failure to investigate", required: false },
     ],
   },
   {
@@ -2261,6 +2286,14 @@ async function callBounty(input: JsonObject, cwd: string): Promise<ToolResult> {
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callAutopsy(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const args = ["autopsy", stringArg(input, "commit") ?? "HEAD", "--json"];
+  const depth = integerArg(input, "depth");
+  if (depth !== undefined) args.push("--depth", String(depth));
+  if (booleanArg(input, "fail_on_risk")) args.push("--fail-on-risk");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2524,6 +2557,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callCinema(input, cwd);
     case "bounty":
       return callBounty(input, cwd);
+    case "autopsy":
+      return callAutopsy(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -2596,6 +2631,11 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value: JsonObject): string {
+  if (typeof value.verdict === "string" && Array.isArray(value.signals) && asObject(value.commit)) {
+    const commit = asObject(value.commit)!;
+    const short = typeof commit.shortHash === "string" ? commit.shortHash : "unknown";
+    return `oc-pilot: autopsy ${value.verdict} for ${short}, ${String(value.signals.length)} signal(s)`;
+  }
   if (Array.isArray(value.candidates) && typeof value.score === "number" && (typeof value.file === "string" || value.file === null)) {
     if (typeof value.file === "string") {
       return `oc-pilot: worst file ${value.file} (${String(value.score)} points, ${String(value.candidates.length)} suspect${value.candidates.length === 1 ? "" : "s"})`;
@@ -2858,6 +2898,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "cinema" tool with since_days=30 and max_frames=120 (or cast=true for asciinema). Present the returned player as a replay of real local activity: commits, agent runs, API calls, findings and the receipt. Do not invent frames, hide failed runs or claim the timelapse proves correctness; it is a report, not a test. Report the format, the frame count, the window and any gaps in the history.${suffix}`;
     case "wanted-poster":
       return `Call the oc-pilot "bounty" tool with limit=5 and since_days=30. Present the WANTED poster as a playful but factual ranking, then explain the reasons behind the worst file in plain language and name the single highest-weight reason to fix first. Do not invent issues, shame people or paste the poster into a public channel without checking the file names; do not rewrite production code just to lower the score. After a fix, call "bounty" again and compare the score.${suffix}`;
+    case "autopsy-commit":
+      return `Call the oc-pilot "autopsy" tool for the commit (default HEAD) with depth=5 and fail_on_risk=true. Read the signals, the ranked suspects and the before/after timeline: identify which added line introduced each signal and which earlier commit removed a protection. Propose the smallest fix and the test that would have caught it. Do not blame authors, rewrite git history, hide signals or change the timeline; after the fix, call "autopsy" again and compare. Report the commit, verdict, signal file:line and timeline evidence.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":

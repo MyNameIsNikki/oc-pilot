@@ -41,6 +41,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `arch_diff` — Mermaid diagram of added (green) and removed (red) internal imports, with an optional `fail_on_removed` gate.
 - `roast` — model-backed comedy roast with linus/ramsay/corporate/default personas; every joke cites file:line and ends with one real fix.
 - `cinema` — terminal timelapse of the session from commits, runs, API calls, last review and receipt; self-contained HTML player or asciinema v2 cast.
+- `autopsy` — forensic post-mortem for a commit: diff stats, SAST on added lines, weakened tests, mock leaks, ranked suspects and a before/after timeline; `--fail-on-risk` exits 1 on a dangerous verdict.
 - `bounty` — ASCII WANTED poster for the worst file scored from SAST, duplicates, dead exports, aged task comments and churn; deterministic and offline.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
@@ -85,6 +86,7 @@ oc-pilot arch-diff --staged --fail-on-removed
 oc-pilot roast --staged --persona linus
 oc-pilot cinema --since-days 30 --output cinema.html
 oc-pilot bounty --limit 10 --since-days 90
+oc-pilot autopsy HEAD~1 --depth 10
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

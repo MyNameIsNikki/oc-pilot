@@ -473,6 +473,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(bounty.inputSchema.properties.limit, "limit missing on bounty");
     assert.ok(bounty.inputSchema.properties.since_days, "since_days missing on bounty");
 
+    const autopsy = tools.find((tool) => tool.name === "autopsy");
+    assert.ok(autopsy, "autopsy tool missing");
+    assert.ok(autopsy.inputSchema.properties.commit, "commit missing on autopsy");
+    assert.ok(autopsy.inputSchema.properties.depth, "depth missing on autopsy");
+    assert.ok(autopsy.inputSchema.properties.fail_on_risk, "fail_on_risk missing on autopsy");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1529,6 +1535,58 @@ test("MCP bounty posts a WANTED poster for the worst file", () => {
     assert.match(
       (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
       /worst file app\.js/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP autopsy finds a dangerous commit", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-autopsy-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: dir });
+    writeFileSync(
+      join(dir, "app.js"),
+      'const { exec } = require("child_process");\nexec(req.query.cmd);\n',
+      "utf8",
+    );
+    spawnSync("git", ["add", "."], { cwd: dir });
+    spawnSync("git", ["commit", "-m", "add the debug command"], { cwd: dir });
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "autopsy",
+          arguments: { commit: "HEAD", depth: 5, fail_on_risk: true, verbosity: "compact" },
+        },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: { verdict?: string; signals?: unknown[]; commit?: { shortHash?: string } };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 1);
+    assert.equal(result?.structuredContent?.verdict, "dangerous");
+    assert.ok((result?.structuredContent?.signals?.length ?? 0) >= 1);
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /autopsy dangerous for/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
