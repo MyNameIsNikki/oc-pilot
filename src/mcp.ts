@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -436,6 +436,28 @@ const TOOLS = [
     },
   },
   {
+    name: "reviewers",
+    description:
+      "Suggest reviewers for the changed files from git history and CODEOWNERS. Ranks authors by commits touching those files, filters bots and excluded logins, and lists CODEOWNERS owners. Offline, read-only and free of model calls.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Review git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Only staged changes" },
+        unstaged: { type: "boolean", description: "Only unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files" },
+        limit: { type: "integer", minimum: 1, maximum: 20, description: "How many reviewers to return (default 3)" },
+        depth: { type: "integer", minimum: 1, maximum: 5000, description: "How many commits to scan (default 50)" },
+        exclude: { type: "array", items: { type: "string" }, description: "Logins, names or emails to skip" },
+        paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -704,6 +726,15 @@ const PROMPTS = [
       "Generate tests for changed code or only for uncovered changed lines, apply them and run the suite, fixing the patch until the tests pass.",
     arguments: [
       { name: "context", description: "What behavior the tests should protect", required: false },
+    ],
+  },
+  {
+    name: "pick-reviewers",
+    title: "Pick reviewers for the change",
+    description:
+      "Use git history and CODEOWNERS to choose the smallest set of reviewers who know the changed files.",
+    arguments: [
+      { name: "context", description: "What changed and who usually owns it", required: false },
     ],
   },
   {
@@ -1344,6 +1375,30 @@ async function callCoverage(input: JsonObject, cwd: string): Promise<ToolResult>
   }
 }
 
+async function callReviewers(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["reviewers", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    const limit = integerArg(input, "limit");
+    if (limit !== undefined) args.push("--limit", String(limit));
+    const depth = integerArg(input, "depth");
+    if (depth !== undefined) args.push("--depth", String(depth));
+    const exclude = stringArrayArg(input, "exclude");
+    if (exclude.length > 0) args.push("--exclude", exclude.join(","));
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -1565,6 +1620,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callDeps(input, cwd);
     case "coverage":
       return callCoverage(input, cwd);
+    case "reviewers":
+      return callReviewers(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -1670,6 +1727,12 @@ function summarizeResult(value: JsonObject): string {
     const scanned = String(value.scannedFiles);
     return `oc-pilot: ${symbols} changed symbol${symbols === "1" ? "" : "s"}, ${references} reference${references === "1" ? "" : "s"} in ${scanned} scanned file${scanned === "1" ? "" : "s"}`;
   }
+  if (Array.isArray(value.candidates) && Array.isArray(value.codeowners) && Array.isArray(value.files)) {
+    const reviewers = String(value.candidates.length);
+    const owners = String(value.codeowners.length);
+    const files = String(value.files.length);
+    return `oc-pilot: ${reviewers} reviewer candidate${reviewers === "1" ? "" : "s"}, ${owners} CODEOWNERS owner${owners === "1" ? "" : "s"} for ${files} file${files === "1" ? "" : "s"}`;
+  }
   if (typeof value.uncoveredLines === "number" && Array.isArray(value.gaps)) {
     const files = value.gaps.length;
     const percent = typeof value.coveragePercent === "number" ? ` (${String(value.coveragePercent)}%)` : "";
@@ -1752,6 +1815,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "coverage" tool on the current diff with fail_under=80 (or max_uncovered=0 when the project has no meaningful percentage). Add tests that execute the uncovered changed lines, then call "coverage" again with the same gate. Do not lower the threshold, add coverage-ignore comments, or delete the uncovered branch only to get a pass. Report the covered percentage, the files and lines you covered, and any gap you deliberately left.${suffix}`;
     case "generate-tests":
       return `Call the oc-pilot "test_gen" tool with apply=true, coverage=true and a coverage_file when one exists. Without a coverage report it targets the changed code; with from_slop=true it targets untested files instead. The tool writes only test files, runs the suite and reverts failing tests. If the server is read-only, call it without apply, show the patch and ask me to apply it. Do not edit production code, weaken assertions, add skips or change the test command only to get a pass. Rerun until status is pass, then report the files, rounds, test results and any coverage gaps that remain.${suffix}`;
+    case "pick-reviewers":
+      return `Call the oc-pilot "reviewers" tool on the current diff. Use the candidates and CODEOWNERS owners to choose the smallest set of reviewers who actually know the changed files. Do not add bots or people only because they committed once; explain each choice with the files and commit counts, and say when the history is too thin to be useful.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":

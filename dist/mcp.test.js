@@ -291,6 +291,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(testGen.inputSchema.properties.coverage, "coverage missing on test_gen");
         assert.ok(testGen.inputSchema.properties.from_slop, "from_slop missing on test_gen");
         assert.ok(testGen.inputSchema.properties.rounds, "rounds missing on test_gen");
+        const reviewers = tools.find((tool) => tool.name === "reviewers");
+        assert.ok(reviewers, "reviewers tool missing");
+        assert.ok(reviewers.inputSchema.properties.limit, "limit missing on reviewers");
+        assert.ok(reviewers.inputSchema.properties.depth, "depth missing on reviewers");
+        assert.ok(reviewers.inputSchema.properties.exclude, "exclude missing on reviewers");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -709,6 +714,54 @@ test("MCP coverage gates uncovered changed lines", () => {
         assert.deepEqual(result?.structuredContent?.gaps, [{ file: "src/app.ts", uncovered: [2] }]);
         assert.equal(result?.structuredContent?.gate?.passed, false);
         assert.match(result?.content?.[0]?.text ?? "", /1 uncovered changed line in 1 file \(50%\)/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP reviewers ranks authors from git history", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-reviewers-"));
+    try {
+        const git = (args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+        git(["init", "-q"]);
+        git(["config", "user.email", "alice@example.com"]);
+        git(["config", "user.name", "Alice"]);
+        mkdirSync(join(dir, "src"), { recursive: true });
+        writeFileSync(join(dir, "src", "app.ts"), "export function a() {}\n", "utf8");
+        git(["add", "."]);
+        git(["commit", "-m", "init"]);
+        const diff = [
+            "diff --git a/src/app.ts b/src/app.ts",
+            "--- a/src/app.ts",
+            "+++ b/src/app.ts",
+            "@@ -1 +1,2 @@",
+            " export function a() {}",
+            "+export function b() {}",
+            "",
+        ].join("\n");
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: { name: "reviewers", arguments: { diff, verbosity: "compact" } },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 0);
+        assert.deepEqual(result?.structuredContent?.files, ["src/app.ts"]);
+        assert.equal(result?.structuredContent?.candidates?.length, 1);
+        assert.equal(result?.structuredContent?.candidates?.[0]?.name, "Alice");
+        assert.equal(result?.structuredContent?.candidates?.[0]?.files, 1);
+        assert.equal(result?.structuredContent?.candidates?.[0]?.commits, 1);
+        assert.match(result?.content?.[0]?.text ?? "", /1 reviewer candidate, 0 CODEOWNERS owners for 1 file/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

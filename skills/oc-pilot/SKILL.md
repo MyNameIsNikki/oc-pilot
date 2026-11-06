@@ -24,6 +24,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `impact` — declarations changed by the diff and every untouched file that still references them.
 - `deps` - dependency audit: phantom and missing imports, unused packages, lockfile drift, OSV vulnerabilities and licenses; `fix` and `sbom` need `--allow-write`.
 - `coverage` - changed lines missing from a local lcov, Istanbul, Cobertura or Go coverage report, with an optional gate.
+- `reviewers` — authors who touched the changed files plus CODEOWNERS owners; accepts `limit`, `depth` and `exclude`.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -49,6 +50,7 @@ oc-pilot flaky --runs 5 --fail-on-flaky
 oc-pilot impact --staged
 oc-pilot deps --audit
 oc-pilot coverage --staged --coverage-file coverage/lcov.info --fail-under 80
+oc-pilot reviewers --base main
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

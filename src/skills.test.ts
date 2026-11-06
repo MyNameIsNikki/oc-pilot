@@ -78,6 +78,7 @@ test("skills document real commands and avoid placeholders", () => {
     "impact",
     "deps",
     "coverage",
+    "reviewers",
   ]);
   for (const skill of skills) {
     for (const match of skill.body.matchAll(/oc-pilot ([a-z][a-z-]*)/g)) {
@@ -111,10 +112,12 @@ test("skills use only documented flags", () => {
     "--context",
     "--coverage-file",
     "--cwd",
+    "--depth",
     "--check",
     "--diff",
     "--dry-run",
     "--engine",
+    "--exclude",
     "--exit-code",
     "--fail-on",
     "--fail-on-flaky",
@@ -129,6 +132,7 @@ test("skills use only documented flags", () => {
     "--json",
     "--keep-on-test-failure",
     "--lang",
+    "--limit",
     "--log",
     "--list",
     "--max-diff",
