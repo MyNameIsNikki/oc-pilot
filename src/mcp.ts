@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -629,6 +629,30 @@ const TOOLS = [
     },
   },
   {
+    name: "boundaries",
+    description:
+      "Check added imports against .oc-pilot/architecture.json layer rules: a file matched by a rule's from pattern must not import anything matched by its deny list. Reports file, line, import and rule reason. Offline and free of model calls; fail_on_violation returns exit code 1 on any violation.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Check git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Only staged changes" },
+        unstaged: { type: "boolean", description: "Only unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files" },
+        config: {
+          type: "string",
+          description: "Architecture config path; defaults to .oc-pilot/architecture.json",
+        },
+        fail_on_violation: { type: "boolean", description: "Return exit code 1 when a boundary is crossed" },
+        paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -969,6 +993,15 @@ const PROMPTS = [
       "Compare added lines with code a human explicitly deleted, inspect the deleting commit and reintroduce a line only with an explicit reason.",
     arguments: [
       { name: "context", description: "Why the line is being added again", required: false },
+    ],
+  },
+  {
+    name: "respect-boundaries",
+    title: "Keep architecture boundaries",
+    description:
+      "Check added imports against the layer rules, fix the direction of the dependency and rerun until no boundary is crossed.",
+    arguments: [
+      { name: "context", description: "Which module or layer changed", required: false },
     ],
   },
   {
@@ -1784,6 +1817,27 @@ async function callAntiRegression(input: JsonObject, cwd: string): Promise<ToolR
   }
 }
 
+async function callBoundaries(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["boundaries", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    const config = stringArg(input, "config");
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    if (config) args.push("--config", config);
+    if (booleanArg(input, "fail_on_violation")) args.push("--fail-on-violation");
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2021,6 +2075,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callContractDrift(input, cwd);
     case "anti_regression":
       return callAntiRegression(input, cwd);
+    case "boundaries":
+      return callBoundaries(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -2106,6 +2162,11 @@ function summarizeResult(value: JsonObject): string {
     const missing = String(value.missing.length);
     const undocumented = String(value.undocumented.length);
     return `oc-pilot: ${references} env reference${references === "1" ? "" : "s"}, ${missing} missing, ${undocumented} undocumented`;
+  }
+  if (Array.isArray(value.violations) && typeof value.rules === "number" && typeof value.scannedFiles === "number") {
+    const violations = String(value.violations.length);
+    const files = String(new Set(value.violations.map((item) => asObject(item)?.file).filter(Boolean)).size);
+    return `oc-pilot: ${violations} boundary violation${violations === "1" ? "" : "s"} in ${files} file${files === "1" ? "" : "s"}`;
   }
   if (Array.isArray(value.findings) && typeof value.checkedLines === "number") {
     const hashes = new Set<string>();
@@ -2286,6 +2347,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "contract_drift" tool on the current diff with fail_on_drift=high. For every finding, inspect the listed consumers and either update them to the new shape or keep a compatible field, alias or migration. Do not silently rename or delete a field, and do not edit the contract only to make the report empty. Rerun "contract_drift" until no high findings remain, then report each contract, field, consumer and the compatibility decision.${suffix}`;
     case "guard-regressions":
       return `Call the oc-pilot "anti_regression" tool on the current diff with fail_on_regression=true. Every finding is a line a human already deleted, with the commit that removed it. Read that commit and the surrounding change before deciding: reintroduce the line only when the original reason no longer applies or the task explicitly requires it, and say why. Never rewrite the line only to dodge the exact match, never rewrite git history, and never suppress the finding. Rerun until status is pass, then report each commit, file:line and the decision.${suffix}`;
+    case "respect-boundaries":
+      return `Call the oc-pilot "boundaries" tool with fail_on_violation=true. If it reports violations, fix the dependency direction instead of widening the rule: move shared logic behind a service or interface, inject the dependency, or move the file into the allowed layer. Change .oc-pilot/architecture.json only when the architecture intentionally changed, and say why. Never rename or ignore an import just to dodge the check. Rerun until it passes and report each violation, the file:line and the fix.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":

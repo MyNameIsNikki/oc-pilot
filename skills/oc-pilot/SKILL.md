@@ -32,6 +32,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `pack` - compact task context: rules, changed-file signatures, related references and an optional test log, capped by `budget` characters; read-only.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
 - `anti_regression` - lines the diff re-adds after a human explicitly deleted them in git history, with the deleting commit cited.
+- `boundaries` - added imports checked against `.oc-pilot/architecture.json` layer rules, with file, line and rule reason.
 - `sast` — deterministic static analysis: injection, path traversal, SSRF, XSS, TLS and other dangerous patterns.
 - `authz` — route authorization: unauthenticated routes, IDOR lookups, admin paths without a role.
 - `preflight` — one offline verdict: secrets, SAST, route authorization, dependency health, test weakening, Slop Index delta.
@@ -65,6 +66,7 @@ oc-pilot ecosystem-verify --staged --fail-on-issue high
 oc-pilot pack "fix the login redirect" --staged --budget 12000
 oc-pilot contract-drift --staged --fail-on-drift high
 oc-pilot anti-regression --staged --fail-on-regression
+oc-pilot boundaries --staged --fail-on-violation
 ```
 
 Use `--lang ru` for Russian model output. The CLI UI itself may be Russian.

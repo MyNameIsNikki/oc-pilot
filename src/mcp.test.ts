@@ -400,6 +400,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(antiRegression.inputSchema.properties.since, "since missing on anti_regression");
     assert.ok(antiRegression.inputSchema.properties.fail_on_regression, "fail_on_regression missing on anti_regression");
 
+    const boundaries = tools.find((tool) => tool.name === "boundaries");
+    assert.ok(boundaries, "boundaries tool missing");
+    assert.ok(boundaries.inputSchema.properties.config, "config missing on boundaries");
+    assert.ok(boundaries.inputSchema.properties.fail_on_violation, "fail_on_violation missing on boundaries");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1339,6 +1344,73 @@ test("MCP contract_drift flags a removed field still used by a consumer", () => 
     assert.match(
       (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
       /1 contract drift, 1 high, 0 medium/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP boundaries flags an import that crosses a layer rule", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-boundaries-"));
+  try {
+    mkdirSync(join(dir, ".oc-pilot"), { recursive: true });
+    writeFileSync(
+      join(dir, ".oc-pilot", "architecture.json"),
+      JSON.stringify({
+        rules: [{ from: "src/ui/**", deny: ["src/db/**"], reason: "UI не ходит в БД" }],
+      }),
+      "utf8",
+    );
+    const diff = [
+      "diff --git a/src/ui/app.ts b/src/ui/app.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/ui/app.ts",
+      "@@ -0,0 +1,2 @@",
+      '+import { db } from "../db/user";',
+      "+export const app = db;",
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "boundaries",
+          arguments: { diff, fail_on_violation: true, verbosity: "compact" },
+        },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: {
+            status?: string;
+            violations?: Array<{ file?: string; line?: number; imported?: string; rule?: { reason?: string } }>;
+          };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 1);
+    assert.equal(result?.structuredContent?.status, "fail");
+    assert.equal(result?.structuredContent?.violations?.length, 1);
+    assert.equal(result?.structuredContent?.violations?.[0]?.file, "src/ui/app.ts");
+    assert.equal(result?.structuredContent?.violations?.[0]?.line, 1);
+    assert.equal(result?.structuredContent?.violations?.[0]?.imported, "../db/user");
+    assert.match(result?.structuredContent?.violations?.[0]?.rule?.reason ?? "", /UI не ходит в БД/);
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /1 boundary violation in 1 file/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

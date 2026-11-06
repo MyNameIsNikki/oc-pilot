@@ -81,6 +81,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
       "pack-context",
       "check-contracts",
       "guard-regressions",
+      "respect-boundaries",
       "prove-tests",
       "prove-done",
     ]);
