@@ -385,6 +385,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(cinema.inputSchema.properties.since_days, "since_days missing on cinema");
         assert.ok(cinema.inputSchema.properties.max_frames, "max_frames missing on cinema");
         assert.ok(cinema.inputSchema.properties.cast, "cast missing on cinema");
+        const bounty = tools.find((tool) => tool.name === "bounty");
+        assert.ok(bounty, "bounty tool missing");
+        assert.ok(bounty.inputSchema.properties.limit, "limit missing on bounty");
+        assert.ok(bounty.inputSchema.properties.since_days, "since_days missing on bounty");
         const sast = tools.find((tool) => tool.name === "sast");
         assert.ok(sast, "sast tool missing");
         assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1138,6 +1142,44 @@ test("MCP test_plan selects tests from the import graph", () => {
         assert.ok(files.includes("src/wallet.test.ts"), `tests: ${files.join(", ")}`);
         assert.ok(files.includes("src/checkout.test.ts"), `tests: ${files.join(", ")}`);
         assert.match(result?.content?.[0]?.text ?? "", /2 test files selected, 0 uncovered changed files/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP bounty posts a WANTED poster for the worst file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-bounty-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+        spawnSync("git", ["config", "user.name", "Test"], { cwd: dir });
+        writeFileSync(join(dir, "app.js"), 'const { exec } = require("child_process");\n// TODO: remove the debug command\nexec(req.query.cmd);\n', "utf8");
+        spawnSync("git", ["add", "."], { cwd: dir });
+        spawnSync("git", ["commit", "-m", "init"], { cwd: dir });
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: {
+                    name: "bounty",
+                    arguments: { limit: 5, since_days: 30, verbosity: "compact" },
+                },
+            },
+        ]);
+        const result = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(result?.isError, true, stderr);
+        assert.equal(result?._meta?.exitCode, 0);
+        assert.equal(result?.structuredContent?.file, "app.js");
+        assert.ok((result?.structuredContent?.score ?? 0) > 0);
+        assert.match(result?.structuredContent?.poster ?? "", /W\s*A\s*N\s*T\s*E\s*D/);
+        assert.match(result?.content?.[0]?.text ?? "", /worst file app\.js/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

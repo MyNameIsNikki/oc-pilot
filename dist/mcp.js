@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "brag", "arch_diff", "cinema", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "compliance_verify", "brag", "arch_diff", "cinema", "bounty", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -778,6 +778,20 @@ const TOOLS = [
         },
     },
     {
+        name: "bounty",
+        description: "Build an ASCII WANTED poster for the worst file in the repository, scored offline from SAST findings, duplicated blocks, dead exports, aged TODOs and churn without tests. No model call and no network. With no_paths it hides file names and finding locations.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                limit: { type: "integer", minimum: 1, maximum: 20, description: "How many suspects to rank (default 5)" },
+                since_days: { type: "integer", minimum: 1, maximum: 365, description: "Churn and TODO window in days (default 30)" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1154,6 +1168,14 @@ const PROMPTS = [
         description: "Build a terminal timelapse of recent commits, agent runs, API calls, findings and the receipt as a self-contained HTML player or asciinema cast.",
         arguments: [
             { name: "context", description: "Which session window to replay", required: false },
+        ],
+    },
+    {
+        name: "wanted-poster",
+        title: "Post a bounty on the worst file",
+        description: "Rank the most problematic files by SAST findings, duplication, dead exports, old TODOs and churn, then turn the worst one into an ASCII WANTED poster with concrete reasons.",
+        arguments: [
+            { name: "context", description: "Which area or file to investigate", required: false },
         ],
     },
     {
@@ -2333,6 +2355,16 @@ async function callCinema(input, cwd) {
         args.push("--cast");
     return toToolResult(await runCli(args, cwd));
 }
+async function callBounty(input, cwd) {
+    const args = ["bounty", "--json"];
+    const limit = integerArg(input, "limit");
+    const sinceDays = integerArg(input, "since_days");
+    if (limit !== undefined)
+        args.push("--limit", String(limit));
+    if (sinceDays !== undefined)
+        args.push("--since-days", String(sinceDays));
+    return toToolResult(await runCli(args, cwd));
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -2650,6 +2682,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callRoast(input, cwd);
         case "cinema":
             return callCinema(input, cwd);
+        case "bounty":
+            return callBounty(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -2712,6 +2746,12 @@ export function applyResultOptions(result, input) {
 }
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value) {
+    if (Array.isArray(value.candidates) && typeof value.score === "number" && (typeof value.file === "string" || value.file === null)) {
+        if (typeof value.file === "string") {
+            return `oc-pilot: worst file ${value.file} (${String(value.score)} points, ${String(value.candidates.length)} suspect${value.candidates.length === 1 ? "" : "s"})`;
+        }
+        return `oc-pilot: no bounty (${String(value.scannedFiles ?? 0)} files scanned)`;
+    }
     if (Array.isArray(value.frames) && typeof value.sinceDays === "number" && typeof value.format === "string") {
         const frames = String(value.frames.length);
         const days = String(value.sinceDays);
@@ -2956,6 +2996,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "roast" tool on the current diff with the persona the user asked for (default linus). Use the returned roast as-is, or sharpen the wording without inventing code that is not in the diff. Keep every joke tied to file:line and finish with the single most valuable fix. Never turn the roast into personal harassment, slurs or threats.${suffix}`;
         case "play-session":
             return `Call the oc-pilot "cinema" tool with since_days=30 and max_frames=120 (or cast=true for asciinema). Present the returned player as a replay of real local activity: commits, agent runs, API calls, findings and the receipt. Do not invent frames, hide failed runs or claim the timelapse proves correctness; it is a report, not a test. Report the format, the frame count, the window and any gaps in the history.${suffix}`;
+        case "wanted-poster":
+            return `Call the oc-pilot "bounty" tool with limit=5 and since_days=30. Present the WANTED poster as a playful but factual ranking, then explain the reasons behind the worst file in plain language and name the single highest-weight reason to fix first. Do not invent issues, shame people or paste the poster into a public channel without checking the file names; do not rewrite production code just to lower the score. After a fix, call "bounty" again and compare the score.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":
