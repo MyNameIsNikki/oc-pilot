@@ -371,6 +371,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(envSync.inputSchema.properties.fail_on_missing, "fail_on_missing missing on env_sync");
     assert.ok(envSync.inputSchema.properties.staged, "staged missing on env_sync");
 
+    const mockLeak = tools.find((tool) => tool.name === "mock_leak");
+    assert.ok(mockLeak, "mock_leak tool missing");
+    assert.ok(mockLeak.inputSchema.properties.fail_on_leak, "fail_on_leak missing on mock_leak");
+    assert.ok(mockLeak.inputSchema.properties.staged, "staged missing on mock_leak");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1104,6 +1109,67 @@ test("MCP env_sync reports a missing environment variable", () => {
     assert.match(
       (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
       /1 env reference, 1 missing, 0 undocumented/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP mock_leak finds hardcoded paths and always-true branches", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-mock-"));
+  try {
+    const diff = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1,1 +1,4 @@",
+      '+const home = "C:\\\\Users\\\\aleyn\\\\project";',
+      "+if (true) {",
+      "+  load(home);",
+      "+}",
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "mock_leak",
+          arguments: { diff, fail_on_leak: "high", verbosity: "compact" },
+        },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: {
+            status?: string;
+            counts?: { total?: number; high?: number; medium?: number };
+            findings?: Array<{ kind?: string; file?: string }>;
+          };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 1);
+    assert.equal(result?.structuredContent?.status, "fail");
+    assert.equal(result?.structuredContent?.counts?.total, 2);
+    assert.equal(result?.structuredContent?.counts?.high, 2);
+    const kinds = (result?.structuredContent?.findings ?? []).map((finding) => finding.kind);
+    assert.ok(kinds.includes("local-path"), `kinds: ${kinds.join(", ")}`);
+    assert.ok(kinds.includes("always-true"), `kinds: ${kinds.join(", ")}`);
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /2 mock leaks, 2 high, 0 medium/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

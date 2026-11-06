@@ -3,6 +3,7 @@ import { runCache } from "./commands/cache.js";
 import { runDay } from "./commands/day.js";
 import { runDeps } from "./commands/deps.js";
 import { runEnvSync } from "./commands/env-sync.js";
+import { runMockLeak } from "./commands/mock-leak.js";
 import { runCoverage } from "./commands/coverage.js";
 import { runImpact } from "./commands/impact.js";
 import { runExplain } from "./commands/explain.js";
@@ -55,6 +56,7 @@ const HANDLERS: Record<string, Handler> = {
   scan: runScan,
   deps: runDeps,
   "env-sync": runEnvSync,
+  "mock-leak": runMockLeak,
   coverage: runCoverage,
   preflight: runPreflight,
   receipt: runReceipt,
@@ -95,6 +97,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   scan        Офлайн-поиск секретов в diff (без LLM)
   deps        Аудит зависимостей: фантомные импорты, лишние пакеты, lockfile
   env-sync    Переменные окружения из diff против .env и .env.example
+  mock-leak   Заглушки и хардкод в прод-коде: пути, токены, if (true)
   coverage    Покрытие изменённых строк: непокрытые строки и гейт
   preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
@@ -134,6 +137,7 @@ ${COMMON_HELP}
   oc-pilot mutate --staged --min-score 80
   oc-pilot coverage --staged --coverage-file coverage/lcov.info --fail-under 80
   oc-pilot env-sync --staged --fail-on-missing
+  oc-pilot mock-leak --staged --fail-on high
   oc-pilot sast --staged --fail-on-issue high
   oc-pilot authz --staged
   oc-pilot deps --json
@@ -184,7 +188,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, env-sync, coverage, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, env-sync, mock-leak, coverage, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }

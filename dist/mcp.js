@@ -21,7 +21,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification;
 let logLevel;
@@ -462,6 +462,29 @@ const TOOLS = [
         },
     },
     {
+        name: "mock_leak",
+        description: "Offline scan of added production code for forgotten stubs and hardcode: local paths such as C:/Users or /home, test tokens, always-true and always-false conditions, mock/fake/stub identifiers, mock comments and localhost URLs. Test, generated and documentation files are skipped. Read-only and free of model calls; findings at or above fail_on return exit code 1.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+                base: { type: "string", description: "Check git diff <base>...HEAD, e.g. origin/main" },
+                staged: { type: "boolean", description: "Only staged changes" },
+                unstaged: { type: "boolean", description: "Only unstaged changes" },
+                include_untracked: { type: "boolean", description: "Include untracked files" },
+                fail_on_leak: {
+                    type: "string",
+                    enum: ["high", "medium", "low"],
+                    description: "Lowest severity that returns exit code 1",
+                },
+                paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "sast",
         description: "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -734,6 +757,14 @@ const PROMPTS = [
         description: "Check every environment variable added by the change against .env and .env.example, then add the missing configuration and documentation without inventing secrets.",
         arguments: [
             { name: "context", description: "What the new variable configures and where it is read", required: false },
+        ],
+    },
+    {
+        name: "remove-mocks",
+        title: "Remove stubs and hardcode",
+        description: "Find forgotten mocks, local paths, test tokens and always-true conditions in production code, replace them with the real implementation and rerun until the leak report is clean.",
+        arguments: [
+            { name: "context", description: "What the code should do in production", required: false },
         ],
     },
     {
@@ -1533,6 +1564,32 @@ async function callEnvSync(input, cwd) {
         temp.cleanup();
     }
 }
+async function callMockLeak(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["mock-leak", "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        const failOn = stringArg(input, "fail_on_leak");
+        if (failOn)
+            args.push("--fail-on-leak", failOn);
+        args.push(...projectPaths(input, "paths"));
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callScan(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -1816,6 +1873,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callTestGuard(input, cwd);
         case "env_sync":
             return callEnvSync(input, cwd);
+        case "mock_leak":
+            return callMockLeak(input, cwd);
         case "preflight":
             return callPreflight(input, cwd);
         case "sast":
@@ -1888,6 +1947,14 @@ function summarizeResult(value) {
         return `oc-pilot: ${references} env reference${references === "1" ? "" : "s"}, ${missing} missing, ${undocumented} undocumented`;
     }
     const counts = asObject(value.counts);
+    if (counts &&
+        typeof counts.high === "number" &&
+        typeof counts.medium === "number" &&
+        typeof counts.low === "number" &&
+        Array.isArray(value.findings)) {
+        const total = String(value.findings.length);
+        return `oc-pilot: ${total} mock leak${total === "1" ? "" : "s"}, ${String(counts.high)} high, ${String(counts.medium)} medium`;
+    }
     if (counts && typeof counts.total === "number" && Array.isArray(value.findings)) {
         const total = String(counts.total);
         return `oc-pilot: ${total} test weakening finding${total === "1" ? "" : "s"}, status ${String(value.status ?? "unknown")}`;
@@ -2012,6 +2079,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "test_guard" tool on the current diff with fail_on_weakening=true. For every finding, restore the protection or fix the production cause: remove skips and focus, restore deleted assertions, replace existence checks with the original strict matcher, remove @ts-ignore and empty catch blocks, and bring timeouts back. Never add skip/focus, delete a test, weaken a matcher, suppress a type error or swallow an assertion to get a pass. Rerun "test_guard" until status is pass, then report each finding and the real fix.${suffix}`;
         case "sync-env":
             return `Call the oc-pilot "env_sync" tool on the current diff with fail_on_missing=true. Add every missing variable to the real configuration and every new variable to .env.example (and .env.sample or .env.template when the project uses them). Document what each variable configures and which value a human must supply; never invent production secrets, never commit a real .env with secrets, and never delete a reference only to silence the report. Rerun "env_sync" until status is pass, then report the variables, files and any value the human still has to provide.${suffix}`;
+        case "remove-mocks":
+            return `Call the oc-pilot "mock_leak" tool on the current diff with fail_on_leak=medium. For every finding, replace the stub with the real implementation: wire the actual request or service, take the local path and host from configuration, load the secret from the environment, and delete always-true or always-false branches instead of keeping dead code. Never move a mock into a comment, rename it to hide it, add an ignore marker or delete the production call to silence the report. Rerun "mock_leak" until status is pass, then report each finding, the file and the real behavior that replaced it.${suffix}`;
         case "prove-tests":
             return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
         case "prove-done":
