@@ -23,7 +23,7 @@ const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 let maxToolCalls = 50;
 let toolCallsUsed = 0;
 /** Offline tools never spend the budget and always work. */
-const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "sast", "authz", "preflight", "ready", "receipt_verify"]);
+const OFFLINE_TOOLS = new Set(["scan", "stats", "slop", "flaky", "impact", "deps", "coverage", "reviewers", "test_guard", "env_sync", "mock_leak", "ecosystem_verify", "pack", "contract_drift", "anti_regression", "boundaries", "test_plan", "sast", "authz", "preflight", "ready", "receipt_verify"]);
 /** Set only over stdio, where a notification channel exists. */
 let emitNotification: ((message: JsonObject) => void) | undefined;
 let logLevel: string | undefined;
@@ -653,6 +653,33 @@ const TOOLS = [
     },
   },
   {
+    name: "test_plan",
+    description:
+      "Select the test files a change can affect using the repository's import graph: changed tests, direct and transitive importers, naming conventions and symbol references. Reports changed files with no test as uncovered. Offline and free of model calls; fail_on_uncovered returns exit code 1.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Plan git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Only staged changes" },
+        unstaged: { type: "boolean", description: "Only unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files" },
+        strategy: {
+          type: "string",
+          enum: ["affected", "fast", "full"],
+          description: "affected keeps direct and transitive matches, fast only high confidence, full returns every test",
+        },
+        max_tests: { type: "integer", minimum: 1, description: "Truncate the plan after this many tests" },
+        fail_on_uncovered: { type: "boolean", description: "Return exit code 1 when a changed file has no test" },
+        coverage_file: { type: "string", description: "Optional coverage report to mark changed lines without tests" },
+        paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "sast",
     description:
       "Deterministic offline SAST for changed files: command and SQL injection, path traversal, SSRF, code injection, XSS, open redirects, disabled TLS verification, wildcard CORS, prototype pollution, weak hashes and JWT none. Uses local files only and never calls a model, so it is free and safe in read-only mode. Findings at or above fail_on_issue return exit code 1, not a tool error.",
@@ -1002,6 +1029,15 @@ const PROMPTS = [
       "Check added imports against the layer rules, fix the direction of the dependency and rerun until no boundary is crossed.",
     arguments: [
       { name: "context", description: "Which module or layer changed", required: false },
+    ],
+  },
+  {
+    name: "plan-tests",
+    title: "Plan the affected tests",
+    description:
+      "Select only the test files the change can affect using the import graph, then run them and cover any changed file the plan marks as untested.",
+    arguments: [
+      { name: "context", description: "What changed and what risk the tests should cover", required: false },
     ],
   },
   {
@@ -1838,6 +1874,31 @@ async function callBoundaries(input: JsonObject, cwd: string): Promise<ToolResul
   }
 }
 
+async function callTestPlan(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["test-plan", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    const strategy = stringArg(input, "strategy");
+    const coverageFile = stringArg(input, "coverage_file");
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    if (strategy) args.push("--strategy", strategy);
+    const maxTests = integerArg(input, "max_tests");
+    if (maxTests !== undefined) args.push("--max-tests", String(maxTests));
+    if (booleanArg(input, "fail_on_uncovered")) args.push("--fail-on-uncovered");
+    if (coverageFile) args.push("--coverage-file", coverageFile);
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callScan(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2077,6 +2138,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callAntiRegression(input, cwd);
     case "boundaries":
       return callBoundaries(input, cwd);
+    case "test_plan":
+      return callTestPlan(input, cwd);
     case "preflight":
       return callPreflight(input, cwd);
     case "sast":
@@ -2156,6 +2219,11 @@ function summarizeResult(value: JsonObject): string {
     const files = String(value.files.length);
     const state = value.truncated === true ? "truncated" : "within budget";
     return `oc-pilot: ${files} file${files === "1" ? "" : "s"}, ${String(value.chars)} chars (${state})`;
+  }
+  if (typeof value.strategy === "string" && Array.isArray(value.tests) && Array.isArray(value.uncovered)) {
+    const tests = String(value.tests.length);
+    const uncovered = String(value.uncovered.length);
+    return `oc-pilot: ${tests} test file${tests === "1" ? "" : "s"} selected, ${uncovered} uncovered changed file${uncovered === "1" ? "" : "s"}`;
   }
   if (Array.isArray(value.references) && Array.isArray(value.missing) && Array.isArray(value.undocumented)) {
     const references = String(value.references.length);
@@ -2349,6 +2417,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "anti_regression" tool on the current diff with fail_on_regression=true. Every finding is a line a human already deleted, with the commit that removed it. Read that commit and the surrounding change before deciding: reintroduce the line only when the original reason no longer applies or the task explicitly requires it, and say why. Never rewrite the line only to dodge the exact match, never rewrite git history, and never suppress the finding. Rerun until status is pass, then report each commit, file:line and the decision.${suffix}`;
     case "respect-boundaries":
       return `Call the oc-pilot "boundaries" tool with fail_on_violation=true. If it reports violations, fix the dependency direction instead of widening the rule: move shared logic behind a service or interface, inject the dependency, or move the file into the allowed layer. Change .oc-pilot/architecture.json only when the architecture intentionally changed, and say why. Never rename or ignore an import just to dodge the check. Rerun until it passes and report each violation, the file:line and the fix.${suffix}`;
+    case "plan-tests":
+      return `Call the oc-pilot "test_plan" tool with strategy=affected and fail_on_uncovered=true on the current change. Run only the returned test files, not the whole suite. For every file in uncovered, add the smallest test that exercises the changed behavior or explain why it cannot be tested here. Do not lower the strategy, delete a test, or run the full suite just to hide an uncovered file. Rerun "test_plan" after adding tests and report the selected files, the reasons, the tests you ran and any remaining uncovered files.${suffix}`;
     case "prove-tests":
       return `Call the oc-pilot "mutate" tool on the current change with max_mutants=20 and min_score=80. Each surviving mutant is a behavior the tests do not protect: add or strengthen the smallest test that would kill it, then call "mutate" again. Do not change production code only to satisfy a mutant, do not weaken assertions, and do not lower min_score to get a pass. Report the mutation score, the surviving mutants with file:line, and the tests you added.${suffix}`;
     case "prove-done":

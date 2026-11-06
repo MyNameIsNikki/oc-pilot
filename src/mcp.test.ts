@@ -405,6 +405,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(boundaries.inputSchema.properties.config, "config missing on boundaries");
     assert.ok(boundaries.inputSchema.properties.fail_on_violation, "fail_on_violation missing on boundaries");
 
+    const testPlan = tools.find((tool) => tool.name === "test_plan");
+    assert.ok(testPlan, "test_plan tool missing");
+    assert.ok(testPlan.inputSchema.properties.strategy, "strategy missing on test_plan");
+    assert.ok(testPlan.inputSchema.properties.max_tests, "max_tests missing on test_plan");
+    assert.ok(testPlan.inputSchema.properties.fail_on_uncovered, "fail_on_uncovered missing on test_plan");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -1344,6 +1350,70 @@ test("MCP contract_drift flags a removed field still used by a consumer", () => 
     assert.match(
       (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
       /1 contract drift, 1 high, 0 medium/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP test_plan selects tests from the import graph", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-test-plan-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "src", "wallet.ts"), "export function charge(amount: number) {\n  return amount;\n}\n", "utf8");
+    writeFileSync(join(dir, "src", "checkout.ts"), 'import { charge } from "./wallet";\n\nexport function pay() {\n  return charge(10);\n}\n', "utf8");
+    writeFileSync(join(dir, "src", "wallet.test.ts"), 'import { charge } from "./wallet";\n', "utf8");
+    writeFileSync(join(dir, "src", "checkout.test.ts"), 'import { pay } from "./checkout";\n', "utf8");
+    const diff = [
+      "diff --git a/src/wallet.ts b/src/wallet.ts",
+      "--- a/src/wallet.ts",
+      "+++ b/src/wallet.ts",
+      "@@ -1,3 +1,3 @@",
+      "-export function charge(amount: number) {",
+      "+export function chargeCard(amount: number) {",
+      "   return amount;",
+      " }",
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "test_plan",
+          arguments: { diff, strategy: "affected", fail_on_uncovered: true, verbosity: "compact" },
+        },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: {
+            tests?: Array<{ file?: string; reasons?: string[] }>;
+            uncovered?: string[];
+          };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 0);
+    assert.deepEqual(result?.structuredContent?.uncovered, []);
+    const files = (result?.structuredContent?.tests ?? []).map((test) => test.file);
+    assert.ok(files.includes("src/wallet.test.ts"), `tests: ${files.join(", ")}`);
+    assert.ok(files.includes("src/checkout.test.ts"), `tests: ${files.join(", ")}`);
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /2 test files selected, 0 uncovered changed files/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
