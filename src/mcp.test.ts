@@ -361,6 +361,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(reviewers.inputSchema.properties.depth, "depth missing on reviewers");
     assert.ok(reviewers.inputSchema.properties.exclude, "exclude missing on reviewers");
 
+    const testGuard = tools.find((tool) => tool.name === "test_guard");
+    assert.ok(testGuard, "test_guard tool missing");
+    assert.ok(testGuard.inputSchema.properties.fail_on_weakening, "fail_on_weakening missing on test_guard");
+    assert.ok(testGuard.inputSchema.properties.staged, "staged missing on test_guard");
+
     const sast = tools.find((tool) => tool.name === "sast");
     assert.ok(sast, "sast tool missing");
     assert.ok(sast.inputSchema.properties.fail_on_issue, "fail_on_issue missing on sast");
@@ -972,6 +977,65 @@ test("MCP reviewers ranks authors from git history", () => {
     assert.match(
       (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
       /1 reviewer candidate, 0 CODEOWNERS owners for 1 file/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP test_guard flags a weakened matcher", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-guard-"));
+  try {
+    const diff = [
+      "diff --git a/src/app.test.ts b/src/app.test.ts",
+      "--- a/src/app.test.ts",
+      "+++ b/src/app.test.ts",
+      "@@ -1,3 +1,3 @@",
+      ' test("adds", () => {',
+      "-  expect(add(1, 2)).toBe(3);",
+      "+  expect(add(1, 2)).toBeDefined();",
+      " });",
+      "",
+    ].join("\n");
+
+    const { responses, stderr } = runServer(dir, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "test_guard",
+          arguments: { diff, fail_on_weakening: true, verbosity: "compact" },
+        },
+      },
+    ]);
+
+    const result = responses.find((response) => response.id === 2)?.result as
+      | {
+          isError?: boolean;
+          structuredContent?: {
+            status?: string;
+            findings?: Array<{ kind?: string; file?: string; line?: number }>;
+            counts?: { total?: number };
+          };
+          _meta?: { exitCode?: number };
+        }
+      | undefined;
+    assert.notEqual(result?.isError, true, stderr);
+    assert.equal(result?._meta?.exitCode, 1);
+    assert.equal(result?.structuredContent?.status, "fail");
+    assert.equal(result?.structuredContent?.counts?.total, 1);
+    assert.equal(result?.structuredContent?.findings?.[0]?.kind, "weakened-matcher");
+    assert.equal(result?.structuredContent?.findings?.[0]?.file, "src/app.test.ts");
+    assert.match(
+      (result as { content?: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "",
+      /1 test weakening finding, status fail/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

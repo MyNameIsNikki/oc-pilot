@@ -25,6 +25,7 @@ import { runScan } from "./commands/scan.js";
 import { runSetup } from "./commands/setup.js";
 import { runTestFix } from "./commands/test-fix.js";
 import { runTestGen } from "./commands/test-gen.js";
+import { runTestGuard } from "./commands/test-guard.js";
 import { runFlaky } from "./commands/flaky.js";
 import { runMutate } from "./commands/mutate.js";
 import { runSast } from "./commands/sast.js";
@@ -39,6 +40,7 @@ const HANDLERS = {
     reviewers: runReviewers,
     "test-fix": runTestFix,
     "test-gen": runTestGen,
+    "test-guard": runTestGuard,
     flaky: runFlaky,
     mutate: runMutate,
     sast: runSast,
@@ -76,6 +78,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   review      Ревью git-diff: баги, уязвимости, идиомы языка
   test-fix    Разбор падения тестов и минимальный фикс
   test-gen    Сгенерировать тесты на изменённый код и оставить только зелёные
+  test-guard  Найти ослабление тестов: skip, удалённые проверки, матчеры
   flaky       Найти нестабильные тесты: несколько прогонов и сравнение
   mutate      Мутационное тестирование: проверить, что тесты ловят баги
   sast        Детерминированный SAST: инъекции, SSRF, path traversal, XSS
@@ -119,6 +122,7 @@ ${COMMON_HELP}
   oc-pilot fix --apply --command "go test ./..."
   oc-pilot test-fix --command "go test ./..."
   oc-pilot test-gen --staged --apply
+  oc-pilot test-guard --staged --fail-on-weakening
   oc-pilot flaky --runs 5
   oc-pilot mutate --staged --min-score 80
   oc-pilot coverage --staged --coverage-file coverage/lcov.info --fail-under 80
@@ -168,7 +172,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, coverage, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, coverage, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

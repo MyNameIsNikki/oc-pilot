@@ -71,6 +71,45 @@ test("ignores non-test files and unchanged assertions", () => {
   assert.deepEqual(analyzeTestWeakness(untouched), []);
 });
 
+test("flags a strict matcher replaced by an existence check", () => {
+  const diff = makeDiff("src/wallet.spec.ts", [
+    "-  expect(balance).toEqual(0)",
+    "+  expect(balance).toBeDefined()",
+  ]);
+  const findings = analyzeTestWeakness(diff);
+  assert.deepEqual(findings.map((finding) => finding.kind), ["weakened-matcher"]);
+});
+
+test("flags suppressed type checks and swallowed assertions", () => {
+  const diff = makeDiff("tests/pay.test.ts", [
+    "+  // @ts-ignore",
+    "+  try { expect(total).toBe(42); } catch (error) {}",
+  ]);
+  const findings = analyzeTestWeakness(diff);
+  assert.deepEqual(findings.map((finding) => finding.kind), [
+    "suppressed-type-check",
+    "swallowed-assertion",
+  ]);
+});
+
+test("flags a removed test that was not replaced", () => {
+  const diff = makeDiff("tests/wallet.test.ts", [
+    '-  it("withdraws", () => {})',
+    '+  it("withdraws from savings", () => {})',
+  ]);
+  const removed = analyzeTestWeakness(diff).filter((finding) => finding.kind === "removed-test");
+  assert.equal(removed.length, 1);
+  assert.match(removed[0]?.detail ?? "", /withdraws/);
+});
+
+test("does not flag a removed test with the same name", () => {
+  const diff = makeDiff("tests/wallet.test.ts", [
+    '-  it("withdraws", () => {})',
+    '+  it("withdraws", () => {})',
+  ]);
+  assert.deepEqual(analyzeTestWeakness(diff), []);
+});
+
 test("describeTestWeakening lists findings and caps the list", () => {
   const findings = Array.from({ length: 12 }, (_, index) => ({
     file: "tests/a.test.ts",
