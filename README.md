@@ -1140,7 +1140,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.88.0
+      - uses: MyNameIsNikki/oc-pilot@v0.88.1
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1163,7 +1163,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.88.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.88.1.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
@@ -1181,7 +1181,7 @@ To upload results to GitHub Code Scanning, write a SARIF report and upload it:
           sarif_file: oc-pilot.sarif
 ```
 
-Each release is published from a tag by the repository's own workflow (OIDC trusted publishing with a provenance attestation), and the GitHub release body is taken from the matching `CHANGELOG.md` section. CI runs the suite on Node 22 and 24 and prints an informational coverage table from `node --test --experimental-test-coverage` — no threshold, so a noisy signal never blocks a merge.
+Each release is published from a tag by the repository's own workflow (OIDC trusted publishing with a provenance attestation; set the `NPM_TOKEN` secret to fall back to a granular npm token), and the GitHub release body is taken from the matching `CHANGELOG.md` section. CI runs the suite on Node 22 and 24 and prints an informational coverage table from `node --test --experimental-test-coverage` — no threshold, so a noisy signal never blocks a merge.
 
 ## Security model
 

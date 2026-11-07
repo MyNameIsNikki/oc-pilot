@@ -36,10 +36,36 @@ jobs:
             exit 1
           fi
 
-      # Trusted publishing: npm exchanges the GitHub OIDC token for a one-time
-      # publish credential. No NPM_TOKEN and no registry-url on purpose — the
-      # token is minted per run and scoped to this repository and workflow name.
-      - run: npm publish --provenance --access public --ignore-scripts
+      # Two supported auth modes:
+      # 1. NPM_TOKEN secret is set -> granular/automation token with publish rights.
+      # 2. NPM_TOKEN is absent -> Trusted Publishing: npm exchanges the GitHub
+      #    OIDC token for a one-time publish credential (no registry-url on purpose).
+      - name: Detect npm auth mode
+        id: auth
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "mode=token" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish with NPM_TOKEN
+        if: steps.auth.outputs.mode == 'token'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
+          npm publish --provenance --access public --ignore-scripts
+
+      - name: Publish with Trusted Publishing
+        if: steps.auth.outputs.mode == 'oidc'
+        run: npm publish --provenance --access public --ignore-scripts
+
+      - name: Remove npm credentials
+        if: always()
+        run: rm -f .npmrc
 
       # The release body is the CHANGELOG section for this version, so the
       # GitHub release and the repository history never drift apart.

@@ -966,7 +966,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.88.0
+      - uses: MyNameIsNikki/oc-pilot@v0.88.1
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1016,7 +1016,7 @@ jobs:
           sarif_file: oc-pilot.sarif
 ```
 
-Каждый релиз публикуется из тега workflow самого репозитория (OIDC trusted publishing с provenance-аттестацией), а тело GitHub Release берётся из соответствующего раздела `CHANGELOG.md`. CI гоняет тесты на Node 22 и 24 и печатает информационную таблицу покрытия через `node --test --experimental-test-coverage` — без порога, чтобы шумный сигнал не блокировал мерж.
+Каждый релиз публикуется из тега workflow самого репозитория (OIDC trusted publishing с provenance-аттестацией; секрет `NPM_TOKEN` включает запасной путь через granular-токен npm), а тело GitHub Release берётся из соответствующего раздела `CHANGELOG.md`. CI гоняет тесты на Node 22 и 24 и печатает информационную таблицу покрытия через `node --test --experimental-test-coverage` — без порога, чтобы шумный сигнал не блокировал мерж.
 
 ## Ограничения
 

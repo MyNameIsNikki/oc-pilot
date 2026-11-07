@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.88.1
+
+- CI: release workflow поддерживает `NPM_TOKEN` как запасной путь публикации; без секрета остаётся OIDC Trusted Publishing.
+- Токен читается только из GitHub secret, не печатается в логах, а созданный `.npmrc` удаляется после публикации.
+- Runtime не менялся; 661 тест; версия 0.88.1.
+
 ## 0.88.0
 
 - Новая команда `hivemind`: P2P-сеть агентов на встроенном `node:net` — `init`, `trust`, `status`, `serve`, `send`.
