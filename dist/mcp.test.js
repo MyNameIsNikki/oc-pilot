@@ -353,6 +353,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(zoomSymbol, "zoom_symbol tool missing");
         assert.ok(zoomSymbol.inputSchema.properties.file, "file missing on zoom_symbol");
         assert.ok(zoomSymbol.inputSchema.properties.symbol, "symbol missing on zoom_symbol");
+        const invariants = tools.find((tool) => tool.name === "invariants");
+        assert.ok(invariants, "invariants tool missing");
+        assert.ok(invariants.inputSchema.properties.strict, "strict missing on invariants");
+        assert.ok(invariants.inputSchema.properties.fail_on, "fail_on missing on invariants");
+        assert.ok(invariants.inputSchema.properties.no_cache, "no_cache missing on invariants");
         const contractDrift = tools.find((tool) => tool.name === "contract_drift");
         assert.ok(contractDrift, "contract_drift tool missing");
         assert.ok(contractDrift.inputSchema.properties.fail_on_drift, "fail_on_drift missing on contract_drift");

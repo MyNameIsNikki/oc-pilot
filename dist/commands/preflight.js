@@ -1,5 +1,6 @@
-import { loadDiff } from "../core/diff-source.js";
+import { describeDiffSource, loadDiff } from "../core/diff-source.js";
 import { PilotError } from "../core/errors.js";
+import { checkInvariants } from "../core/invariants.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
@@ -22,6 +23,8 @@ const OPTIONS = withCommon({
     "no-deps": { type: "boolean" },
     "no-tests": { type: "boolean" },
     "no-slop": { type: "boolean" },
+    invariants: { type: "boolean" },
+    "fail-on-invariants": { type: "boolean" },
 });
 const HELP = `Использование:
   oc-pilot preflight [пути] [опции]
@@ -46,6 +49,8 @@ const HELP = `Использование:
       --no-deps             не проверять зависимости
       --no-tests            не искать ослабление тестов
       --no-slop             не считать дельту Slop Index
+      --invariants          дополнительно проверить .oc-pilot/invariants.md моделью
+      --fail-on-invariants  считать любое нарушение инвариантов блокирующим
 ${COMMON_HELP}
 
 Примеры:
@@ -107,12 +112,26 @@ export async function runPreflight(argv) {
         maxSlopDelta: optionalNumber(values, "max-delta"),
         since: asString(values, "since"),
     });
+    const invariants = asBoolean(values, "invariants")
+        ? await checkInvariants(ctx.cwd, ctx, {
+            diff: data.diff,
+            payloadDiff: data.payloadDiff,
+            changedFiles: data.changedFiles,
+            findings: data.findings,
+            source: describeDiffSource(data.source),
+        }, { strict: asBoolean(values, "fail-on-invariants") })
+        : undefined;
+    const payload = invariants ? { ...report, invariants } : report;
     const text = ctx.flags.json
-        ? `${JSON.stringify(report, null, 2)}\n`
-        : renderPreflight(report);
+        ? `${JSON.stringify(payload, null, 2)}\n`
+        : `${renderPreflight(report)}${invariants ? `\n${invariants.content}` : ""}`;
     const wrote = writeOutput(text, ctx.flags.output);
     if (wrote)
         log.success(`Отчёт сохранён: ${wrote}`);
-    return report.status === "fail" ? 1 : 0;
+    if (report.status === "fail")
+        return 1;
+    if (invariants?.exitCode === 3)
+        return 3;
+    return 0;
 }
 //# sourceMappingURL=preflight.js.map

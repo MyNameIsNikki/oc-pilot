@@ -615,6 +615,27 @@ const TOOLS = [
     },
   },
   {
+    name: "invariants",
+    description:
+      "Check the diff against .oc-pilot/invariants.md: area-scoped rules, [CRITICAL] markers and a strict JSON model answer, cached by the hash of diff and invariants. Out-of-scope rules are skipped without a model call. Violations are warnings by default; a CRITICAL violation or strict=true returns exit code 3.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Check git diff <base>...HEAD" },
+        staged: { type: "boolean", description: "Check staged changes" },
+        unstaged: { type: "boolean", description: "Check unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files when diffing" },
+        strict: { type: "boolean", description: "Return exit code 3 for any violation, not only CRITICAL" },
+        fail_on: { type: "string", enum: ["violation"], description: "Alias for strict" },
+        no_cache: { type: "boolean", description: "Bypass the local verdict cache" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "contract_drift",
     description:
       "Detect implicit contract breakage in the diff: removed fields, optional fields that became required and changed field types in TypeScript interfaces, Zod objects, Prisma models, Pydantic models and JSON Schema. Reports where a removed field is still used in untouched files. Textual, offline and free of model calls.",
@@ -1128,6 +1149,15 @@ const PROMPTS = [
       "Build a layered context where diff files are complete, direct imports hide function bodies behind markers, and the rest exposes only export names; zoom one symbol on demand instead of dumping the repo.",
     arguments: [
       { name: "context", description: "What the agent is trying to do", required: false },
+    ],
+  },
+  {
+    name: "check-invariants",
+    title: "Check the semantic invariants",
+    description:
+      "Check the change against .oc-pilot/invariants.md, explain every violation with evidence and treat CRITICAL or strict violations as a blocking gate.",
+    arguments: [
+      { name: "context", description: "What the change is supposed to do", required: false },
     ],
   },
   {
@@ -2162,6 +2192,27 @@ async function callZoomSymbol(input: JsonObject, cwd: string): Promise<ToolResul
   return toToolResult(await runCli(["zoom-symbol", file, symbol, "--json"], cwd));
 }
 
+async function callInvariants(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["invariants", "--json"];
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    if (booleanArg(input, "strict")) args.push("--strict");
+    const failOn = stringArg(input, "fail_on");
+    if (failOn) args.push("--fail-on", failOn);
+    if (booleanArg(input, "no_cache")) args.push("--no-cache");
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callContractDrift(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2654,6 +2705,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callPackHologram(input, cwd);
     case "zoom_symbol":
       return callZoomSymbol(input, cwd);
+    case "invariants":
+      return callInvariants(input, cwd);
     case "contract_drift":
       return callContractDrift(input, cwd);
     case "anti_regression":
@@ -2754,6 +2807,9 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value: JsonObject): string {
+  if (Array.isArray(value.verdicts) && typeof value.violations === "number" && typeof value.checked === "number") {
+    return `oc-pilot: invariants ${String(value.checked)} checked, ${String(value.skipped ?? 0)} skipped, ${String(value.violations)} violation(s)`;
+  }
   if (Array.isArray(value.files) && typeof value.estimatedTokens === "number" && typeof value.maxTokens === "number") {
     return `oc-pilot: hologram ${String(value.files.length)} file(s), ~${String(value.estimatedTokens)} tokens (max ${String(value.maxTokens)})`;
   }
@@ -2987,6 +3043,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Before I commit, call the oc-pilot "preflight" tool with staged=true. It runs offline: secrets, dependency health scoped to the change, test weakening and the Slop Index delta. If the verdict is fail, fix the cheapest failing check first, then call "preflight" again. Do not disable a check with no_* flags or lower the gate just to get a pass. When it passes, report what was checked and any remaining skips.${suffix}`;
     case "compile-hologram":
       return `Call the oc-pilot "pack_hologram" tool with max_tokens=30000 and the current diff. The result is layered: LOD 0 files are complete, LOD 1 bodies are hidden behind markers, LOD 2 lists export names. Never invent a hidden body: if the implementation matters, call "zoom_symbol" with the file and symbol from the Zoom section and read the returned body before reasoning about it. Treat [Hologram: parse bailout] as a warning that the file is complete. Do not dump the whole repository or raise max_tokens just to avoid zooming; the hologram exists to save context. Report which files were LOD 0/1/2, any redacted secrets and every symbol you zoomed.${suffix}`;
+    case "check-invariants":
+      return `Call the oc-pilot "invariants" tool on the current diff with strict=false first. Read every verdict: [SKIPPED: Out of scope] rules were not checked and must not be reported as passed; [UNKNOWN] means the model lacked evidence. For each violation, quote the file:line and explain which invariant broke. Do not edit .oc-pilot/invariants.md, do not delete a rule to get a pass and do not hide a CRITICAL violation. If the user wants a hard gate, rerun with strict=true and report exit code 3. After a fix, rerun the tool and compare the verdicts.${suffix}`;
     case "get-ready":
       return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
     case "fix-security":

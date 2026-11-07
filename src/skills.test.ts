@@ -85,6 +85,7 @@ test("skills document real commands and avoid placeholders", () => {
     "ecosystem-verify",
     "pack",
     "zoom-symbol",
+    "invariants",
     "contract-drift",
     "anti-regression",
     "boundaries",

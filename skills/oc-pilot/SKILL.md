@@ -31,6 +31,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `ecosystem_verify` - named imports against installed packages and `.d.ts`, plus age and downloads of newly added npm packages.
 - `pack` - compact task context: rules, changed-file signatures, related references and an optional test log, capped by `budget` characters; read-only.
 - `pack --hologram` - layered context: LOD 0 full diff files, LOD 1 hidden bodies with EFFECTS markers and matching tests, LOD 2 export names; `zoom-symbol` returns one hidden body on demand.
+- `invariants` - semantic lock file `.oc-pilot/invariants.md` checked against the diff with a cheap model; `[CRITICAL]` and `--strict` gate with exit code 3, out-of-scope rules are skipped without a model call.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
 - `anti_regression` - lines the diff re-adds after a human explicitly deleted them in git history, with the deleting commit cited.
 - `boundaries` - added imports checked against `.oc-pilot/architecture.json` layer rules, with file, line and rule reason.
@@ -78,6 +79,7 @@ oc-pilot ecosystem-verify --staged --fail-on-issue high
 oc-pilot pack "fix the login redirect" --staged --budget 12000
 oc-pilot pack --hologram --max-tokens 30000 --output context.md
 oc-pilot zoom-symbol src/core/pack.ts buildPack
+oc-pilot invariants --staged --fail-on violation
 oc-pilot contract-drift --staged --fail-on-drift high
 oc-pilot anti-regression --staged --fail-on-regression
 oc-pilot boundaries --staged --fail-on-violation
