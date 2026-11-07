@@ -12,7 +12,7 @@ diff reviewed by a second model, blocking findings fixed, exit code checked.
 ## Setup
 
 ```bash
-npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.88.1.tar.gz
+npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.88.2.tar.gz
 oc-pilot --version   # requires 0.11+
 ```
 

@@ -1,76 +1,116 @@
-# oc-pilot
+# oc-pilot: иммунная система для AI vibe coding
 
-[English version](README.md)
+[![npm version](https://img.shields.io/npm/v/oc-pilot.svg)](https://www.npmjs.com/package/oc-pilot)
+[![Node.js](https://img.shields.io/node/v/oc-pilot.svg)](https://nodejs.org/)
+[![dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen)](package.json)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/MyNameIsNikki/oc-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/MyNameIsNikki/oc-pilot/actions/workflows/ci.yml)
 
-AI-ассистент разработчика для терминала: ревью git-diff, разбор падающих тестов, генерация документации и офлайн-поиск секретов. Работает поверх [OpenCode](https://opencode.ai) CLI или любого OpenAI-совместимого API, читает файлы проекта только для контекста и не меняет их. Доступен как MCP-сервер `oc-pilot-mcp` для Claude Code, Codex, Cursor, Gemini CLI, DeepSeek Harness и OpenCode.
+**Zero-dependency, offline-first защита для кода, который пишет AI.** oc-pilot — это CLI, MCP-сервер и CI-гейт в одном пакете для Node.js 22+. Его задача — не писать фичи. Он механически проверяет код, который написал агент, до попадания в `main`.
 
-```
-oc-pilot review          # баги, уязвимости, идиомы языка
-oc-pilot test-fix        # первопричина падения тестов + минимальный фикс
-oc-pilot docgen src/**   # GoDoc / RustDoc / JSDoc / docstrings
-oc-pilot scan            # секреты в diff без вызова модели
-```
+[English](README.md) · [Русский](README.ru.md) · [Интеграции](docs/integrations.md) · [Безопасность](SECURITY.md) · [Участие](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
-## Требования
+## Проблема
 
-- Node.js **22+**
-- OpenCode CLI **2.x** в `PATH` (`opencode --version`) для движка по умолчанию **или** OpenAI-совместимый endpoint и ключ
-- Настроенная модель и авторизация выбранного движка
-- Для MCP-режима — любой агент с поддержкой MCP (Claude Code, Codex, Cursor, Gemini CLI, DeepSeek Harness, OpenCode)
+AI-агенты — отличные двигатели без тормозов. Они выдумывают несуществующие зависимости, ослабляют ассерты, пока тесты не станут зелёными, сливают секреты в diff и превращают чистую архитектуру в AI slop. Вручную ревьюить каждый diff агента не масштабируется, а «тесты прошли» — не аргумент о безопасности.
 
-## Установка
+## Решение
 
-Из GitHub, с фиксацией на теге релиза (работает до первого релиза в npm):
+oc-pilot — это тормоз. Он гоняет детерминированные проверки по diff, отдаёт агенту структурированные доказательства через MCP и блокирует мерж, когда доказательства плохие.
 
-```bash
-npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.5.2.tar.gz
-```
+- **Offline first.** Сканирование секретов, SAST, проверка зависимостей и граф кода работают локально. Код не уходит в модель, если вы явно не вызвали model-backed команду.
+- **Agent native.** Один MCP-сервер отдаёт review, fix, test-fix, scan, preflight, query и sandbox инструменты в Cursor, Claude Code, OpenCode и любой другой MCP-клиент.
+- **CI ready.** `oc-pilot preflight` — единый гейт с ненулевым кодом возврата, GitHub-аннотациями и компактным JSON-отчётом.
 
-Из npm, после публикации:
+## Посмотреть в деле
+
+[Открыть asciinema-каст](https://github.com/MyNameIsNikki/oc-pilot/blob/main/docs/demo.cast) 30-дневной сессии oc-pilot или запустить тот же цикл локально:
 
 ```bash
-npm install -g oc-pilot
+oc-pilot battle "fix the retry logic" --apply --shadow --rounds 3
 ```
 
-Для разработки:
+`battle` запускает coder и hacker на одном diff. Coder патчит; hacker ревьюит, гоняет SAST, проверяет авторизацию маршрутов и ищет ослабленные тесты. `--shadow` держит весь бой внутри `.oc-pilot/shadow-tree` — настоящего detached git worktree. Diff попадает в рабочее дерево только после зелёного раунда. Проиграть каст локально: `asciinema play docs/demo.cast`.
 
-```bash
-git clone https://github.com/MyNameIsNikki/oc-pilot.git
-cd oc-pilot
-npm install
-npm run build
-npm install -g .
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/MyNameIsNikki/oc-pilot/main/docs/badges/oc-pilot.svg" alt="echo-бейдж oc-pilot, собранный из истории этого репозитория" width="120">
+</p>
 
-Для разработки без глобальной установки:
+Этот бейдж собран командой `oc-pilot echo` из истории самого репозитория. Dogfooding, а не декорация.
 
-```bash
-npm link
-oc-pilot --version
-```
+## Почему oc-pilot?
+
+- 🛡️ **Криптографические расписки, а не «поверьте на слово».** `oc-pilot receipt --sign --key <file>` прогоняет тесты и preflight, записывает коммит, diff и результаты, а затем подписывает расписку Ed25519. `oc-pilot ready` проверяет подпись, если рядом есть публичный ключ. Расписки включаются явно; ничего не подписывается втайне.
+- 🧠 **Голографический контекст, а не свалка токенов.** `oc-pilot pack --hologram` собирает diff в три уровня детализации: LOD 0 оставляет изменённые файлы целиком, LOD 1 скрывает тела, но сохраняет сигнатуры и эффекты, LOD 2 перечисляет имена экспортов. Агент получает нужный контекст вместо дампа на 100k строк.
+- 🔥 **Ноль зависимостей.** Чистый Node.js 22+, TypeScript ESM, без Python, Docker и нативных бинарников. `npm install -g oc-pilot` — вся установка.
+- 🎮 **Gamified DX с зубами.** `bounty` рисует ASCII-постеры WANTED на опасные файлы, `roast` делает ревью diff в стиле Линуса, `brag` экспортирует самодостаточный HTML-отчёт сессии, а `cinema` превращает сессию в asciinema-каст или HTML-плеер.
+- 🔒 **Offline-first безопасность.** Секреты, выдуманные зависимости, SQL-инъекции, SSRF, path traversal и XSS проверяются без сетевых вызовов. Модель опциональна, а не является движком.
+- 🕸️ **Настоящий граф кода.** `oc-pilot query "find(CallExpression).where(name, 'stripe').select(file, line)"` отвечает на вопросы об архитектуре без grep. Это быстрый текстовый граф, а не полный TypeScript AST.
 
 ## Быстрый старт
 
 ```bash
-cd /path/to/your-project
-
-oc-pilot setup                # настроить все найденные MCP-клиенты
-oc-pilot doctor               # проверить установку, движок, ключи, git и MCP
-oc-pilot scan                 # офлайн-проверка секретов
-oc-pilot review               # diff HEAD (staged + unstaged)
-oc-pilot review --staged
-oc-pilot review --base main
-git diff | oc-pilot review --stdin
-
-# Без OpenCode:
-export OC_PILOT_API_KEY="..."
-oc-pilot review --engine openai --model deepseek-chat
-
-oc-pilot test-fix             # разобрать падающий тест
-oc-pilot fix --apply --command "npm test"  # патч + тесты
+npm install -g oc-pilot
+oc-pilot setup --all
+oc-pilot doctor
+oc-pilot scan
 ```
 
-`review` только предлагает изменения: он не применяет патчи и не редактирует файлы. Писать в рабочее дерево умеет только `fix --apply`.
+`setup --all` пишет нативные MCP-конфиги для всех поддерживаемых клиентов и сохраняет существующие настройки. `doctor` проверяет установку, credentials движка, обнаружение тестов и MCP-подключение. `scan` читает текущий diff; на чистом дереве используйте `oc-pilot scan --staged` или `oc-pilot scan --base origin/main`.
+
+Нужен Node.js 22+. Model-backed команды (`review`, `fix`, `roast`, `battle`) требуют OpenCode 2.x или OpenAI-совместимый endpoint; offline-команды работают без модели.
+
+## Рецепты
+
+```bash
+# Прожарить AI-diff до человеческого ревью
+oc-pilot roast --staged --persona linus
+
+# Проверить подписанный compliance-манифест
+oc-pilot compliance --verify
+
+# Спрогнозировать, когда техдолг станет невыносимым
+oc-pilot bankruptcy --explain
+
+# Найти коммит, который внёс уязвимость
+oc-pilot autopsy HEAD --depth 10
+
+# Спросить граф кода, где живёт вызов
+oc-pilot query "find(CallExpression).where(name, 'stripe').select(file, line)"
+
+# Запустить сгенерированный скрипт с блокировкой импортов и side effects
+oc-pilot sandbox run scripts/demo.mjs
+
+# Проверить шифрованную сеть агентов
+oc-pilot hivemind status
+```
+
+`bankruptcy` требует минимум 10 коммитов и остаётся эвристикой, а не обещанием. `sandbox run` изолирует JavaScript в `node:vm`; это не ОС-песочница для нативного кода. `hivemind` работает по шифрованному TCP, а не WebRTC, и доверяет узлам только после явного `hivemind trust`.
+
+## В CI
+
+```yaml
+name: oc-pilot
+on: [pull_request]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx -y oc-pilot preflight --base ${{ github.event.pull_request.base.sha }} --github
+```
+
+`preflight` проверяет секреты, детерминированный SAST, авторизацию маршрутов, здоровье зависимостей, ослабленные тесты и дельту Slop Index. При провале он возвращает ненулевой код, дальше работает branch protection.
+
+## Под капотом
+
+Никакой магии и скрытых облачных вызовов. Статический граф импортов и облегчённый текстовый AST питают `query`, `preflight`, `scan`, `deps` и `test-guard`. `test-guard` ловит классический ход агента: заменить `expect(x).toBe(200)` на `expect(x).toBeDefined()`, чтобы сборка стала зелёной. `fix --shadow` гоняет пропатченное дерево в настоящем detached git worktree, поэтому внешние компиляторы и тест-раннеры видят изменённые файлы; diff попадает в рабочее дерево только после зелёного прогона. `sandbox run` использует `node:vm` с блокировкой импортов, side effects и жёстким таймаутом.
 
 ## Как это работает
 
@@ -893,8 +933,8 @@ ZCode импортирует серверы из Claude Code, Codex, OpenCode и
 
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
-# после релиза в npm, версия зафиксирована:
-npx -y oc-pilot@0.5.2 mcp --cwd "C:\path\to\project"
+# версия зафиксирована для воспроизводимости:
+npx -y oc-pilot@0.88.2 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -966,7 +1006,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.88.1
+      - uses: MyNameIsNikki/oc-pilot@v0.88.2
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1083,3 +1123,10 @@ README.ru.md
 ## Лицензия
 
 MIT. См. [LICENSE](LICENSE).
+
+## Поставьте звезду, если хотите писать AI-код без страха
+
+- ⭐ [Поставить звезду oc-pilot](https://github.com/MyNameIsNikki/oc-pilot)
+- 🤝 [Участвовать](CONTRIBUTING.md)
+- 🐛 [Сообщить о баге](https://github.com/MyNameIsNikki/oc-pilot/issues)
+- 📦 [Установить из npm](https://www.npmjs.com/package/oc-pilot)
