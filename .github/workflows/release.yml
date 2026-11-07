@@ -69,12 +69,28 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
+          version=$(node -p "require('./package.json').version")
+          if npm view "oc-pilot@${version}" version >/dev/null 2>&1; then
+            echo "oc-pilot@${version} is already published; skipping publish"
+            exit 0
+          fi
           set -o pipefail
-          if ! npm publish --provenance --access public --ignore-scripts 2>&1 | tee publish.log; then
-            msg=$(tail -n 12 publish.log | sed "s/${NODE_AUTH_TOKEN}/***/g" | tr '\n' ' ' | cut -c1-800)
-            echo "::error::npm publish failed: ${msg}"
+          if npm publish --provenance --access public --ignore-scripts 2>&1 | tee publish.log; then
+            exit 0
+          fi
+          if grep -Eq "TLOG_CREATE_ENTRY_ERROR|transparency log" publish.log; then
+            echo "::warning::npm provenance transparency log failed; retrying without provenance"
+            if npm publish --no-provenance --access public --ignore-scripts 2>&1 | tee publish-fallback.log; then
+              echo "::warning::oc-pilot@${version} published without provenance because the transparency log returned 500"
+              exit 0
+            fi
+            msg=$(tail -n 12 publish-fallback.log | sed "s/${NODE_AUTH_TOKEN}/***/g" | tr '\n' ' ' | cut -c1-800)
+            echo "::error::npm publish without provenance failed: ${msg}"
             exit 1
           fi
+          msg=$(tail -n 12 publish.log | sed "s/${NODE_AUTH_TOKEN}/***/g" | tr '\n' ' ' | cut -c1-800)
+          echo "::error::npm publish failed: ${msg}"
+          exit 1
 
       - name: Publish with Trusted Publishing
         if: steps.auth.outputs.mode == 'oidc'
