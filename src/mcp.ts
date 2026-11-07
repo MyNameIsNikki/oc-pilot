@@ -1196,6 +1196,28 @@ const TOOLS = [
     },
   },
   {
+    name: "blindfold",
+    description:
+      "Obfuscate identifiers in a file or the added diff lines, then ask the model what the code does and whether it contains a concrete vulnerability. Returns a strict JSON verdict and rejects the code when the model cannot reconstruct the logic, finds a defect or stays below min_confidence. Model-backed, read-only and not a mathematical proof.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        file: { type: "string", description: "Repository-relative source file; omit to use the added diff lines" },
+        diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+        base: { type: "string" },
+        staged: { type: "boolean" },
+        unstaged: { type: "boolean" },
+        include_untracked: { type: "boolean" },
+        context: { type: "string", description: "Extra context for the model; names stay hidden" },
+        min_confidence: { type: "number", minimum: 0, maximum: 1, description: "Minimum confidence (default 0.6)" },
+        dry_run: { type: "boolean", description: "Return the obfuscated code and mapping without a model call" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "ready",
     description:
       "Agent readiness score 0-100 for the repository: tests, lockfile, git hooks, Slop Index, a fresh receipt, agent instructions, CI, config and security. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A score below fail_under returns exit code 1 with the full report, not a tool error.",
@@ -1335,6 +1357,15 @@ const PROMPTS = [
     title: "Run tests under chaos",
     description:
       "Run the test command with injected HTTP 500, latency, broken JSON and filesystem faults, then fix the code paths that fail instead of weakening the chaos.",
+    arguments: [
+      { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "interrogate-the-blindfold",
+    title: "Interrogate obfuscated code",
+    description:
+      "Strip identifiers from the change, make the model explain the logic without names and reject the code if it cannot prove understanding or finds a vulnerability.",
     arguments: [
       { name: "context", description: "What the change is supposed to do", required: false },
     ],
@@ -2877,6 +2908,33 @@ async function callHyperChamber(input: JsonObject, cwd: string): Promise<ToolRes
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callBlindfold(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const args = ["blindfold", "--json"];
+  const file = stringArg(input, "file");
+  if (file) args.push("--file", file);
+  const diff = stringArg(input, "diff");
+  if (diff) {
+    const temp = new TempFiles();
+    try {
+      args.push("--diff", temp.write("blindfold.diff", diff));
+      return toToolResult(await runCli(args, cwd));
+    } finally {
+      temp.cleanup();
+    }
+  }
+  const base = baseArg(input);
+  if (base) args.push("--base", base);
+  if (booleanArg(input, "staged")) args.push("--staged");
+  if (booleanArg(input, "unstaged")) args.push("--unstaged");
+  if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+  const context = stringArg(input, "context");
+  if (context) args.push("--context", context);
+  const minConfidence = numberArg(input, "min_confidence");
+  if (minConfidence !== undefined) args.push("--min-confidence", String(minConfidence));
+  if (booleanArg(input, "dry_run")) args.push("--dry-run");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callButterfly(input: JsonObject, cwd: string): Promise<ToolResult> {
   const command = stringArg(input, "command", true)!;
   const args = ["butterfly", "--command", command, "--json"];
@@ -3124,6 +3182,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callHyperChamber(input, cwd);
     case "butterfly":
       return callButterfly(input, cwd);
+    case "blindfold":
+      return callBlindfold(input, cwd);
     case "sast":
       return callSast(input, cwd);
     case "authz":
@@ -3198,6 +3258,9 @@ function summarizeResult(value: JsonObject): string {
     const identity = value.identity as { fingerprint?: unknown } | null;
     const fingerprint = identity && typeof identity.fingerprint === "string" ? identity.fingerprint : "no identity";
     return `oc-pilot: hivemind ${fingerprint}, ${String(value.peers.length)} peer(s)`;
+  }
+  if (typeof value.status === "string" && Array.isArray(value.mapping) && typeof value.summary === "string") {
+    return `oc-pilot: blindfold ${value.status}, ${String(value.mapping.length)} hidden identifier(s)`;
   }
   if (typeof value.status === "string" && typeof value.totalFaults === "number" && typeof value.exitCode === "number") {
     return `oc-pilot: butterfly ${value.status}, ${String(value.totalFaults)} fault(s), exit ${String(value.exitCode)}`;
@@ -3463,6 +3526,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "hyper_chamber" tool with file set to the generated JS/ESM file, days=365, budget_ms=2000 and memory_mb=128. Report the exact status (ok, leak, timeout or error), the simulated days, the iteration count and the heap first-to-last. If it reports [MEMORY LEAK DETECTED], stop, quote the crash day and explain which retained allocation grows; do not commit, do not raise the heap limit and do not hide the leak by clearing a cache just to pass. If it is ok, say that this is a heuristic, not a proof of bounded memory. Never run native code through this tool.${suffix}`;
     case "release-the-butterfly":
       return `Call the oc-pilot "butterfly" tool with the project test command, seed=42, fail_rate=0.1, latency_rate=0.05, latency_ms=3000, broken_json_rate=0.02 and fs_fail_rate=0.05. Read the injected fault counts and the exit code. If the tests fail, find the code path that did not handle the injected 500, timeout, broken JSON or EIO and add the missing try/catch, timeout or fallback; do not lower the rates, widen the scope to hide the fault or delete the test. If the tests pass, say that this is one deterministic chaos run, not proof that every path is safe. Never claim the tool patches native or arbitrary database drivers reliably.${suffix}`;
+    case "interrogate-the-blindfold":
+      return `Call the oc-pilot "blindfold" tool on the added diff lines, or pass file when the change is one file. Read the obfuscated code and the verdict. If it reports [BLINDFOLD REJECTED], stop: the model could not reconstruct the logic, found a concrete vulnerability or stayed below min_confidence. Quote the explanation and fix the real code path; do not reveal the original names to the model, do not raise min_confidence to force a pass and do not add comments that explain the logic to the model. If it passes, say that the verdict is a blind review, not a mathematical proof of safety. Use dry_run only to inspect the mapping and never send the mapping to the model.${suffix}`;
     case "compile-hologram":
       return `Call the oc-pilot "pack_hologram" tool with max_tokens=30000 and the current diff. The result is layered: LOD 0 files are complete, LOD 1 bodies are hidden behind markers, LOD 2 lists export names. Never invent a hidden body: if the implementation matters, call "zoom_symbol" with the file and symbol from the Zoom section and read the returned body before reasoning about it. Treat [Hologram: parse bailout] as a warning that the file is complete. Do not dump the whole repository or raise max_tokens just to avoid zooming; the hologram exists to save context. Report which files were LOD 0/1/2, any redacted secrets and every symbol you zoomed.${suffix}`;
     case "check-invariants":

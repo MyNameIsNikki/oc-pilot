@@ -1377,6 +1377,31 @@ test("butterfly reports an unhandled HTTP 500 as a failure", () => {
   }
 });
 
+test("blindfold dry-run obfuscates code without calling a model", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-blindfold-"));
+  try {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "checkout.ts"),
+      "export function calculateDiscount(user: { total: number }) { return user.total * 0.9; }\n",
+      "utf8",
+    );
+    const result = runCli(
+      ["blindfold", "--file", "src/checkout.ts", "--dry-run", "--cwd", dir, "--json"],
+      dir,
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      code: string;
+      mapping: { original: string; replacement: string }[];
+    };
+    assert.ok(!payload.code.includes("calculateDiscount"));
+    assert.ok(payload.mapping.some((entry) => entry.original === "calculateDiscount"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {

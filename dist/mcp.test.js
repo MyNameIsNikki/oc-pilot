@@ -311,6 +311,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(butterfly.inputSchema.properties.fs_fail_rate, "fs_fail_rate missing on butterfly");
         assert.ok(butterfly.inputSchema.properties.timeout_ms, "timeout_ms missing on butterfly");
         assert.ok(butterfly.inputSchema.properties.scope, "scope missing on butterfly");
+        const blindfold = tools.find((tool) => tool.name === "blindfold");
+        assert.ok(blindfold, "blindfold tool missing");
+        assert.ok(blindfold.inputSchema.properties.file, "file missing on blindfold");
+        assert.ok(blindfold.inputSchema.properties.diff, "diff missing on blindfold");
+        assert.ok(blindfold.inputSchema.properties.min_confidence, "min_confidence missing on blindfold");
+        assert.ok(blindfold.inputSchema.properties.dry_run, "dry_run missing on blindfold");
         const mutate = tools.find((tool) => tool.name === "mutate");
         assert.ok(mutate, "mutate tool missing");
         assert.ok(mutate.inputSchema.properties.max_mutants, "max_mutants missing on mutate");
