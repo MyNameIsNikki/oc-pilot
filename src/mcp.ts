@@ -1218,6 +1218,24 @@ const TOOLS = [
     },
   },
   {
+    name: "apoptosis",
+    description:
+      "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { type: "string", enum: ["scan", "apply"], description: "scan (default) or apply" },
+        command: { type: "string", description: "Test command for apply; auto-detected when omitted" },
+        timeout_ms: { type: "integer", minimum: 100, maximum: 1800000, description: "Test timeout for apply (default 120000)" },
+        confirm: { type: "boolean", description: "Required for apply: confirm deletion of senescent functions" },
+        fail_on_senescent: { type: "boolean", description: "Return exit code 1 when scan finds senescent functions" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "ready",
     description:
       "Agent readiness score 0-100 for the repository: tests, lockfile, git hooks, Slop Index, a fresh receipt, agent instructions, CI, config and security. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A score below fail_under returns exit code 1 with the full report, not a tool error.",
@@ -1368,6 +1386,15 @@ const PROMPTS = [
       "Strip identifiers from the change, make the model explain the logic without names and reject the code if it cannot prove understanding or finds a vulnerability.",
     arguments: [
       { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "prune-senescent-code",
+    title: "Prune senescent AI code",
+    description:
+      "Find functions whose @lifespan marker expired and that no longer have references, then remove them in a shadow worktree only if the test suite stays green.",
+    arguments: [
+      { name: "context", description: "Why the code is being pruned", required: false },
     ],
   },
   {
@@ -2935,6 +2962,18 @@ async function callBlindfold(input: JsonObject, cwd: string): Promise<ToolResult
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const action = stringArg(input, "action") ?? "scan";
+  const args = ["apoptosis", action, "--json"];
+  if (action === "apply" && booleanArg(input, "confirm")) args.push("--confirm");
+  const command = stringArg(input, "command");
+  if (command) args.push("--command", command);
+  const timeout = integerArg(input, "timeout_ms");
+  if (timeout !== undefined) args.push("--timeout", `${String(timeout)}ms`);
+  if (booleanArg(input, "fail_on_senescent")) args.push("--fail-on-senescent");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callButterfly(input: JsonObject, cwd: string): Promise<ToolResult> {
   const command = stringArg(input, "command", true)!;
   const args = ["butterfly", "--command", command, "--json"];
@@ -3084,6 +3123,9 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
     if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
       throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
     }
+    if (name === "apoptosis" && stringArg(input, "action") === "apply") {
+      throw new ToolInputError("apoptosis apply rewrites source files and is disabled in read-only mode; start the MCP server with --allow-write");
+    }
   }
   switch (name) {
     case "review":
@@ -3184,6 +3226,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callButterfly(input, cwd);
     case "blindfold":
       return callBlindfold(input, cwd);
+    case "apoptosis":
+      return callApoptosis(input, cwd);
     case "sast":
       return callSast(input, cwd);
     case "authz":
@@ -3258,6 +3302,12 @@ function summarizeResult(value: JsonObject): string {
     const identity = value.identity as { fingerprint?: unknown } | null;
     const fingerprint = identity && typeof identity.fingerprint === "string" ? identity.fingerprint : "no identity";
     return `oc-pilot: hivemind ${fingerprint}, ${String(value.peers.length)} peer(s)`;
+  }
+  if (Array.isArray(value.entries) && typeof value.senescent === "number" && typeof value.summary === "string") {
+    return `oc-pilot: apoptosis ${String(value.senescent)} senescent of ${String(value.entries.length)} marker(s)`;
+  }
+  if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
+    return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
   }
   if (typeof value.status === "string" && Array.isArray(value.mapping) && typeof value.summary === "string") {
     return `oc-pilot: blindfold ${value.status}, ${String(value.mapping.length)} hidden identifier(s)`;
@@ -3528,6 +3578,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "butterfly" tool with the project test command, seed=42, fail_rate=0.1, latency_rate=0.05, latency_ms=3000, broken_json_rate=0.02 and fs_fail_rate=0.05. Read the injected fault counts and the exit code. If the tests fail, find the code path that did not handle the injected 500, timeout, broken JSON or EIO and add the missing try/catch, timeout or fallback; do not lower the rates, widen the scope to hide the fault or delete the test. If the tests pass, say that this is one deterministic chaos run, not proof that every path is safe. Never claim the tool patches native or arbitrary database drivers reliably.${suffix}`;
     case "interrogate-the-blindfold":
       return `Call the oc-pilot "blindfold" tool on the added diff lines, or pass file when the change is one file. Read the obfuscated code and the verdict. If it reports [BLINDFOLD REJECTED], stop: the model could not reconstruct the logic, found a concrete vulnerability or stayed below min_confidence. Quote the explanation and fix the real code path; do not reveal the original names to the model, do not raise min_confidence to force a pass and do not add comments that explain the logic to the model. If it passes, say that the verdict is a blind review, not a mathematical proof of safety. Use dry_run only to inspect the mapping and never send the mapping to the model.${suffix}`;
+    case "prune-senescent-code":
+      return `Call the oc-pilot "apoptosis" tool with action=scan first. Report every [Senescent] entry with file, symbol, age and reference count, and explain that an expired marker plus zero references is the only reason it is a candidate. Do not delete anything without explicit user approval. If approved, call action=apply with confirm=true and the project test command; apply runs in a shadow worktree and lands the diff only if tests pass. If tests fail, report the failure and keep the working tree unchanged. Never remove a function that still has references, never shorten the lifespan to force a candidate, and never claim that deletion is safe without the green test run.${suffix}`;
     case "compile-hologram":
       return `Call the oc-pilot "pack_hologram" tool with max_tokens=30000 and the current diff. The result is layered: LOD 0 files are complete, LOD 1 bodies are hidden behind markers, LOD 2 lists export names. Never invent a hidden body: if the implementation matters, call "zoom_symbol" with the file and symbol from the Zoom section and read the returned body before reasoning about it. Treat [Hologram: parse bailout] as a warning that the file is complete. Do not dump the whole repository or raise max_tokens just to avoid zooming; the hologram exists to save context. Report which files were LOD 0/1/2, any redacted secrets and every symbol you zoomed.${suffix}`;
     case "check-invariants":

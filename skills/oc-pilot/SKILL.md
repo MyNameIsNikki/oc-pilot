@@ -42,6 +42,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `hyper-chamber` - age one JS/ESM file in node:vm with fake time and forced GC, sample the heap through node:v8 and fail with `[MEMORY LEAK DETECTED]` on sustained growth; the file must export `run`, `tick`, `main` or `default`.
 - `butterfly` - run the test command under deterministic chaos: fetch 500s, latency and broken JSON, fs EIO under `--scope`; report injected faults and whether the suite survived.
 - `blindfold` - obfuscate identifiers, send only the stripped code to the model and fail with `[BLINDFOLD REJECTED]` when the logic is unclear, a vulnerability is found or confidence is below `--min-confidence`; `--dry-run` prints the mapping without a model call.
+- `apoptosis` - scan functions marked `/* @lifespan: 30d */`; report `[Senescent]` when the marker is older than the lifespan and there are no references, and only with `apply --confirm` comment them out in a shadow worktree, run tests and land the diff if green.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
 - `anti_regression` - lines the diff re-adds after a human explicitly deleted them in git history, with the deleting commit cited.
 - `boundaries` - added imports checked against `.oc-pilot/architecture.json` layer rules, with file, line and rule reason.
@@ -101,6 +102,7 @@ oc-pilot alien-dna --staged
 oc-pilot hyper-chamber run scripts/task.mjs
 oc-pilot butterfly --command "npm test"
 oc-pilot blindfold --file src/checkout.ts
+oc-pilot apoptosis scan --fail-on-senescent
 oc-pilot contract-drift --staged --fail-on-drift high
 oc-pilot anti-regression --staged --fail-on-regression
 oc-pilot boundaries --staged --fail-on-violation

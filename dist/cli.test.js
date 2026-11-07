@@ -1119,6 +1119,35 @@ test("blindfold dry-run obfuscates code without calling a model", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("apoptosis scan marks an unreferenced old function as senescent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-apoptosis-"));
+    const git = (args, env = {}) => {
+        const result = spawnSync("git", args, { cwd: dir, encoding: "utf8", env: { ...process.env, ...env } });
+        assert.equal(result.status, 0, result.stderr);
+    };
+    try {
+        git(["init", "-q"]);
+        git(["config", "user.email", "test@example.com"]);
+        git(["config", "user.name", "Test"]);
+        mkdirSync(join(dir, "src"), { recursive: true });
+        writeFileSync(join(dir, "src", "app.ts"), "/* @lifespan: 30d */\nexport function oldFn() {\n  return 1;\n}\n", "utf8");
+        git(["add", "."]);
+        git(["commit", "-m", "init"], {
+            GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z",
+            GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z",
+        });
+        const result = runCli(["apoptosis", "scan", "--cwd", dir, "--json"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.senescent, 1);
+        assert.equal(payload.entries[0]?.symbol, "oldFn");
+        assert.equal(payload.entries[0]?.status, "senescent");
+        assert.match(payload.content, /\[Senescent\]/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("receipt records a run and verifies against HEAD", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
     try {
