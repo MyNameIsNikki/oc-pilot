@@ -275,6 +275,27 @@ const TOOLS = [
         },
     },
     {
+        name: "fuzz",
+        description: "Safely fuzz exported functions added by the diff with null, -1, empty values, a 10MB string and __proto__ objects. Each function runs in a separate Node process with a hard timeout, a heap cap and mocked fs/net/http/child_process; files that import side-effect modules are blocked instead of executed. No model call.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                duration_ms: { type: "integer", minimum: 100, maximum: 60000, description: "Total fuzz budget (default 2000)" },
+                memory_mb: { type: "integer", minimum: 16, maximum: 4096, description: "Heap cap per worker (default 128)" },
+                max_targets: { type: "integer", minimum: 1, maximum: 50, description: "Maximum functions to fuzz (default 10)" },
+                fail_on_crash: { type: "boolean", description: "Return exit code 1 when a crash is found" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "mutate",
         description: "Offline mutation testing for changed code: flips comparison and boolean operators, runs the test command after each mutation, restores the file and reports survivors. Mutants are capped by max_mutants; a score below min_score returns exit code 1. Temporarily rewrites source files, so it is disabled in read-only mode.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1090,6 +1111,14 @@ const PROMPTS = [
         ],
     },
     {
+        name: "fuzz-the-diff",
+        title: "Fuzz the new functions",
+        description: "Call the new exported functions with hostile inputs in isolated processes, report crashes and timeouts, and never treat blocked side-effect files as tested.",
+        arguments: [
+            { name: "context", description: "What the new functions are supposed to do", required: false },
+        ],
+    },
+    {
         name: "get-ready",
         title: "Make the repository agent-ready",
         description: "Score the repository, fix the safe gaps (hook, config, AGENTS.md), prove the result with a receipt, and rerun until the score is at least 85 or only human checks remain.",
@@ -1874,6 +1903,39 @@ async function callFix(input, cwd) {
         if (rounds !== undefined)
             args.push("--rounds", String(rounds));
         args.push(...projectPaths(input, "paths"));
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
+async function callFuzz(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["fuzz", "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        const duration = integerArg(input, "duration_ms");
+        if (duration !== undefined)
+            args.push("--duration", `${String(duration)}ms`);
+        const memory = integerArg(input, "memory_mb");
+        if (memory !== undefined)
+            args.push("--memory-limit", `${String(memory)}MB`);
+        const maxTargets = integerArg(input, "max_targets");
+        if (maxTargets !== undefined)
+            args.push("--max-targets", String(maxTargets));
+        if (booleanArg(input, "fail_on_crash"))
+            args.push("--fail-on-crash");
         return toToolResult(await runCli(args, cwd));
     }
     finally {
@@ -2851,6 +2913,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callSlop(input, cwd);
         case "mutate":
             return callMutate(input, cwd);
+        case "fuzz":
+            return callFuzz(input, cwd);
         case "flaky":
             return callFlaky(input, cwd);
         case "impact":
@@ -2967,6 +3031,9 @@ export function applyResultOptions(result, input) {
 }
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value) {
+    if (Array.isArray(value.results) && typeof value.crashes === "number" && Array.isArray(value.targets)) {
+        return `oc-pilot: fuzz ${String(value.targets.length)} target(s), ${String(value.crashes)} crash(es), ${String(value.blocked ?? 0)} blocked, ${String(value.timeouts ?? 0)} timeout(s)`;
+    }
     if (Array.isArray(value.verdicts) && typeof value.violations === "number" && typeof value.checked === "number") {
         return `oc-pilot: invariants ${String(value.checked)} checked, ${String(value.skipped ?? 0)} skipped, ${String(value.violations)} violation(s)`;
     }
@@ -3195,6 +3262,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "pack_hologram" tool with max_tokens=30000 and the current diff. The result is layered: LOD 0 files are complete, LOD 1 bodies are hidden behind markers, LOD 2 lists export names. Never invent a hidden body: if the implementation matters, call "zoom_symbol" with the file and symbol from the Zoom section and read the returned body before reasoning about it. Treat [Hologram: parse bailout] as a warning that the file is complete. Do not dump the whole repository or raise max_tokens just to avoid zooming; the hologram exists to save context. Report which files were LOD 0/1/2, any redacted secrets and every symbol you zoomed.${suffix}`;
         case "check-invariants":
             return `Call the oc-pilot "invariants" tool on the current diff with strict=false first. Read every verdict: [SKIPPED: Out of scope] rules were not checked and must not be reported as passed; [UNKNOWN] means the model lacked evidence. For each violation, quote the file:line and explain which invariant broke. Do not edit .oc-pilot/invariants.md, do not delete a rule to get a pass and do not hide a CRITICAL violation. If the user wants a hard gate, rerun with strict=true and report exit code 3. After a fix, rerun the tool and compare the verdicts.${suffix}`;
+        case "fuzz-the-diff":
+            return `Call the oc-pilot "fuzz" tool with duration_ms=2000, memory_mb=128 and fail_on_crash=true. Read every result: [CRASH] is a real unhandled input and needs a minimal fix plus a regression test; [TIMEOUT] is an infinite loop or pathological complexity; [BLOCKED] and [SKIPPED] were not executed and must not be reported as safe. Never remove the side-effect guard, never run the function in the main process and never widen the memory or timeout limits just to hide a crash. After the fix, rerun the same tool and compare.${suffix}`;
         case "get-ready":
             return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
         case "fix-security":

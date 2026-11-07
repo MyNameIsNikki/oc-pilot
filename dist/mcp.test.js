@@ -290,6 +290,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(mutate, "mutate tool missing");
         assert.ok(mutate.inputSchema.properties.max_mutants, "max_mutants missing on mutate");
         assert.ok(mutate.inputSchema.properties.min_score, "min_score missing on mutate");
+        const fuzz = tools.find((tool) => tool.name === "fuzz");
+        assert.ok(fuzz, "fuzz tool missing");
+        assert.ok(fuzz.inputSchema.properties.duration_ms, "duration_ms missing on fuzz");
+        assert.ok(fuzz.inputSchema.properties.memory_mb, "memory_mb missing on fuzz");
+        assert.ok(fuzz.inputSchema.properties.fail_on_crash, "fail_on_crash missing on fuzz");
         const flaky = tools.find((tool) => tool.name === "flaky");
         assert.ok(flaky, "flaky tool missing");
         assert.ok(flaky.inputSchema.properties.runs, "runs missing on flaky");
