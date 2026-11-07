@@ -41,6 +41,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `compliance_verify` — verify the signed audit manifest for HEAD: hash, commit, previous-manifest chain and Ed25519 signature.
 - `brag` - self-contained HTML/SVG session report from stats, git history, last review and receipt; inline assets only, no model or network.
 - `battle` - experimental coder/hacker loop: the coder patches, the hacker reviews and runs SAST, authz and test-weakening checks until no high findings remain and tests pass.
+- `fix --shadow` / `battle --shadow` - run apply in a detached `.oc-pilot/shadow-tree` worktree and land the diff only after a successful run.
 - `cleanup` - offline cleanup plan from dependency issues, Slop Index, environment variables and weakened tests; `apply` performs only safe dependency fixes and needs `--allow-write`.
 - `arch_diff` — Mermaid diagram of added (green) and removed (red) internal imports, with an optional `fail_on_removed` gate.
 - `roast` — model-backed comedy roast with linus/ramsay/corporate/default personas; every joke cites file:line and ends with one real fix.
@@ -91,6 +92,8 @@ oc-pilot test-plan --staged --fail-on-uncovered
 oc-pilot compliance --verify
 oc-pilot brag --since-days 30 --output brag.html
 oc-pilot battle "fix the retry logic" --apply --rounds 3
+oc-pilot battle "harden auth" --apply --shadow
+oc-pilot fix --apply --shadow
 oc-pilot cleanup --staged --fail-on-task high
 oc-pilot arch-diff --staged --fail-on-removed
 oc-pilot roast --staged --persona linus

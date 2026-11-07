@@ -482,6 +482,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(battle, "battle tool missing");
     assert.ok(battle.inputSchema.properties.task, "task missing on battle");
     assert.ok(battle.inputSchema.properties.rounds, "rounds missing on battle");
+    assert.ok(battle.inputSchema.properties.shadow, "shadow missing on battle");
 
     const cleanup = tools.find((tool) => tool.name === "cleanup");
     assert.ok(cleanup, "cleanup tool missing");
@@ -540,6 +541,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(fix, "fix tool missing");
     assert.ok(fix.inputSchema.properties.from_sast, "from_sast missing on fix");
     assert.ok(fix.inputSchema.properties.from_authz, "from_authz missing on fix");
+    assert.ok(fix.inputSchema.properties.shadow, "shadow missing on fix");
 
     const ready = tools.find((tool) => tool.name === "ready");
     assert.ok(ready, "ready tool missing");

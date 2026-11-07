@@ -1,12 +1,14 @@
 import { PilotError } from "../core/errors.js";
 import { loadDiff } from "../core/diff-source.js";
 import { runBattle, renderBattle } from "../core/battle.js";
+import { applyShadowDiff, createShadow, shadowDiff } from "../core/shadow.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
 import { asBoolean, asString, parsePositiveInt } from "../core/parse.js";
 const OPTIONS = withCommon({
     apply: { type: "boolean" },
+    shadow: { type: "boolean" },
     rounds: { type: "string" },
     command: { type: "string" },
     context: { type: "string" },
@@ -31,6 +33,7 @@ const HELP = `Использование:
 
 Опции:
       --apply             применять патч и запускать тесты
+      --shadow            гонять apply в .oc-pilot/shadow-tree и переносить diff только при успехе
       --rounds <n>        число раундов (по умолчанию 2, максимум 5)
       --command <cmd>     команда тестов (иначе testCommand или автоопределение)
       --context <text>    дополнительный контекст для обоих агентов
@@ -63,17 +66,41 @@ export async function runBattleCommand(argv) {
     }
     const roundsRaw = asString(values, "rounds");
     const rounds = roundsRaw ? parsePositiveInt(roundsRaw, "rounds", 5) : 2;
-    const report = runBattle(ctx.cwd, {
-        task,
-        apply: asBoolean(values, "apply"),
-        rounds,
-        command: asString(values, "command") ?? ctx.config.testCommand,
-        context: asString(values, "context"),
-        diff: data.diff,
-        model: ctx.config.model,
-    });
+    const apply = asBoolean(values, "apply");
+    const shadow = asBoolean(values, "shadow");
+    if (shadow && !apply) {
+        throw new PilotError("--shadow имеет смысл только вместе с --apply", {
+            hint: "Без --apply battle ничего не пишет на диск.",
+            exitCode: 2,
+        });
+    }
+    const worktree = shadow ? createShadow(ctx.cwd) : undefined;
+    let shadowResult;
+    let report;
+    try {
+        report = runBattle(worktree?.dir ?? ctx.cwd, {
+            task,
+            apply,
+            rounds,
+            command: asString(values, "command") ?? ctx.config.testCommand,
+            context: asString(values, "context"),
+            diff: data.diff,
+            model: ctx.config.model,
+        });
+        if (worktree && report.status === "pass" && report.applied) {
+            shadowResult = applyShadowDiff(ctx.cwd, shadowDiff(worktree.dir));
+            if (!shadowResult.ok) {
+                report.status = "fail";
+                report.reason = `shadow diff не применился: ${shadowResult.error ?? "unknown"}`;
+            }
+        }
+    }
+    finally {
+        worktree?.cleanup();
+    }
+    const payload = { source: data.source, ...report, shadow: shadowResult ?? null };
     if (ctx.flags.json) {
-        const wrote = writeOutput(JSON.stringify({ source: data.source, ...report }, null, 2), ctx.flags.output);
+        const wrote = writeOutput(JSON.stringify(payload, null, 2), ctx.flags.output);
         if (wrote)
             log.success(`Отчёт сохранён: ${wrote}`);
         if (report.status !== "pass")
@@ -83,6 +110,8 @@ export async function runBattleCommand(argv) {
     const wrote = writeOutput(renderBattle(report), ctx.flags.output);
     if (wrote)
         log.success(`Отчёт сохранён: ${wrote}`);
+    if (shadowResult?.ok)
+        log.success(`Shadow diff применён к рабочему дереву: файлов ${String(shadowResult.files)}.`);
     if (report.status !== "pass")
         log.error(`Battle: ${report.status}. ${report.reason}`);
     return report.status === "pass" ? 0 : 1;

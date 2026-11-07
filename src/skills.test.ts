@@ -220,6 +220,7 @@ test("skills use only documented flags", () => {
     "--svg",
     "--stdin",
     "--strict",
+    "--shadow",
     "--submit",
     "--timeout",
     "--uninstall",

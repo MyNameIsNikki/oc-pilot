@@ -932,6 +932,8 @@ Tools: `review`, `invariants`, `test_fix`, `fix`, `test_gen`, `docgen`, `custom`
 
 `bankruptcy` forecasts technical debt from commit history: it scores each commit by weakened tests, SAST high/medium findings, added TODOs, churn and a slop proxy, smooths the daily series with a 14-day moving average, drops outliers and fits a linear regression. The output is the current score, slope, forecast date and a self-contained SVG chart; fewer than 10 commits returns `[INSUFFICIENT DATA: Need at least 10 commits to compute Slop Velocity]`. `--explain` prints the exact weights, where test weakening (0.35) and security (0.30) dominate.
 
+`fix --shadow` and `battle --shadow` run the applied patch inside `.oc-pilot/shadow-tree`, a detached git worktree, so tests and external compilers see the modified files. The diff is extracted with `git diff` and applied to the real tree only when the run succeeds; a failed run leaves the working tree untouched. `--shadow` requires `--apply`.
+
 `fuzz` discovers exported functions added by the diff and calls them with null, undefined, -1, 0, an empty string, a 10MB string, a `__proto__` object and empty containers. Every target runs in a separate Node process with a hard 2s timeout, a configurable heap cap and mocked fs/net/http/child_process; files that import side-effect modules are blocked before execution, and a crash or timeout is reported with the exact input. No model call.: each `## area` scopes its rules, `[CRITICAL]` marks a blocking rule, and rules whose area touches none of the changed files or their importers are skipped as `[SKIPPED: Out of scope]` without a model call. The model must answer strict JSON; verdicts are cached by the hash of diff and invariants, and violations are warnings by default. A CRITICAL violation or `--strict` / `--fail-on violation` returns exit code 3. `preflight --invariants` adds the same check to the gate.
 
 `pack --hologram` builds a layered context instead of dumping the repository: LOD 0 keeps diff files complete, LOD 1 hides function bodies behind `body hidden` markers with `EFFECTS` hints and adds matching tests, LOD 2 lists export names only. Unbalanced braces fall back to full text with `[Hologram: parse bailout]`, and the final Markdown is secret-scanned. `zoom-symbol <file> <symbol>` returns one hidden body on demand; `pack_hologram` and `zoom_symbol` expose the same flow over MCP.
@@ -1132,7 +1134,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.84.0
+      - uses: MyNameIsNikki/oc-pilot@v0.85.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1155,7 +1157,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.84.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.85.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

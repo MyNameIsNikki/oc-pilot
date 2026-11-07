@@ -9,4 +9,5 @@ coverage/
 .DS_Store
 Thumbs.db
 .idea/
+.oc-pilot/shadow-tree/
 

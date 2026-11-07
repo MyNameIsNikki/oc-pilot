@@ -14,6 +14,7 @@ import { scanAuthzSource, type AuthzFinding } from "../core/authz.js";
 import { PilotError } from "../core/errors.js";
 import { isCodeFile, isGeneratedPath } from "../core/slop/source.js";
 import { executeRecipeDetailed, githubAnnotations } from "../core/run.js";
+import { applyShadowDiff, createShadow, shadowDiff, stripShadowArgs, writeShadowDiff } from "../core/shadow.js";
 import { loadSecretIgnore, scanDiff } from "../core/secrets.js";
 import { createSnapshot, type SnapshotInfo } from "../core/snapshot.js";
 import { isGitRepo } from "../core/git.js";
@@ -28,6 +29,7 @@ const OPTIONS: OptionSpec = withCommon({
   context: { type: "string" },
   command: { type: "string" },
   apply: { type: "boolean" },
+  shadow: { type: "boolean" },
   "no-tests": { type: "boolean" },
   "keep-on-test-failure": { type: "boolean" },
   "from-sast": { type: "boolean" },
@@ -46,6 +48,7 @@ git apply --check и по желанию применяет. С --apply и те�
 
 Опции:
       --apply                применить патч к рабочему дереву
+      --shadow               гонять apply в .oc-pilot/shadow-tree и переносить diff только при успехе
       --command <cmd>        команда тестов (по умолчанию автоопределение)
       --no-tests             не запускать тесты после применения
       --keep-on-test-failure оставить патч, даже если тесты упали
@@ -103,6 +106,39 @@ export async function runFix(argv: string[]): Promise<number> {
   }
 
   const ctx = resolveContext(values);
+
+  if (asBoolean(values, "shadow")) {
+    if (!asBoolean(values, "apply")) {
+      throw new PilotError("--shadow имеет смысл только вместе с --apply", {
+        hint: "Без --apply fix ничего не пишет на диск.",
+        exitCode: 2,
+      });
+    }
+    const data = await loadDiff(values, ctx, positionals);
+    if (!data.diff.trim()) {
+      log.info("Изменений нет — исправлять нечего.");
+      return 0;
+    }
+    const temp = writeShadowDiff(data.diff);
+    const worktree = createShadow(ctx.cwd);
+    try {
+      const inner = stripShadowArgs(argv);
+      inner.push("--diff", temp.path, "--cwd", worktree.dir, "--apply", "--no-snapshot");
+      const code = await runFix(inner);
+      if (code !== 0) return code;
+      const applied = applyShadowDiff(ctx.cwd, shadowDiff(worktree.dir));
+      if (!applied.ok) {
+        log.error(`Shadow diff не применился: ${applied.error ?? "unknown"}`);
+        return 1;
+      }
+      log.success(`Shadow diff применён к рабочему дереву: файлов ${String(applied.files)}.`);
+      return 0;
+    } finally {
+      worktree.cleanup();
+      temp.cleanup();
+    }
+  }
+
   const data = await loadDiff(values, ctx, positionals);
   if (!data.diff.trim()) {
     log.info("Изменений нет — исправлять нечего.");

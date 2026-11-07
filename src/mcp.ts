@@ -223,6 +223,7 @@ const TOOLS = [
         context: { type: "string" },
         command: { type: "string", description: "Test command; auto-detected when omitted" },
         apply: { type: "boolean", description: "Apply the patch and run tests (default false)" },
+        shadow: { type: "boolean", description: "Run apply in .oc-pilot/shadow-tree and land the diff only on success" },
         no_tests: { type: "boolean", description: "Apply without running tests" },
         rounds: { type: "integer", minimum: 1, maximum: 5, description: "Fix attempts (default 2)" },
         lang: { type: "string", enum: ["en", "ru"] },
@@ -819,6 +820,7 @@ const TOOLS = [
       properties: {
         task: { type: "string", description: "What the coder should implement or fix" },
         apply: { type: "boolean", description: "Apply each patch and run tests (default false)" },
+        shadow: { type: "boolean", description: "Run apply in .oc-pilot/shadow-tree and land the diff only on success" },
         rounds: { type: "integer", minimum: 1, maximum: 5, description: "Maximum coder/hacker rounds (default 2)" },
         command: { type: "string", description: "Test command; auto-detected when omitted" },
         context: { type: "string", description: "Extra context for both agents" },
@@ -1977,6 +1979,7 @@ async function callFix(input: JsonObject, cwd: string): Promise<ToolResult> {
     if (context) args.push("--context", context);
     if (command) args.push("--command", command);
     if (booleanArg(input, "apply")) args.push("--apply");
+    if (booleanArg(input, "shadow")) args.push("--shadow");
     if (booleanArg(input, "no_tests")) args.push("--no-tests");
     if (booleanArg(input, "from_sast")) args.push("--from-sast");
     if (booleanArg(input, "from_authz")) args.push("--from-authz");
@@ -2430,6 +2433,7 @@ async function callBattle(input: JsonObject, cwd: string): Promise<ToolResult> {
     if (context) args.push("--context", context);
     if (rounds !== undefined) args.push("--rounds", String(rounds));
     if (booleanArg(input, "apply")) args.push("--apply");
+    if (booleanArg(input, "shadow")) args.push("--shadow");
     const model = stringArg(input, "model");
     if (model) args.push("--model", model);
     const timeout = integerArg(input, "timeout");
