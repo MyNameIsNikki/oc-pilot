@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { describeTestPlan, selectTests } from "./test-plan.js";
+import { describeTestPlan, quoteCommandArg, selectTests } from "./test-plan.js";
 const DIFF = [
     "diff --git a/src/wallet.ts b/src/wallet.ts",
     "--- a/src/wallet.ts",
@@ -90,5 +90,10 @@ test("full returns every test file and printCommand substitutes {files}", () => 
     finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+test("quoteCommandArg escapes backslashes and quotes", () => {
+    assert.equal(quoteCommandArg("plain"), "plain");
+    assert.equal(quoteCommandArg("src/with space.test.ts"), '"src/with space.test.ts"');
+    assert.equal(quoteCommandArg('C:\\tmp\\a "b".ts'), '"C:\\\\tmp\\\\a \\"b\\".ts"');
 });
 //# sourceMappingURL=test-plan.test.js.map

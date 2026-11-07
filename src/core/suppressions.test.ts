@@ -104,3 +104,15 @@ test("describeSuppressions reports the file, line and reason", () => {
     entries: [{ file: "a.ts", line: 2, reason: "keep the cast", scope: "line" }],
   });
 });
+
+test("html comment endings are stripped from the reason", () => {
+  const dir = workspace({
+    "a.ts": ["const a = 1; // oc-pilot:ignore: legacy -->", "const b = 2; // oc-pilot:ignore: legacy --!>"].join("\n"),
+  });
+  const outcome = applySuppressions(dir, [finding("a.ts:1"), finding("a.ts:2")]);
+  assert.equal(outcome.suppressed.length, 2);
+  assert.deepEqual(
+    outcome.suppressed.map((entry) => entry.reason),
+    ["legacy", "legacy"],
+  );
+});

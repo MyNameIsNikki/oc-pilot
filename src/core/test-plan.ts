@@ -88,8 +88,9 @@ function confidenceOf(reasons: PlanReason[]): PlanConfidence {
   return "low";
 }
 
-function quote(value: string): string {
-  return /\s/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
+export function quoteCommandArg(value: string): string {
+  if (!/[\s"\\]/.test(value)) return value;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 function buildCommand(cwd: string, tests: SelectedTest[], options: TestPlanOptions): string | null {
@@ -107,7 +108,7 @@ function buildCommand(cwd: string, tests: SelectedTest[], options: TestPlanOptio
       exitCode: 2,
     });
   }
-  return command.replace("{files}", tests.map((test) => quote(test.file)).join(" "));
+  return command.replace("{files}", tests.map((test) => quoteCommandArg(test.file)).join(" "));
 }
 
 function directChangedImports(graph: ImportGraph, test: string, changed: Set<string>): boolean {

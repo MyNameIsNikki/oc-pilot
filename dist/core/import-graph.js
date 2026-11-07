@@ -42,7 +42,7 @@ function aliasCandidates(specifier, aliases) {
             continue;
         const rest = specifier.slice(alias.prefix.length);
         for (const target of alias.targets) {
-            const replaced = target.includes("*") ? target.replace("*", rest) : target;
+            const replaced = target.includes("*") ? target.split("*").join(rest) : target;
             out.push(normalizePath(join(alias.baseUrl, replaced)));
         }
     }

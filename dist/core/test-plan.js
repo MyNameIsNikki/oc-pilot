@@ -41,8 +41,10 @@ function confidenceOf(reasons) {
         return "medium";
     return "low";
 }
-function quote(value) {
-    return /\s/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
+export function quoteCommandArg(value) {
+    if (!/[\s"\\]/.test(value))
+        return value;
+    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 function buildCommand(cwd, tests, options) {
     if (!options.printCommand)
@@ -60,7 +62,7 @@ function buildCommand(cwd, tests, options) {
             exitCode: 2,
         });
     }
-    return command.replace("{files}", tests.map((test) => quote(test.file)).join(" "));
+    return command.replace("{files}", tests.map((test) => quoteCommandArg(test.file)).join(" "));
 }
 function directChangedImports(graph, test, changed) {
     return graph.edges.some((edge) => edge.from === test && changed.has(edge.to));

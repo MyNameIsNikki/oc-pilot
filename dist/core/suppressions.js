@@ -20,7 +20,7 @@ function markerOn(line) {
     const kind = match.groups.kind;
     if (kind === "-secret")
         return undefined;
-    let rest = (match.groups.rest ?? "").replace(/\s*(?:\*\/|-->)\s*$/, "");
+    let rest = (match.groups.rest ?? "").replace(/\s*(?:\*\/|--!?>)\s*$/, "");
     rest = rest.replace(/^[\s:—–-]+/, "");
     return { scope: kind === "-file" ? "file" : "line", reason: rest.trim() };
 }

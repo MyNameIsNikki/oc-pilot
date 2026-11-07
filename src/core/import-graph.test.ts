@@ -72,3 +72,26 @@ test("buildImportGraph reads tsconfig aliases and reverseClosure finds importers
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("buildImportGraph replaces every wildcard in an alias target", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-import-graph-multi-"));
+  try {
+    mkdirSync(join(dir, "src", "wallet", "lib"), { recursive: true });
+    writeFileSync(
+      join(dir, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@lib/*": ["src/*/lib/*"] } } }),
+      "utf8",
+    );
+    const files = [
+      file("src/wallet/lib/wallet.ts", "export const charge = 1;\n"),
+      file("src/checkout.ts", 'import { charge } from "@lib/wallet";\n'),
+    ];
+    const graph = buildImportGraph(dir, files);
+    assert.deepEqual(
+      graph.edges.map((edge) => `${edge.from}->${edge.to}`),
+      ["src/checkout.ts->src/wallet/lib/wallet.ts"],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
