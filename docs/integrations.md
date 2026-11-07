@@ -203,7 +203,7 @@ mounted workspace.
 ## Agent skills
 
 `skills/oc-pilot/SKILL.md` is a portable Agent Skill. It tells an agent when to
-call `scan`, `review`, `invariants`, `test_fix`, `fix`, `test_gen`, `docgen`, `slop`, `mutate`, `fuzz`, `bankruptcy`, `query_ast`, `sandbox`, `hivemind_status`, `flaky`, `impact`, `deps`, `coverage`, `reviewers`, `test_guard`, `env_sync`, `mock_leak`, `ecosystem_verify`, `pack`, `pack_hologram`, `zoom_symbol`, `contract_drift`, `anti_regression`, `boundaries`, `test_plan`, `compliance_verify`, `brag`, `battle`, `cleanup`, `arch_diff`, `roast`, `cinema`, `bounty`, `autopsy`, `echo`, `sast`, `authz`, `preflight`, `honeypot`, `ready`, and `receipt_verify`, prefers MCP tools, and
+call `scan`, `review`, `invariants`, `test_fix`, `fix`, `test_gen`, `docgen`, `slop`, `mutate`, `fuzz`, `bankruptcy`, `query_ast`, `sandbox`, `hivemind_status`, `flaky`, `impact`, `deps`, `coverage`, `reviewers`, `test_guard`, `env_sync`, `mock_leak`, `ecosystem_verify`, `pack`, `pack_hologram`, `zoom_symbol`, `contract_drift`, `anti_regression`, `boundaries`, `test_plan`, `compliance_verify`, `brag`, `battle`, `cleanup`, `arch_diff`, `roast`, `cinema`, `bounty`, `autopsy`, `echo`, `sast`, `authz`, `preflight`, `honeypot`, `alien_dna`, `ready`, and `receipt_verify`, prefers MCP tools, and
 documents safety rules for `fix.apply`. Install it by copying
 `skills/oc-pilot` into the client's skills directory (for Claude Code, usually
 `.claude/skills/oc-pilot`).
@@ -232,7 +232,7 @@ claude mcp add oc-pilot -- oc-pilot-mcp --cwd /absolute/path/to/project
 ```
 
 Claude Code will expose `review`, `invariants`, `test_fix`, `fix`, `test_gen`, `docgen`, `custom`,
-`scan`, `slop`, `mutate`, `fuzz`, `bankruptcy`, `query_ast`, `sandbox`, `hivemind_status`, `flaky`, `impact`, `deps`, `coverage`, `reviewers`, `test_guard`, `env_sync`, `mock_leak`, `ecosystem_verify`, `pack`, `pack_hologram`, `zoom_symbol`, `contract_drift`, `anti_regression`, `boundaries`, `test_plan`, `compliance_verify`, `brag`, `battle`, `cleanup`, `arch_diff`, `roast`, `cinema`, `bounty`, `autopsy`, `echo`, `sast`, `authz`, `preflight`, `honeypot`, `ready`, and `receipt_verify` as MCP tools. A typical instruction:
+`scan`, `slop`, `mutate`, `fuzz`, `bankruptcy`, `query_ast`, `sandbox`, `hivemind_status`, `flaky`, `impact`, `deps`, `coverage`, `reviewers`, `test_guard`, `env_sync`, `mock_leak`, `ecosystem_verify`, `pack`, `pack_hologram`, `zoom_symbol`, `contract_drift`, `anti_regression`, `boundaries`, `test_plan`, `compliance_verify`, `brag`, `battle`, `cleanup`, `arch_diff`, `roast`, `cinema`, `bounty`, `autopsy`, `echo`, `sast`, `authz`, `preflight`, `honeypot`, `alien_dna`, `ready`, and `receipt_verify` as MCP tools. A typical instruction:
 
 > Before proposing a fix, call the `oc-pilot` `review` tool with
 > `fail_on: "warning"` and include its critical findings in your answer.
@@ -394,7 +394,7 @@ server. Add it to `~/.dsh/profiles/web/cordis.patch.yml`:
         serverName: oc_pilot
         transport: stdio
         command: npx
-        args: ['-y', 'oc-pilot@0.89.0', 'mcp', '--cwd', '/absolute/path/to/project']
+        args: ['-y', 'oc-pilot@0.90.0', 'mcp', '--cwd', '/absolute/path/to/project']
         toolCallTimeoutMs: 300000
 ```
 
@@ -478,7 +478,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.89.0
+- uses: MyNameIsNikki/oc-pilot@v0.90.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -522,7 +522,7 @@ The repository ships `.pre-commit-hooks.yaml`, so the standard
 ```yaml
 repos:
   - repo: https://github.com/MyNameIsNikki/oc-pilot
-    rev: v0.89.0
+    rev: v0.90.0
     hooks:
       - id: oc-pilot-secrets  # oc-pilot scan --staged
       - id: oc-pilot-review   # oc-pilot review --staged --fail-on critical --fail-on-secrets

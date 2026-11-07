@@ -1276,6 +1276,40 @@ test("preflight can skip every check", () => {
   }
 });
 
+test("alien-dna blocks a pattern absent from HEAD", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-alien-dna-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: dir });
+    writeFileSync(join(dir, "app.ts"), "export const value = 1;\n");
+    spawnSync("git", ["add", "."], { cwd: dir });
+    spawnSync("git", ["commit", "-m", "init", "-q"], { cwd: dir });
+
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(
+      diffPath,
+      [
+        "diff --git a/app.ts b/app.ts",
+        "--- a/app.ts",
+        "+++ b/app.ts",
+        "@@ -1 +1,2 @@",
+        " export const value = 1;",
+        "+class Store { private static instance: Store; }",
+        "",
+      ].join("\n"),
+    );
+
+    const result = runCli(["alien-dna", "--diff", diffPath, "--cwd", dir, "--json"], dir);
+    assert.equal(result.status, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as { summary: string; triggers: { id: string }[] };
+    assert.match(payload.summary, /\[ALIEN DNA DETECTED\]/);
+    assert.equal(payload.triggers[0]?.id, "singleton");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {

@@ -46,6 +46,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
             "slop-check",
             "preflight-before-commit",
             "deploy-honeypot",
+            "check-alien-dna",
             "compile-hologram",
             "check-invariants",
             "fuzz-the-diff",

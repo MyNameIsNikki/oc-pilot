@@ -290,6 +290,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(honeypot, "honeypot tool missing");
         assert.ok(honeypot.inputSchema.properties.action, "action missing on honeypot");
         assert.ok(honeypot.inputSchema.properties.force, "force missing on honeypot");
+        const alienDna = tools.find((tool) => tool.name === "alien_dna");
+        assert.ok(alienDna, "alien_dna tool missing");
+        assert.ok(alienDna.inputSchema.properties.diff, "diff missing on alien_dna");
+        assert.ok(alienDna.inputSchema.properties.base, "base missing on alien_dna");
         const mutate = tools.find((tool) => tool.name === "mutate");
         assert.ok(mutate, "mutate tool missing");
         assert.ok(mutate.inputSchema.properties.max_mutants, "max_mutants missing on mutate");

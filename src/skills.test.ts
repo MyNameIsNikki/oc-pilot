@@ -92,6 +92,7 @@ test("skills document real commands and avoid placeholders", () => {
     "sandbox",
     "hivemind",
     "honeypot",
+    "alien-dna",
     "contract-drift",
     "anti-regression",
     "boundaries",

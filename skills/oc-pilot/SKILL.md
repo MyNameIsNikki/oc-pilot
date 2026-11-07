@@ -38,6 +38,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `sandbox run` - execute one JS/ESM file in node:vm with imports, require, fetch and process.exit blocked; output and exact status are reported.
 - `hivemind` - encrypted TCP mesh: ed25519 identity, trusted peers, ECDH X25519 handshake and AES-256-GCM payloads; only diffs, AST and LLM requests are allowed.
 - `honeypot` - deploy decoy files (`.env.backup`, a trapped `bypassAuth`, a legacy DB drop) and fail preflight with `[HONEYPOT TRIGGERED]` when an agent reads or changes one; `status` lists traps and `remove` deletes only marker files.
+- `alien-dna` - compare added diff lines with the architecture DNA at HEAD and fail with `[ALIEN DNA DETECTED]` when a Singleton, Proxy, dynamic RegExp, eval, global state, inheritance, decorator, Worker, EventEmitter, dynamic import, sync I/O or prototype mutation has 0% prior occurrence.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
 - `anti_regression` - lines the diff re-adds after a human explicitly deleted them in git history, with the deleting commit cited.
 - `boundaries` - added imports checked against `.oc-pilot/architecture.json` layer rules, with file, line and rule reason.
@@ -93,6 +94,7 @@ oc-pilot query "find(CallExpression).where(name, 'stripe').select(file, line)"
 oc-pilot sandbox run scripts/demo.mjs --timeout 500ms
 oc-pilot hivemind init
 oc-pilot honeypot deploy
+oc-pilot alien-dna --staged
 oc-pilot contract-drift --staged --fail-on-drift high
 oc-pilot anti-regression --staged --fail-on-regression
 oc-pilot boundaries --staged --fail-on-violation

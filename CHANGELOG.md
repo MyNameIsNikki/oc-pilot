@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.90.0
+
+- Новая команда `alien-dna`: сравнивает добавленные строки diff с архитектурной ДНК репозитория на HEAD.
+- ДНК считает 12 паттернов: Singleton, Proxy, dynamic RegExp, eval/new Function, globalThis, наследование, декораторы, Worker, EventEmitter, динамический import, синхронный I/O и мутацию prototype.
+- Если паттерн впервые появляется в diff (0% вхождений в базе), команда печатает `[ALIEN DNA DETECTED]: ... Architecture drift blocked.` и завершается кодом 1.
+- MCP-инструмент `alien_dna` (read-only, офлайн) и промпт `check-alien-dna`; CLI-флаги `--diff`, `--stdin`, `--staged`, `--unstaged`, `--base`, `--include-untracked`.
+- 5 тестов ядра и CLI-тест; всего 677 тестов; версия 0.90.0.
+
 ## 0.89.0
 
 - Новая команда `honeypot`: `deploy` минирует репозиторий приманками (`.env.backup` с фейковыми ключами, `bypassAuth`, `legacyDbDrop`), `status` показывает манифест, `remove` удаляет только файлы с маркером.

@@ -1072,6 +1072,23 @@ const TOOLS = [
         },
     },
     {
+        name: "alien_dna",
+        description: "Compare added diff lines with the repository architecture DNA at HEAD and fail when the diff introduces a pattern that never appeared before (0% occurrence): Singleton, Proxy, dynamic RegExp, eval, global state, inheritance, decorators, Worker, EventEmitter, dynamic import, sync I/O or prototype mutation. Offline and deterministic; no model call.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "ready",
         description: "Agent readiness score 0-100 for the repository: tests, lockfile, git hooks, Slop Index, a fresh receipt, agent instructions, CI, config and security. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A score below fail_under returns exit code 1 with the full report, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1175,6 +1192,14 @@ const PROMPTS = [
         description: "Plant decoy files that an agent should never read or import, then use preflight to catch a triggered honeypot before the change lands.",
         arguments: [
             { name: "context", description: "What the agent is working on", required: false },
+        ],
+    },
+    {
+        name: "check-alien-dna",
+        title: "Check architecture DNA",
+        description: "Compare the diff with the repository's established patterns and stop when the agent introduces a pattern that has never appeared in the codebase.",
+        arguments: [
+            { name: "context", description: "What the change is supposed to do", required: false },
         ],
     },
     {
@@ -2898,6 +2923,28 @@ async function callHoneypot(input, cwd) {
         args.push("--force");
     return toToolResult(await runCli(args, cwd));
 }
+async function callAlienDna(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["alien-dna", "--json"];
+        const diff = stringArg(input, "diff");
+        const base = baseArg(input);
+        if (diff)
+            args.push("--diff", temp.write("changes.diff", diff));
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callSast(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -3143,6 +3190,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callPreflight(input, cwd);
         case "honeypot":
             return callHoneypot(input, cwd);
+        case "alien_dna":
+            return callAlienDna(input, cwd);
         case "sast":
             return callSast(input, cwd);
         case "authz":
@@ -3210,6 +3259,9 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.output) && typeof value.durationMs === "number") {
         return `oc-pilot: sandbox ${value.status} for ${typeof value.file === "string" ? value.file : "?"} (${String(value.durationMs)} ms)`;
+    }
+    if (typeof value.baseline === "string" && Array.isArray(value.patterns) && Array.isArray(value.triggers)) {
+        return `oc-pilot: alien DNA ${String(value.triggers.length)} trigger(s), ${String(value.files ?? 0)} baseline file(s), ${String(value.addedLines ?? 0)} added line(s)`;
     }
     if (typeof value.query === "string" && typeof value.count === "number" && Array.isArray(value.rows)) {
         return `oc-pilot: AQL ${String(value.count)} node(s) for ${typeof value.type === "string" && value.type ? value.type : "any type"}`;
@@ -3447,6 +3499,8 @@ function promptBody(name, args) {
             return `Before I commit, call the oc-pilot "preflight" tool with staged=true. It runs offline: secrets, dependency health scoped to the change, test weakening and the Slop Index delta. If the verdict is fail, fix the cheapest failing check first, then call "preflight" again. Do not disable a check with no_* flags or lower the gate just to get a pass. When it passes, report what was checked and any remaining skips.${suffix}`;
         case "deploy-honeypot":
             return `Call the oc-pilot "honeypot" tool with action=deploy to plant decoys, then call it with action=status and report the manifest. Treat the decoy files as traps, not as real secrets or real helpers: never import bypassAuth, never use the fake AWS keys and never call legacyDbDrop. Before committing, run "preflight"; if it reports [HONEYPOT TRIGGERED], stop, explain which decoy was touched and do not continue the task. When the exercise is over, call "honeypot" with action=remove to clean up. deploy and remove require write mode; if the server is read-only, ask the user to run oc-pilot honeypot deploy.${suffix}`;
+        case "check-alien-dna":
+            return `Call the oc-pilot "alien_dna" tool on the current diff. Read the baseline pattern counts and every trigger. If it reports [ALIEN DNA DETECTED], stop and explain which pattern is new, where it appears and why the codebase has 0% prior usage. Do not rewrite the code to hide the pattern, do not add a fake prior usage, and do not edit the baseline. Ask the user for explicit approval before adopting a new architectural pattern; if approved, report the decision and rerun the gate.${suffix}`;
         case "compile-hologram":
             return `Call the oc-pilot "pack_hologram" tool with max_tokens=30000 and the current diff. The result is layered: LOD 0 files are complete, LOD 1 bodies are hidden behind markers, LOD 2 lists export names. Never invent a hidden body: if the implementation matters, call "zoom_symbol" with the file and symbol from the Zoom section and read the returned body before reasoning about it. Treat [Hologram: parse bailout] as a warning that the file is complete. Do not dump the whole repository or raise max_tokens just to avoid zooming; the hologram exists to save context. Report which files were LOD 0/1/2, any redacted secrets and every symbol you zoomed.${suffix}`;
         case "check-invariants":
