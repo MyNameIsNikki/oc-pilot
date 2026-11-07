@@ -690,6 +690,24 @@ const TOOLS = [
     },
   },
   {
+    name: "sandbox",
+    description:
+      "Run one self-contained JavaScript or ESM file in node:vm with a separate context: require, static imports, fetch, process.exit and long timers are blocked, console is captured, and execution is capped by timeout and heap. TypeScript runs only from a built dist/*.js. This is not an OS sandbox for native code.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["file"],
+      properties: {
+        file: { type: "string", description: "Repository-relative JS/MJS file (or built dist JS)" },
+        timeout_ms: { type: "integer", minimum: 50, maximum: 30000, description: "Execution timeout (default 2000)" },
+        memory_mb: { type: "integer", minimum: 16, maximum: 4096, description: "Heap cap (default 128)" },
+        allow_unsafe_exec: { type: "boolean", description: "Explicit acknowledgement for native code; not used by the vm runner" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "contract_drift",
     description:
       "Detect implicit contract breakage in the diff: removed fields, optional fields that became required and changed field types in TypeScript interfaces, Zod objects, Prisma models, Pydantic models and JSON Schema. Reports where a removed field is still used in untouched files. Textual, offline and free of model calls.",
@@ -1240,6 +1258,15 @@ const PROMPTS = [
       "Ask the code graph where a call, function, class or import lives with AQL, then use the result to plan a refactor instead of grepping blindly.",
     arguments: [
       { name: "context", description: "What symbol or call to locate", required: false },
+    ],
+  },
+  {
+    name: "sandbox-script",
+    title: "Sandbox a generated script",
+    description:
+      "Run a generated JS/ESM script in node:vm with imports, fs, net, child_process and fetch blocked, then report what it printed and whether it tried a side effect.",
+    arguments: [
+      { name: "context", description: "What the script is supposed to do", required: false },
     ],
   },
   {
@@ -2336,6 +2363,17 @@ async function callQueryAst(input: JsonObject, cwd: string): Promise<ToolResult>
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callSandbox(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const file = stringArg(input, "file", true)!;
+  const args = ["sandbox", "run", file, "--json"];
+  const timeout = integerArg(input, "timeout_ms");
+  if (timeout !== undefined) args.push("--timeout", `${String(timeout)}ms`);
+  const memory = integerArg(input, "memory_mb");
+  if (memory !== undefined) args.push("--memory-limit", `${String(memory)}MB`);
+  if (booleanArg(input, "allow_unsafe_exec")) args.push("--allow-unsafe-exec");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callContractDrift(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2835,6 +2873,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callInvariants(input, cwd);
     case "contract_drift":
       return callContractDrift(input, cwd);
+    case "sandbox":
+      return callSandbox(input, cwd);
     case "query_ast":
       return callQueryAst(input, cwd);
     case "bankruptcy":
@@ -2937,6 +2977,9 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value: JsonObject): string {
+  if (typeof value.status === "string" && Array.isArray(value.output) && typeof value.durationMs === "number") {
+    return `oc-pilot: sandbox ${value.status} for ${typeof value.file === "string" ? value.file : "?"} (${String(value.durationMs)} ms)`;
+  }
   if (typeof value.query === "string" && typeof value.count === "number" && Array.isArray(value.rows)) {
     return `oc-pilot: AQL ${String(value.count)} node(s) for ${typeof value.type === "string" && value.type ? value.type : "any type"}`;
   }
@@ -3191,6 +3234,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "bankruptcy" tool with history_days=90 and explain=true. Present the current score, the slope and the forecast date as a trend, not a verdict on people. If the answer is [INSUFFICIENT DATA: Need at least 10 commits to compute Slop Velocity], say so and do not invent a date. Explain that test weakening and security flaws carry the heaviest weights, so the useful repayment plan is real tests and fixes, not deleting TODO comments. Do not change weights, hide commits or claim precision beyond the linear model.${suffix}`;
     case "query-the-ast":
       return `Call the oc-pilot "query_ast" tool with an AQL chain such as find(CallExpression).where(name, 'stripe').select(file, line). Use the returned file:line evidence to plan the refactor, then verify each hit in the source before editing. Do not invent nodes, do not claim the graph is a full TypeScript AST and do not rewrite code based on a single name match; if the query returns nothing, say so and try a narrower or wider type.${suffix}`;
+    case "sandbox-script":
+      return `Call the oc-pilot "sandbox" tool on the generated file with timeout_ms=2000 and memory_mb=128. Report the captured output and the exact status: ok, blocked, timeout or error. A blocked import or require means the script tried a side effect and must not be run outside the sandbox without review. Do not claim the vm is an OS sandbox, do not pass allow_unsafe_exec without the user's explicit approval, and do not run native binaries through this tool.${suffix}`;
     case "get-ready":
       return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
     case "fix-security":

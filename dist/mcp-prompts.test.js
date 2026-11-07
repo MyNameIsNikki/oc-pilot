@@ -50,6 +50,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
             "fuzz-the-diff",
             "forecast-tech-debt",
             "query-the-ast",
+            "sandbox-script",
             "get-ready",
             "fix-security",
             "stabilize-flaky",

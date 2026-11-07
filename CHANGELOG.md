@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.87.0
+
+- Новая команда `sandbox run <file>`: запуск самодостаточного JS/ESM в `node:vm` с отдельным контекстом.
+- Статические импорты, `require`, `fetch`, `process.exit` и таймеры длиннее секунды блокируются; console перехватывается, а таймаут и лимит кучи ограничивают исполнение.
+- TypeScript запускается только из собранного `dist/*.js`; для нативного кода песочницы нет, `--allow-unsafe-exec` остаётся явным подтверждением.
+- MCP-инструмент `sandbox` и промпт `sandbox-script` показывают статус ok/blocked/timeout/error и точный вывод.
+- Документация и skill; 658 тестов; версия 0.87.0.
+
 ## 0.86.0
 
 - Новая команда `query`: цепочный AQL вместо SQL — `find(CallExpression).where(name, 'stripe').select(file, line)`.

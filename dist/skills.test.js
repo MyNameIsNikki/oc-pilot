@@ -65,6 +65,7 @@ test("skills document real commands and avoid placeholders", () => {
         "fuzz",
         "bankruptcy",
         "query",
+        "sandbox",
         "contract-drift",
         "anti-regression",
         "boundaries",
@@ -93,6 +94,7 @@ test("skills use only documented flags", () => {
     const flags = new Set([
         "--agent",
         "--allow-secrets",
+        "--allow-unsafe-exec",
         "--api-key-env",
         "--apply",
         "--audit",
