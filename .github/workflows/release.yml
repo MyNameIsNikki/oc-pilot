@@ -51,13 +51,30 @@ jobs:
             echo "mode=oidc" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verify npm token
+        if: steps.auth.outputs.mode == 'token'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
+          if ! out=$(npm whoami 2>&1); then
+            echo "::error::npm whoami failed: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-500)"
+            exit 1
+          fi
+          echo "npm user: $out"
+
       - name: Publish with NPM_TOKEN
         if: steps.auth.outputs.mode == 'token'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
-          npm publish --provenance --access public --ignore-scripts
+          set -o pipefail
+          if ! npm publish --provenance --access public --ignore-scripts 2>&1 | tee publish.log; then
+            msg=$(tail -n 12 publish.log | sed "s/${NODE_AUTH_TOKEN}/***/g" | tr '\n' ' ' | cut -c1-800)
+            echo "::error::npm publish failed: ${msg}"
+            exit 1
+          fi
 
       - name: Publish with Trusted Publishing
         if: steps.auth.outputs.mode == 'oidc'
