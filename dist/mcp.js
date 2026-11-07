@@ -1106,6 +1106,28 @@ const TOOLS = [
         },
     },
     {
+        name: "butterfly",
+        description: "Run the project test command with deterministic local chaos: fetch can return HTTP 500, add latency or broken JSON, and fs can return EIO for code under the scope. Reports injected fault counts, exit code and output tail. The test runner and node_modules are excluded by the stack scope; database driver patching is best-effort. This is a test aid, not an OS sandbox.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["command"],
+            properties: {
+                command: { type: "string", description: "Test command to run under chaos" },
+                seed: { type: "integer", minimum: 0, description: "Deterministic fault seed (default 42)" },
+                fail_rate: { type: "number", minimum: 0, maximum: 1, description: "HTTP 500 rate (default 0.1)" },
+                latency_rate: { type: "number", minimum: 0, maximum: 1, description: "Latency injection rate (default 0.05)" },
+                latency_ms: { type: "integer", minimum: 0, description: "Injected latency in ms (default 3000)" },
+                broken_json_rate: { type: "number", minimum: 0, maximum: 1, description: "Broken JSON rate (default 0.02)" },
+                fs_fail_rate: { type: "number", minimum: 0, maximum: 1, description: "Filesystem EIO rate (default 0.05)" },
+                timeout_ms: { type: "integer", minimum: 1000, description: "Test timeout (default 120000)" },
+                scope: { type: "string", description: "Comma-separated path prefixes (default src/)" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "ready",
         description: "Agent readiness score 0-100 for the repository: tests, lockfile, git hooks, Slop Index, a fresh receipt, agent instructions, CI, config and security. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A score below fail_under returns exit code 1 with the full report, not a tool error.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1225,6 +1247,14 @@ const PROMPTS = [
         description: "Age a self-contained JS/ESM function in node:vm, simulate a year of uptime and stop on sustained heap growth before the code reaches main.",
         arguments: [
             { name: "context", description: "What the function is supposed to do", required: false },
+        ],
+    },
+    {
+        name: "release-the-butterfly",
+        title: "Run tests under chaos",
+        description: "Run the test command with injected HTTP 500, latency, broken JSON and filesystem faults, then fix the code paths that fail instead of weakening the chaos.",
+        arguments: [
+            { name: "context", description: "What the change is supposed to do", required: false },
         ],
     },
     {
@@ -1616,6 +1646,15 @@ function integerArg(input, name) {
         return undefined;
     if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
         throw new ToolInputError(`${name} must be a positive integer`);
+    }
+    return value;
+}
+function numberArg(input, name) {
+    const value = input[name];
+    if (value === undefined)
+        return undefined;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new ToolInputError(`${name} must be a finite number`);
     }
     return value;
 }
@@ -2984,6 +3023,35 @@ async function callHyperChamber(input, cwd) {
         args.push("--memory-limit", `${String(memory)}MB`);
     return toToolResult(await runCli(args, cwd));
 }
+async function callButterfly(input, cwd) {
+    const command = stringArg(input, "command", true);
+    const args = ["butterfly", "--command", command, "--json"];
+    const seed = integerArg(input, "seed");
+    if (seed !== undefined)
+        args.push("--seed", String(seed));
+    const failRate = numberArg(input, "fail_rate");
+    if (failRate !== undefined)
+        args.push("--fail-rate", String(failRate));
+    const latencyRate = numberArg(input, "latency_rate");
+    if (latencyRate !== undefined)
+        args.push("--latency-rate", String(latencyRate));
+    const latencyMs = integerArg(input, "latency_ms");
+    if (latencyMs !== undefined)
+        args.push("--latency-ms", String(latencyMs));
+    const brokenJsonRate = numberArg(input, "broken_json_rate");
+    if (brokenJsonRate !== undefined)
+        args.push("--broken-json-rate", String(brokenJsonRate));
+    const fsFailRate = numberArg(input, "fs_fail_rate");
+    if (fsFailRate !== undefined)
+        args.push("--fs-fail-rate", String(fsFailRate));
+    const timeout = integerArg(input, "timeout_ms");
+    if (timeout !== undefined)
+        args.push("--timeout", `${String(timeout)}ms`);
+    const scope = stringArg(input, "scope");
+    if (scope)
+        args.push("--scope", scope);
+    return toToolResult(await runCli(args, cwd));
+}
 async function callSast(input, cwd) {
     const temp = new TempFiles();
     try {
@@ -3233,6 +3301,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callAlienDna(input, cwd);
         case "hyper_chamber":
             return callHyperChamber(input, cwd);
+        case "butterfly":
+            return callButterfly(input, cwd);
         case "sast":
             return callSast(input, cwd);
         case "authz":
@@ -3297,6 +3367,9 @@ function summarizeResult(value) {
         const identity = value.identity;
         const fingerprint = identity && typeof identity.fingerprint === "string" ? identity.fingerprint : "no identity";
         return `oc-pilot: hivemind ${fingerprint}, ${String(value.peers.length)} peer(s)`;
+    }
+    if (typeof value.status === "string" && typeof value.totalFaults === "number" && typeof value.exitCode === "number") {
+        return `oc-pilot: butterfly ${value.status}, ${String(value.totalFaults)} fault(s), exit ${String(value.exitCode)}`;
     }
     if (typeof value.status === "string" && typeof value.simulatedDays === "number" && typeof value.iterations === "number") {
         return `oc-pilot: hyper-chamber ${value.status}, ${String(value.simulatedDays)} day(s), ${String(value.iterations)} iteration(s)`;
@@ -3547,6 +3620,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "alien_dna" tool on the current diff. Read the baseline pattern counts and every trigger. If it reports [ALIEN DNA DETECTED], stop and explain which pattern is new, where it appears and why the codebase has 0% prior usage. Do not rewrite the code to hide the pattern, do not add a fake prior usage, and do not edit the baseline. Ask the user for explicit approval before adopting a new architectural pattern; if approved, report the decision and rerun the gate.${suffix}`;
         case "stress-the-chamber":
             return `Call the oc-pilot "hyper_chamber" tool with file set to the generated JS/ESM file, days=365, budget_ms=2000 and memory_mb=128. Report the exact status (ok, leak, timeout or error), the simulated days, the iteration count and the heap first-to-last. If it reports [MEMORY LEAK DETECTED], stop, quote the crash day and explain which retained allocation grows; do not commit, do not raise the heap limit and do not hide the leak by clearing a cache just to pass. If it is ok, say that this is a heuristic, not a proof of bounded memory. Never run native code through this tool.${suffix}`;
+        case "release-the-butterfly":
+            return `Call the oc-pilot "butterfly" tool with the project test command, seed=42, fail_rate=0.1, latency_rate=0.05, latency_ms=3000, broken_json_rate=0.02 and fs_fail_rate=0.05. Read the injected fault counts and the exit code. If the tests fail, find the code path that did not handle the injected 500, timeout, broken JSON or EIO and add the missing try/catch, timeout or fallback; do not lower the rates, widen the scope to hide the fault or delete the test. If the tests pass, say that this is one deterministic chaos run, not proof that every path is safe. Never claim the tool patches native or arbitrary database drivers reliably.${suffix}`;
         case "compile-hologram":
             return `Call the oc-pilot "pack_hologram" tool with max_tokens=30000 and the current diff. The result is layered: LOD 0 files are complete, LOD 1 bodies are hidden behind markers, LOD 2 lists export names. Never invent a hidden body: if the implementation matters, call "zoom_symbol" with the file and symbol from the Zoom section and read the returned body before reasoning about it. Treat [Hologram: parse bailout] as a warning that the file is complete. Do not dump the whole repository or raise max_tokens just to avoid zooming; the hologram exists to save context. Report which files were LOD 0/1/2, any redacted secrets and every symbol you zoomed.${suffix}`;
         case "check-invariants":

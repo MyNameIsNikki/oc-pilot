@@ -6,6 +6,7 @@ export interface ShellRunOptions {
   timeoutMs: number;
   verbose?: boolean;
   maxBufferChars?: number;
+  env?: Record<string, string | undefined>;
 }
 
 export interface ShellRunResult {
@@ -34,6 +35,7 @@ export function runShellCommand(
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
+        ...options.env,
         NO_COLOR: "1",
         FORCE_COLOR: "0",
       },

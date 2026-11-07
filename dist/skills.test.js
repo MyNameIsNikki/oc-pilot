@@ -70,6 +70,7 @@ test("skills document real commands and avoid placeholders", () => {
         "honeypot",
         "alien-dna",
         "hyper-chamber",
+        "butterfly",
         "contract-drift",
         "anti-regression",
         "boundaries",

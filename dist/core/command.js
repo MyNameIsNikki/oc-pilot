@@ -15,6 +15,7 @@ export function runShellCommand(command, cwd, options) {
             stdio: ["ignore", "pipe", "pipe"],
             env: {
                 ...process.env,
+                ...options.env,
                 NO_COLOR: "1",
                 FORCE_COLOR: "0",
             },

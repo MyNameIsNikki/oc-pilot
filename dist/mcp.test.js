@@ -300,6 +300,17 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(hyperChamber.inputSchema.properties.days, "days missing on hyper_chamber");
         assert.ok(hyperChamber.inputSchema.properties.budget_ms, "budget_ms missing on hyper_chamber");
         assert.ok(hyperChamber.inputSchema.properties.memory_mb, "memory_mb missing on hyper_chamber");
+        const butterfly = tools.find((tool) => tool.name === "butterfly");
+        assert.ok(butterfly, "butterfly tool missing");
+        assert.ok(butterfly.inputSchema.properties.command, "command missing on butterfly");
+        assert.ok(butterfly.inputSchema.properties.seed, "seed missing on butterfly");
+        assert.ok(butterfly.inputSchema.properties.fail_rate, "fail_rate missing on butterfly");
+        assert.ok(butterfly.inputSchema.properties.latency_rate, "latency_rate missing on butterfly");
+        assert.ok(butterfly.inputSchema.properties.latency_ms, "latency_ms missing on butterfly");
+        assert.ok(butterfly.inputSchema.properties.broken_json_rate, "broken_json_rate missing on butterfly");
+        assert.ok(butterfly.inputSchema.properties.fs_fail_rate, "fs_fail_rate missing on butterfly");
+        assert.ok(butterfly.inputSchema.properties.timeout_ms, "timeout_ms missing on butterfly");
+        assert.ok(butterfly.inputSchema.properties.scope, "scope missing on butterfly");
         const mutate = tools.find((tool) => tool.name === "mutate");
         assert.ok(mutate, "mutate tool missing");
         assert.ok(mutate.inputSchema.properties.max_mutants, "max_mutants missing on mutate");

@@ -1337,6 +1337,46 @@ test("hyper-chamber reports a retained cache as a leak", () => {
   }
 });
 
+test("butterfly reports an unhandled HTTP 500 as a failure", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-butterfly-"));
+  try {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "app.mjs"),
+      [
+        'const response = await fetch("http://butterfly.test");',
+        'if (!response.ok) throw new Error("http " + response.status);',
+        "",
+      ].join("\n"),
+    );
+    const result = runCli(
+      [
+        "butterfly",
+        "--command",
+        "node src/app.mjs",
+        "--fail-rate",
+        "1",
+        "--latency-rate",
+        "0",
+        "--broken-json-rate",
+        "0",
+        "--fs-fail-rate",
+        "0",
+        "--cwd",
+        dir,
+        "--json",
+      ],
+      dir,
+    );
+    assert.equal(result.status, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as { status: string; faults: { http500: number } };
+    assert.equal(payload.status, "fail");
+    assert.ok(payload.faults.http500 >= 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {
