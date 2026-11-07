@@ -88,6 +88,7 @@ test("skills document real commands and avoid placeholders", () => {
     "invariants",
     "fuzz",
     "bankruptcy",
+    "query",
     "contract-drift",
     "anti-regression",
     "boundaries",

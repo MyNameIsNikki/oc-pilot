@@ -674,6 +674,22 @@ const TOOLS = [
     },
   },
   {
+    name: "query_ast",
+    description:
+      "Run a chainable AQL query against a lightweight code graph: find(File|Function|Class|Import|CallExpression), where(field, value), sort(field), limit(n), select(fields...), count(). No SQL parser, no model call and no network.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["query"],
+      properties: {
+        query: { type: "string", description: "AQL chain, e.g. find(CallExpression).where(name, 'stripe').select(file, line)" },
+        limit: { type: "integer", minimum: 1, maximum: 1000, description: "Maximum rows (default 200)" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "contract_drift",
     description:
       "Detect implicit contract breakage in the diff: removed fields, optional fields that became required and changed field types in TypeScript interfaces, Zod objects, Prisma models, Pydantic models and JSON Schema. Reports where a removed field is still used in untouched files. Textual, offline and free of model calls.",
@@ -1215,6 +1231,15 @@ const PROMPTS = [
       "Read the tech-debt trend from commit history, explain the score and weights, and use the forecast date to plan repayment instead of gaming TODO counts.",
     arguments: [
       { name: "context", description: "Which horizon or area to forecast", required: false },
+    ],
+  },
+  {
+    name: "query-the-ast",
+    title: "Query the code graph",
+    description:
+      "Ask the code graph where a call, function, class or import lives with AQL, then use the result to plan a refactor instead of grepping blindly.",
+    arguments: [
+      { name: "context", description: "What symbol or call to locate", required: false },
     ],
   },
   {
@@ -2303,6 +2328,14 @@ async function callBankruptcy(input: JsonObject, cwd: string): Promise<ToolResul
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callQueryAst(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const query = stringArg(input, "query", true)!;
+  const args = ["query", query, "--json"];
+  const limit = integerArg(input, "limit");
+  if (limit !== undefined) args.push("--limit", String(limit));
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callContractDrift(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2802,6 +2835,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callInvariants(input, cwd);
     case "contract_drift":
       return callContractDrift(input, cwd);
+    case "query_ast":
+      return callQueryAst(input, cwd);
     case "bankruptcy":
       return callBankruptcy(input, cwd);
     case "anti_regression":
@@ -2902,6 +2937,9 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value: JsonObject): string {
+  if (typeof value.query === "string" && typeof value.count === "number" && Array.isArray(value.rows)) {
+    return `oc-pilot: AQL ${String(value.count)} node(s) for ${typeof value.type === "string" && value.type ? value.type : "any type"}`;
+  }
   if (typeof value.verdict === "string" && typeof value.currentScore === "number" && typeof value.commits === "number") {
     const forecast = typeof value.forecastDate === "string" ? `, forecast ${value.forecastDate}` : "";
     return `oc-pilot: bankruptcy score ${String(value.currentScore)}/100, ${value.verdict}${forecast}`;
@@ -3151,6 +3189,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "fuzz" tool with duration_ms=2000, memory_mb=128 and fail_on_crash=true. Read every result: [CRASH] is a real unhandled input and needs a minimal fix plus a regression test; [TIMEOUT] is an infinite loop or pathological complexity; [BLOCKED] and [SKIPPED] were not executed and must not be reported as safe. Never remove the side-effect guard, never run the function in the main process and never widen the memory or timeout limits just to hide a crash. After the fix, rerun the same tool and compare.${suffix}`;
     case "forecast-tech-debt":
       return `Call the oc-pilot "bankruptcy" tool with history_days=90 and explain=true. Present the current score, the slope and the forecast date as a trend, not a verdict on people. If the answer is [INSUFFICIENT DATA: Need at least 10 commits to compute Slop Velocity], say so and do not invent a date. Explain that test weakening and security flaws carry the heaviest weights, so the useful repayment plan is real tests and fixes, not deleting TODO comments. Do not change weights, hide commits or claim precision beyond the linear model.${suffix}`;
+    case "query-the-ast":
+      return `Call the oc-pilot "query_ast" tool with an AQL chain such as find(CallExpression).where(name, 'stripe').select(file, line). Use the returned file:line evidence to plan the refactor, then verify each hit in the source before editing. Do not invent nodes, do not claim the graph is a full TypeScript AST and do not rewrite code based on a single name match; if the query returns nothing, say so and try a narrower or wider type.${suffix}`;
     case "get-ready":
       return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
     case "fix-security":

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.86.0
+
+- Новая команда `query`: цепочный AQL вместо SQL — `find(CallExpression).where(name, 'stripe').select(file, line)`.
+- Граф строится текстовым проходом по репозиторию: File, Function, Class, Import, CallExpression; шаги find, where, sort, limit, select, count.
+- Запрос не требует парсера грамматики и работает офлайн; MCP-инструмент `query_ast` и промпт `query-the-ast` дают агенту file:line-доказательства до правки.
+- `--limit` ограничивает выдачу, `--json` отдаёт строки и счётчик; это не полный TypeScript AST, а быстрый граф для навигации.
+- Документация и skill; 655 тестов; версия 0.86.0.
+
 ## 0.85.0
 
 - `fix --shadow` и `battle --shadow`: применённый патч выполняется в отдельном git worktree `.oc-pilot/shadow-tree`, а не в рабочем дереве.
