@@ -69,6 +69,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
       "compile-hologram",
       "check-invariants",
       "fuzz-the-diff",
+      "forecast-tech-debt",
       "get-ready",
       "fix-security",
       "stabilize-flaky",

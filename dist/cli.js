@@ -49,6 +49,7 @@ import { runTestGuard } from "./commands/test-guard.js";
 import { runFlaky } from "./commands/flaky.js";
 import { runMutate } from "./commands/mutate.js";
 import { runFuzzCommand } from "./commands/fuzz.js";
+import { runBankruptcy } from "./commands/bankruptcy.js";
 import { runSast } from "./commands/sast.js";
 import { runAuthz } from "./commands/authz.js";
 import { PilotError, toPilotError } from "./core/errors.js";
@@ -65,6 +66,7 @@ const HANDLERS = {
     flaky: runFlaky,
     mutate: runMutate,
     fuzz: runFuzzCommand,
+    bankruptcy: runBankruptcy,
     sast: runSast,
     authz: runAuthz,
     fix: runFix,
@@ -124,6 +126,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   flaky       Найти нестабильные тесты: несколько прогонов и сравнение
   mutate      Мутационное тестирование: проверить, что тесты ловят баги
   fuzz        Безопасный JIT-фаззинг экспортов из diff
+  bankruptcy  Детерминированный прогноз техдолга и дата банкротства
   sast        Детерминированный SAST: инъекции, SSRF, path traversal, XSS
   authz       Проверка маршрутов: авторизация, IDOR, админ-доступ
   fix         Патч от модели, git apply и цикл тестов с откатом
@@ -189,6 +192,7 @@ ${COMMON_HELP}
   oc-pilot flaky --runs 5
   oc-pilot mutate --staged --min-score 80
   oc-pilot fuzz --duration 2s --memory-limit 128MB
+  oc-pilot bankruptcy --history 30d --format json
   oc-pilot coverage --staged --coverage-file coverage/lcov.info --fail-under 80
   oc-pilot env-sync --staged --fail-on-missing
   oc-pilot mock-leak --staged --fail-on-leak high
@@ -258,7 +262,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

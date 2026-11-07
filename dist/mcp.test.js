@@ -367,6 +367,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(contractDrift, "contract_drift tool missing");
         assert.ok(contractDrift.inputSchema.properties.fail_on_drift, "fail_on_drift missing on contract_drift");
         assert.ok(contractDrift.inputSchema.properties.staged, "staged missing on contract_drift");
+        const bankruptcy = tools.find((tool) => tool.name === "bankruptcy");
+        assert.ok(bankruptcy, "bankruptcy tool missing");
+        assert.ok(bankruptcy.inputSchema.properties.history_days, "history_days missing on bankruptcy");
+        assert.ok(bankruptcy.inputSchema.properties.explain, "explain missing on bankruptcy");
         const antiRegression = tools.find((tool) => tool.name === "anti_regression");
         assert.ok(antiRegression, "anti_regression tool missing");
         assert.ok(antiRegression.inputSchema.properties.max_commits, "max_commits missing on anti_regression");

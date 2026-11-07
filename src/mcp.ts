@@ -658,6 +658,21 @@ const TOOLS = [
     },
   },
   {
+    name: "bankruptcy",
+    description:
+      "Forecast technical debt from the last N commits: weakened tests, SAST high/medium findings, added TODOs, churn and a slop proxy, smoothed with a 14-day moving average and fitted with linear regression. Returns the current score, slope, forecast date and a self-contained SVG chart. Fewer than 10 commits returns [INSUFFICIENT DATA: Need at least 10 commits to compute Slop Velocity]. No model call and no network.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        history_days: { type: "integer", minimum: 1, maximum: 3650, description: "History window in days (default 90)" },
+        explain: { type: "boolean", description: "Include the formula, weights and smoothing rules" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "contract_drift",
     description:
       "Detect implicit contract breakage in the diff: removed fields, optional fields that became required and changed field types in TypeScript interfaces, Zod objects, Prisma models, Pydantic models and JSON Schema. Reports where a removed field is still used in untouched files. Textual, offline and free of model calls.",
@@ -1189,6 +1204,15 @@ const PROMPTS = [
       "Call the new exported functions with hostile inputs in isolated processes, report crashes and timeouts, and never treat blocked side-effect files as tested.",
     arguments: [
       { name: "context", description: "What the new functions are supposed to do", required: false },
+    ],
+  },
+  {
+    name: "forecast-tech-debt",
+    title: "Forecast the technical debt",
+    description:
+      "Read the tech-debt trend from commit history, explain the score and weights, and use the forecast date to plan repayment instead of gaming TODO counts.",
+    arguments: [
+      { name: "context", description: "Which horizon or area to forecast", required: false },
     ],
   },
   {
@@ -2268,6 +2292,14 @@ async function callInvariants(input: JsonObject, cwd: string): Promise<ToolResul
   }
 }
 
+async function callBankruptcy(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const args = ["bankruptcy", "--json"];
+  const historyDays = integerArg(input, "history_days");
+  if (historyDays !== undefined) args.push("--history", `${String(historyDays)}d`);
+  if (booleanArg(input, "explain")) args.push("--explain");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callContractDrift(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2766,6 +2798,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callInvariants(input, cwd);
     case "contract_drift":
       return callContractDrift(input, cwd);
+    case "bankruptcy":
+      return callBankruptcy(input, cwd);
     case "anti_regression":
       return callAntiRegression(input, cwd);
     case "boundaries":
@@ -2864,6 +2898,10 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value: JsonObject): string {
+  if (typeof value.verdict === "string" && typeof value.currentScore === "number" && typeof value.commits === "number") {
+    const forecast = typeof value.forecastDate === "string" ? `, forecast ${value.forecastDate}` : "";
+    return `oc-pilot: bankruptcy score ${String(value.currentScore)}/100, ${value.verdict}${forecast}`;
+  }
   if (Array.isArray(value.results) && typeof value.crashes === "number" && Array.isArray(value.targets)) {
     return `oc-pilot: fuzz ${String(value.targets.length)} target(s), ${String(value.crashes)} crash(es), ${String(value.blocked ?? 0)} blocked, ${String(value.timeouts ?? 0)} timeout(s)`;
   }
@@ -3107,6 +3145,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "invariants" tool on the current diff with strict=false first. Read every verdict: [SKIPPED: Out of scope] rules were not checked and must not be reported as passed; [UNKNOWN] means the model lacked evidence. For each violation, quote the file:line and explain which invariant broke. Do not edit .oc-pilot/invariants.md, do not delete a rule to get a pass and do not hide a CRITICAL violation. If the user wants a hard gate, rerun with strict=true and report exit code 3. After a fix, rerun the tool and compare the verdicts.${suffix}`;
     case "fuzz-the-diff":
       return `Call the oc-pilot "fuzz" tool with duration_ms=2000, memory_mb=128 and fail_on_crash=true. Read every result: [CRASH] is a real unhandled input and needs a minimal fix plus a regression test; [TIMEOUT] is an infinite loop or pathological complexity; [BLOCKED] and [SKIPPED] were not executed and must not be reported as safe. Never remove the side-effect guard, never run the function in the main process and never widen the memory or timeout limits just to hide a crash. After the fix, rerun the same tool and compare.${suffix}`;
+    case "forecast-tech-debt":
+      return `Call the oc-pilot "bankruptcy" tool with history_days=90 and explain=true. Present the current score, the slope and the forecast date as a trend, not a verdict on people. If the answer is [INSUFFICIENT DATA: Need at least 10 commits to compute Slop Velocity], say so and do not invent a date. Explain that test weakening and security flaws carry the heaviest weights, so the useful repayment plan is real tests and fixes, not deleting TODO comments. Do not change weights, hide commits or claim precision beyond the linear model.${suffix}`;
     case "get-ready":
       return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
     case "fix-security":
