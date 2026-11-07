@@ -30,6 +30,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `mock_leak` - forgotten stubs and hardcode in production code: local paths, test tokens, always-true conditions, mock identifiers and localhost URLs.
 - `ecosystem_verify` - named imports against installed packages and `.d.ts`, plus age and downloads of newly added npm packages.
 - `pack` - compact task context: rules, changed-file signatures, related references and an optional test log, capped by `budget` characters; read-only.
+- `pack --hologram` - layered context: LOD 0 full diff files, LOD 1 hidden bodies with EFFECTS markers and matching tests, LOD 2 export names; `zoom-symbol` returns one hidden body on demand.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
 - `anti_regression` - lines the diff re-adds after a human explicitly deleted them in git history, with the deleting commit cited.
 - `boundaries` - added imports checked against `.oc-pilot/architecture.json` layer rules, with file, line and rule reason.
@@ -75,6 +76,8 @@ oc-pilot env-sync --staged --fail-on-missing
 oc-pilot mock-leak --staged --fail-on-leak high
 oc-pilot ecosystem-verify --staged --fail-on-issue high
 oc-pilot pack "fix the login redirect" --staged --budget 12000
+oc-pilot pack --hologram --max-tokens 30000 --output context.md
+oc-pilot zoom-symbol src/core/pack.ts buildPack
 oc-pilot contract-drift --staged --fail-on-drift high
 oc-pilot anti-regression --staged --fail-on-regression
 oc-pilot boundaries --staged --fail-on-violation

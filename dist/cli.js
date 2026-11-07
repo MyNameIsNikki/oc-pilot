@@ -7,6 +7,7 @@ import { runEnvSync } from "./commands/env-sync.js";
 import { runMockLeak } from "./commands/mock-leak.js";
 import { runCoverage } from "./commands/coverage.js";
 import { runPack } from "./commands/pack.js";
+import { runZoomSymbol } from "./commands/zoom-symbol.js";
 import { runContractDrift } from "./commands/contract-drift.js";
 import { runAntiRegression } from "./commands/anti-regression.js";
 import { runBoundaries } from "./commands/boundaries.js";
@@ -73,6 +74,7 @@ const HANDLERS = {
     "mock-leak": runMockLeak,
     coverage: runCoverage,
     pack: runPack,
+    "zoom-symbol": runZoomSymbol,
     "contract-drift": runContractDrift,
     "anti-regression": runAntiRegression,
     boundaries: runBoundaries,
@@ -129,6 +131,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   mock-leak   Заглушки и хардкод в прод-коде: пути, токены, if (true)
   coverage    Покрытие изменённых строк: непокрытые строки и гейт
   pack        Собрать компактный контекст задачи: подписи, связи, правила
+  zoom-symbol Достать полное тело одного символа из файла
   contract-drift  Дрейф контрактов: удалённые поля, типы, потребители
   anti-regression  Повторно добавленные строки, которые человек уже удалял
   boundaries  Границы слоёв: запрещённые импорты между модулями
@@ -183,6 +186,8 @@ ${COMMON_HELP}
   oc-pilot env-sync --staged --fail-on-missing
   oc-pilot mock-leak --staged --fail-on-leak high
   oc-pilot pack "fix the login redirect" --staged --budget 12000
+  oc-pilot pack --hologram --max-tokens 30000 --output context.md
+  oc-pilot zoom-symbol src/core/pack.ts buildPack
   oc-pilot contract-drift --staged --fail-on-drift high
   oc-pilot anti-regression --staged --fail-on-regression
   oc-pilot boundaries --init
@@ -245,7 +250,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, preflight, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

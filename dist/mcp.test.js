@@ -346,6 +346,13 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(pack.inputSchema.properties.budget, "budget missing on pack");
         assert.ok(pack.inputSchema.properties.test_log, "test_log missing on pack");
         assert.ok(pack.inputSchema.properties.rules, "rules missing on pack");
+        const packHologram = tools.find((tool) => tool.name === "pack_hologram");
+        assert.ok(packHologram, "pack_hologram tool missing");
+        assert.ok(packHologram.inputSchema.properties.max_tokens, "max_tokens missing on pack_hologram");
+        const zoomSymbol = tools.find((tool) => tool.name === "zoom_symbol");
+        assert.ok(zoomSymbol, "zoom_symbol tool missing");
+        assert.ok(zoomSymbol.inputSchema.properties.file, "file missing on zoom_symbol");
+        assert.ok(zoomSymbol.inputSchema.properties.symbol, "symbol missing on zoom_symbol");
         const contractDrift = tools.find((tool) => tool.name === "contract_drift");
         assert.ok(contractDrift, "contract_drift tool missing");
         assert.ok(contractDrift.inputSchema.properties.fail_on_drift, "fail_on_drift missing on contract_drift");
@@ -1162,6 +1169,72 @@ test("MCP test_plan selects tests from the import graph", () => {
         assert.ok(files.includes("src/wallet.test.ts"), `tests: ${files.join(", ")}`);
         assert.ok(files.includes("src/checkout.test.ts"), `tests: ${files.join(", ")}`);
         assert.match(result?.content?.[0]?.text ?? "", /2 test files selected, 0 uncovered changed files/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("MCP pack_hologram layers files and zoom_symbol returns the body", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-mcp-hologram-"));
+    try {
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+        spawnSync("git", ["config", "user.name", "Test"], { cwd: dir });
+        mkdirSync(join(dir, "src"), { recursive: true });
+        writeFileSync(join(dir, "src", "a.ts"), 'import { helper } from "./b";\n\nexport const run = 1;\n', "utf8");
+        writeFileSync(join(dir, "src", "b.ts"), "export function helper(): number {\n  return 1;\n}\n", "utf8");
+        writeFileSync(join(dir, "src", "c.ts"), "export const far = 2;\n", "utf8");
+        spawnSync("git", ["add", "."], { cwd: dir });
+        spawnSync("git", ["commit", "-m", "init"], { cwd: dir });
+        const diff = [
+            "diff --git a/src/a.ts b/src/a.ts",
+            "--- a/src/a.ts",
+            "+++ b/src/a.ts",
+            "@@ -1,1 +1,3 @@",
+            '+import { helper } from "./b";',
+            " ",
+            " export const run = 1;",
+            "",
+        ].join("\n");
+        const { responses, stderr } = runServer(dir, [
+            {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: {
+                    name: "pack_hologram",
+                    arguments: { diff, max_tokens: 30000, verbosity: "compact" },
+                },
+            },
+            {
+                jsonrpc: "2.0",
+                id: 3,
+                method: "tools/call",
+                params: {
+                    name: "zoom_symbol",
+                    arguments: { file: "src/b.ts", symbol: "helper", verbosity: "compact" },
+                },
+            },
+        ]);
+        const hologram = responses.find((response) => response.id === 2)?.result;
+        assert.notEqual(hologram?.isError, true, stderr);
+        assert.equal(hologram?.structuredContent?.files?.find((file) => file.file === "src/a.ts")?.lod, 0);
+        assert.equal(hologram?.structuredContent?.files?.find((file) => file.file === "src/b.ts")?.lod, 1);
+        assert.ok((hologram?.structuredContent?.estimatedTokens ?? 0) > 0);
+        assert.match(hologram?.structuredContent?.content ?? "", /body hidden \(LOD 1\)/);
+        assert.match(hologram?.content?.[0]?.text ?? "", /hologram \d+ file\(s\)/);
+        const zoom = responses.find((response) => response.id === 3)?.result;
+        assert.notEqual(zoom?.isError, true, stderr);
+        assert.equal(zoom?.structuredContent?.symbol, "helper");
+        assert.equal(zoom?.structuredContent?.line, 1);
+        assert.match(zoom?.structuredContent?.body ?? "", /return 1/);
+        assert.match(zoom?.content?.[0]?.text ?? "", /symbol src\/b\.ts#helper/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

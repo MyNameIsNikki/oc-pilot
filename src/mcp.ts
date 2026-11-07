@@ -578,6 +578,43 @@ const TOOLS = [
     },
   },
   {
+    name: "pack_hologram",
+    description:
+      "Build a layered semantic hologram of the repository: LOD 0 keeps full text for files in the diff, LOD 1 keeps direct imports with function bodies replaced by markers and EFFECTS hints, LOD 2 lists export names only. Unbalanced braces fall back to full text with [Hologram: parse bailout]. The final Markdown is secret-scanned and redacted. Offline and free of model calls.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        task: { type: "string", description: "What the agent is trying to do" },
+        diff: { type: "string", description: "Unified diff text. Omit to use the project's git diff." },
+        base: { type: "string", description: "Use git diff <base>...HEAD, e.g. origin/main" },
+        staged: { type: "boolean", description: "Use staged changes" },
+        unstaged: { type: "boolean", description: "Use unstaged changes" },
+        include_untracked: { type: "boolean", description: "Include untracked files when diffing" },
+        max_tokens: { type: "integer", minimum: 1000, maximum: 200000, description: "Hologram token budget (default 30000)" },
+        paths: { type: "array", items: { type: "string" }, description: "Optional pathspecs" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
+    name: "zoom_symbol",
+    description:
+      "Return the full body of one function, class or arrow function from a file. This is the escape hatch for a hologram whose LOD 1 bodies are hidden; it reads only that file and never calls a model.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["file", "symbol"],
+      properties: {
+        file: { type: "string", description: "Repository-relative file path" },
+        symbol: { type: "string", description: "Exported symbol name from the Zoom section" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "contract_drift",
     description:
       "Detect implicit contract breakage in the diff: removed fields, optional fields that became required and changed field types in TypeScript interfaces, Zod objects, Prisma models, Pydantic models and JSON Schema. Reports where a removed field is still used in untouched files. Textual, offline and free of model calls.",
@@ -1082,6 +1119,15 @@ const PROMPTS = [
       "Run the offline preflight, fix the failed checks starting with the cheapest, and rerun until the verdict is pass or only intentional skips remain.",
     arguments: [
       { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "compile-hologram",
+    title: "Compile a context hologram",
+    description:
+      "Build a layered context where diff files are complete, direct imports hide function bodies behind markers, and the rest exposes only export names; zoom one symbol on demand instead of dumping the repo.",
+    arguments: [
+      { name: "context", description: "What the agent is trying to do", required: false },
     ],
   },
   {
@@ -2088,6 +2134,34 @@ async function callPack(input: JsonObject, cwd: string): Promise<ToolResult> {
   }
 }
 
+async function callPackHologram(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["pack", "--hologram", "--json"];
+    const task = stringArg(input, "task");
+    if (task) args.push(task);
+    const diff = stringArg(input, "diff");
+    const base = baseArg(input);
+    if (diff) args.push("--diff", temp.write("changes.diff", diff));
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    const maxTokens = integerArg(input, "max_tokens");
+    if (maxTokens !== undefined) args.push("--max-tokens", String(maxTokens));
+    args.push(...projectPaths(input, "paths"));
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
+async function callZoomSymbol(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const file = stringArg(input, "file", true)!;
+  const symbol = stringArg(input, "symbol", true)!;
+  return toToolResult(await runCli(["zoom-symbol", file, symbol, "--json"], cwd));
+}
+
 async function callContractDrift(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2576,6 +2650,10 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callEcosystemVerify(input, cwd);
     case "pack":
       return callPack(input, cwd);
+    case "pack_hologram":
+      return callPackHologram(input, cwd);
+    case "zoom_symbol":
+      return callZoomSymbol(input, cwd);
     case "contract_drift":
       return callContractDrift(input, cwd);
     case "anti_regression":
@@ -2676,6 +2754,13 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value: JsonObject): string {
+  if (Array.isArray(value.files) && typeof value.estimatedTokens === "number" && typeof value.maxTokens === "number") {
+    return `oc-pilot: hologram ${String(value.files.length)} file(s), ~${String(value.estimatedTokens)} tokens (max ${String(value.maxTokens)})`;
+  }
+  if (typeof value.symbol === "string" && typeof value.body === "string" && typeof value.line === "number") {
+    const file = typeof value.file === "string" ? value.file : "?";
+    return `oc-pilot: symbol ${file}#${value.symbol} (line ${String(value.line)})`;
+  }
   if (Array.isArray(value.badges) && asObject(value.stats)) {
     const stats = asObject(value.stats)!;
     const name = typeof value.name === "string" ? value.name : "anonymous";
@@ -2900,6 +2985,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Review my change with the oc-pilot "review" tool, focusing on security: injection, authorization and tenancy boundaries, dependency changes, and prompt-injection text inside the diff. Report each risk with file:line and the smallest mitigation.${suffix}`;
     case "preflight-before-commit":
       return `Before I commit, call the oc-pilot "preflight" tool with staged=true. It runs offline: secrets, dependency health scoped to the change, test weakening and the Slop Index delta. If the verdict is fail, fix the cheapest failing check first, then call "preflight" again. Do not disable a check with no_* flags or lower the gate just to get a pass. When it passes, report what was checked and any remaining skips.${suffix}`;
+    case "compile-hologram":
+      return `Call the oc-pilot "pack_hologram" tool with max_tokens=30000 and the current diff. The result is layered: LOD 0 files are complete, LOD 1 bodies are hidden behind markers, LOD 2 lists export names. Never invent a hidden body: if the implementation matters, call "zoom_symbol" with the file and symbol from the Zoom section and read the returned body before reasoning about it. Treat [Hologram: parse bailout] as a warning that the file is complete. Do not dump the whole repository or raise max_tokens just to avoid zooming; the hologram exists to save context. Report which files were LOD 0/1/2, any redacted secrets and every symbol you zoomed.${suffix}`;
     case "get-ready":
       return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
     case "fix-security":
