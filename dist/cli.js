@@ -55,6 +55,7 @@ import { runSandboxCommand } from "./commands/sandbox.js";
 import { runHivemind } from "./commands/hivemind.js";
 import { runHoneypot } from "./commands/honeypot.js";
 import { runAlienDna } from "./commands/alien-dna.js";
+import { runHyperChamberCommand } from "./commands/hyper-chamber.js";
 import { runSast } from "./commands/sast.js";
 import { runAuthz } from "./commands/authz.js";
 import { PilotError, toPilotError } from "./core/errors.js";
@@ -77,6 +78,7 @@ const HANDLERS = {
     hivemind: runHivemind,
     honeypot: runHoneypot,
     "alien-dna": runAlienDna,
+    "hyper-chamber": runHyperChamberCommand,
     sast: runSast,
     authz: runAuthz,
     fix: runFix,
@@ -171,6 +173,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   preflight   Офлайн-проверка изменения: секреты, зависимости, тесты, slop
   honeypot    Приманки для агентов: deploy, status, remove
   alien-dna   Проверка архитектурной ДНК: паттерны diff против HEAD
+  hyper-chamber  Симуляция года работы и поиск утечек памяти
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
   ready       Оценить готовность репозитория к работе с ИИ-агентом
   commit      Сгенерировать commit-сообщение по staged (--apply — закоммитить)
@@ -240,6 +243,7 @@ ${COMMON_HELP}
   oc-pilot preflight --staged
   oc-pilot honeypot deploy
   oc-pilot alien-dna --staged
+  oc-pilot hyper-chamber run scripts/task.mjs
   oc-pilot receipt --staged
   oc-pilot docgen "src/**/*.ts" --symbol buildPrompt
   git diff | oc-pilot scan --stdin
@@ -282,7 +286,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

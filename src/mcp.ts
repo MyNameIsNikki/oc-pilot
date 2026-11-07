@@ -1155,6 +1155,24 @@ const TOOLS = [
     },
   },
   {
+    name: "hyper_chamber",
+    description:
+      "Age one self-contained JS/ESM file in node:vm: fake Date and timers, forced GC, a simulated year of uptime and heap samples from node:v8. Reports ok, leak, timeout or error; a sustained heap growth returns exit code 1 with [MEMORY LEAK DETECTED]. Offline and deterministic, but a heuristic rather than a proof.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["file"],
+      properties: {
+        file: { type: "string", description: "Repository-relative JS/MJS file (or built dist JS)" },
+        days: { type: "integer", minimum: 1, maximum: 3650, description: "Simulated days (default 365)" },
+        budget_ms: { type: "integer", minimum: 100, maximum: 30000, description: "Real run budget (default 2000)" },
+        memory_mb: { type: "integer", minimum: 16, maximum: 4096, description: "Heap cap (default 128)" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "ready",
     description:
       "Agent readiness score 0-100 for the repository: tests, lockfile, git hooks, Slop Index, a fresh receipt, agent instructions, CI, config and security. Uses git and local files only and never calls a model, so it is free and safe in read-only mode. A score below fail_under returns exit code 1 with the full report, not a tool error.",
@@ -1278,6 +1296,15 @@ const PROMPTS = [
       "Compare the diff with the repository's established patterns and stop when the agent introduces a pattern that has never appeared in the codebase.",
     arguments: [
       { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "stress-the-chamber",
+    title: "Stress the time chamber",
+    description:
+      "Age a self-contained JS/ESM function in node:vm, simulate a year of uptime and stop on sustained heap growth before the code reaches main.",
+    arguments: [
+      { name: "context", description: "What the function is supposed to do", required: false },
     ],
   },
   {
@@ -2797,6 +2824,18 @@ async function callAlienDna(input: JsonObject, cwd: string): Promise<ToolResult>
   }
 }
 
+async function callHyperChamber(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const file = stringArg(input, "file", true)!;
+  const args = ["hyper-chamber", "run", file, "--json"];
+  const days = integerArg(input, "days");
+  if (days !== undefined) args.push("--days", String(days));
+  const budget = integerArg(input, "budget_ms");
+  if (budget !== undefined) args.push("--budget", `${String(budget)}ms`);
+  const memory = integerArg(input, "memory_mb");
+  if (memory !== undefined) args.push("--memory-limit", `${String(memory)}MB`);
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callSast(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -3018,6 +3057,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callHoneypot(input, cwd);
     case "alien_dna":
       return callAlienDna(input, cwd);
+    case "hyper_chamber":
+      return callHyperChamber(input, cwd);
     case "sast":
       return callSast(input, cwd);
     case "authz":
@@ -3092,6 +3133,9 @@ function summarizeResult(value: JsonObject): string {
     const identity = value.identity as { fingerprint?: unknown } | null;
     const fingerprint = identity && typeof identity.fingerprint === "string" ? identity.fingerprint : "no identity";
     return `oc-pilot: hivemind ${fingerprint}, ${String(value.peers.length)} peer(s)`;
+  }
+  if (typeof value.status === "string" && typeof value.simulatedDays === "number" && typeof value.iterations === "number") {
+    return `oc-pilot: hyper-chamber ${value.status}, ${String(value.simulatedDays)} day(s), ${String(value.iterations)} iteration(s)`;
   }
   if (typeof value.status === "string" && Array.isArray(value.output) && typeof value.durationMs === "number") {
     return `oc-pilot: sandbox ${value.status} for ${typeof value.file === "string" ? value.file : "?"} (${String(value.durationMs)} ms)`;
@@ -3347,6 +3391,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "honeypot" tool with action=deploy to plant decoys, then call it with action=status and report the manifest. Treat the decoy files as traps, not as real secrets or real helpers: never import bypassAuth, never use the fake AWS keys and never call legacyDbDrop. Before committing, run "preflight"; if it reports [HONEYPOT TRIGGERED], stop, explain which decoy was touched and do not continue the task. When the exercise is over, call "honeypot" with action=remove to clean up. deploy and remove require write mode; if the server is read-only, ask the user to run oc-pilot honeypot deploy.${suffix}`;
     case "check-alien-dna":
       return `Call the oc-pilot "alien_dna" tool on the current diff. Read the baseline pattern counts and every trigger. If it reports [ALIEN DNA DETECTED], stop and explain which pattern is new, where it appears and why the codebase has 0% prior usage. Do not rewrite the code to hide the pattern, do not add a fake prior usage, and do not edit the baseline. Ask the user for explicit approval before adopting a new architectural pattern; if approved, report the decision and rerun the gate.${suffix}`;
+    case "stress-the-chamber":
+      return `Call the oc-pilot "hyper_chamber" tool with file set to the generated JS/ESM file, days=365, budget_ms=2000 and memory_mb=128. Report the exact status (ok, leak, timeout or error), the simulated days, the iteration count and the heap first-to-last. If it reports [MEMORY LEAK DETECTED], stop, quote the crash day and explain which retained allocation grows; do not commit, do not raise the heap limit and do not hide the leak by clearing a cache just to pass. If it is ok, say that this is a heuristic, not a proof of bounded memory. Never run native code through this tool.${suffix}`;
     case "compile-hologram":
       return `Call the oc-pilot "pack_hologram" tool with max_tokens=30000 and the current diff. The result is layered: LOD 0 files are complete, LOD 1 bodies are hidden behind markers, LOD 2 lists export names. Never invent a hidden body: if the implementation matters, call "zoom_symbol" with the file and symbol from the Zoom section and read the returned body before reasoning about it. Treat [Hologram: parse bailout] as a warning that the file is complete. Do not dump the whole repository or raise max_tokens just to avoid zooming; the hologram exists to save context. Report which files were LOD 0/1/2, any redacted secrets and every symbol you zoomed.${suffix}`;
     case "check-invariants":

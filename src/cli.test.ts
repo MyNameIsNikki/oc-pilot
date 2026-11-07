@@ -1310,6 +1310,33 @@ test("alien-dna blocks a pattern absent from HEAD", () => {
   }
 });
 
+test("hyper-chamber reports a retained cache as a leak", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-hyper-chamber-"));
+  try {
+    writeFileSync(
+      join(dir, "leak.mjs"),
+      [
+        "const cache = [];",
+        "export function run() {",
+        "  cache.push({ payload: 'x'.repeat(512) });",
+        "  return cache.length;",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    const result = runCli(
+      ["hyper-chamber", "run", "leak.mjs", "--days", "365", "--budget", "400ms", "--memory-limit", "256MB", "--json"],
+      dir,
+    );
+    assert.equal(result.status, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as { status: string; summary: string };
+    assert.equal(payload.status, "leak");
+    assert.match(payload.summary, /\[MEMORY LEAK DETECTED\]/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {

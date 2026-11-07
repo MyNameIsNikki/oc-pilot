@@ -357,6 +357,13 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(alienDna.inputSchema.properties.diff, "diff missing on alien_dna");
     assert.ok(alienDna.inputSchema.properties.base, "base missing on alien_dna");
 
+    const hyperChamber = tools.find((tool) => tool.name === "hyper_chamber");
+    assert.ok(hyperChamber, "hyper_chamber tool missing");
+    assert.ok(hyperChamber.inputSchema.properties.file, "file missing on hyper_chamber");
+    assert.ok(hyperChamber.inputSchema.properties.days, "days missing on hyper_chamber");
+    assert.ok(hyperChamber.inputSchema.properties.budget_ms, "budget_ms missing on hyper_chamber");
+    assert.ok(hyperChamber.inputSchema.properties.memory_mb, "memory_mb missing on hyper_chamber");
+
     const mutate = tools.find((tool) => tool.name === "mutate");
     assert.ok(mutate, "mutate tool missing");
     assert.ok(mutate.inputSchema.properties.max_mutants, "max_mutants missing on mutate");
