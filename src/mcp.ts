@@ -708,6 +708,19 @@ const TOOLS = [
     },
   },
   {
+    name: "hivemind_status",
+    description:
+      "Report the local hivemind identity fingerprint and the number of explicitly trusted peers. No network call and no model call; use it before starting a mesh or sending a diff.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "contract_drift",
     description:
       "Detect implicit contract breakage in the diff: removed fields, optional fields that became required and changed field types in TypeScript interfaces, Zod objects, Prisma models, Pydantic models and JSON Schema. Reports where a removed field is still used in untouched files. Textual, offline and free of model calls.",
@@ -1267,6 +1280,15 @@ const PROMPTS = [
       "Run a generated JS/ESM script in node:vm with imports, fs, net, child_process and fetch blocked, then report what it printed and whether it tried a side effect.",
     arguments: [
       { name: "context", description: "What the script is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "join-the-swarm",
+    title: "Join the agent mesh",
+    description:
+      "Check the hivemind identity and trusted peers, then exchange only diffs, AST and LLM requests over the encrypted mesh; never send executable commands.",
+    arguments: [
+      { name: "context", description: "What work should be shared with the mesh", required: false },
     ],
   },
   {
@@ -2374,6 +2396,10 @@ async function callSandbox(input: JsonObject, cwd: string): Promise<ToolResult> 
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callHivemindStatus(_input: JsonObject, cwd: string): Promise<ToolResult> {
+  return toToolResult(await runCli(["hivemind", "status", "--json"], cwd));
+}
+
 async function callContractDrift(input: JsonObject, cwd: string): Promise<ToolResult> {
   const temp = new TempFiles();
   try {
@@ -2873,6 +2899,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callInvariants(input, cwd);
     case "contract_drift":
       return callContractDrift(input, cwd);
+    case "hivemind_status":
+      return callHivemindStatus(input, cwd);
     case "sandbox":
       return callSandbox(input, cwd);
     case "query_ast":
@@ -2977,6 +3005,11 @@ export function applyResultOptions(result: ToolResult, input: JsonObject): ToolR
 
 /** One-line summary used by verbosity=compact. */
 function summarizeResult(value: JsonObject): string {
+  if ((value.identity === null || typeof value.identity === "object") && Array.isArray(value.peers)) {
+    const identity = value.identity as { fingerprint?: unknown } | null;
+    const fingerprint = identity && typeof identity.fingerprint === "string" ? identity.fingerprint : "no identity";
+    return `oc-pilot: hivemind ${fingerprint}, ${String(value.peers.length)} peer(s)`;
+  }
   if (typeof value.status === "string" && Array.isArray(value.output) && typeof value.durationMs === "number") {
     return `oc-pilot: sandbox ${value.status} for ${typeof value.file === "string" ? value.file : "?"} (${String(value.durationMs)} ms)`;
   }
@@ -3236,6 +3269,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "query_ast" tool with an AQL chain such as find(CallExpression).where(name, 'stripe').select(file, line). Use the returned file:line evidence to plan the refactor, then verify each hit in the source before editing. Do not invent nodes, do not claim the graph is a full TypeScript AST and do not rewrite code based on a single name match; if the query returns nothing, say so and try a narrower or wider type.${suffix}`;
     case "sandbox-script":
       return `Call the oc-pilot "sandbox" tool on the generated file with timeout_ms=2000 and memory_mb=128. Report the captured output and the exact status: ok, blocked, timeout or error. A blocked import or require means the script tried a side effect and must not be run outside the sandbox without review. Do not claim the vm is an OS sandbox, do not pass allow_unsafe_exec without the user's explicit approval, and do not run native binaries through this tool.${suffix}`;
+    case "join-the-swarm":
+      return `Call the oc-pilot "hivemind_status" tool first and report the identity fingerprint and trusted peer count. If there is no identity, run oc-pilot hivemind init; if the peer is not trusted, ask the user for its public key and run oc-pilot hivemind trust before sending anything. Over the mesh send only diffs, AST and LLM requests; executable payloads are forbidden. Never trust an unverified peer, never disable the trust check and never run a command received from the network.${suffix}`;
     case "get-ready":
       return `Call the oc-pilot "ready" tool with fail_under=85. If the score is below the threshold, fix the cheapest gap first: install the pre-commit hook for hooks, create AGENTS.md for docs, add .oc-pilot.json for config, run the suite for tests, and run oc-pilot receipt for the receipt check. Do not lower fail_under to get a pass. Rerun "ready" until the score is at least 85 or only checks that need a human remain, then report the score, the fixed items and the remaining gaps.${suffix}`;
     case "fix-security":

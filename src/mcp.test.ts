@@ -460,6 +460,9 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(sandbox.inputSchema.properties.file, "file missing on sandbox");
     assert.ok(sandbox.inputSchema.properties.timeout_ms, "timeout_ms missing on sandbox");
 
+    const hivemind = tools.find((tool) => tool.name === "hivemind_status");
+    assert.ok(hivemind, "hivemind_status tool missing");
+
     const antiRegression = tools.find((tool) => tool.name === "anti_regression");
     assert.ok(antiRegression, "anti_regression tool missing");
     assert.ok(antiRegression.inputSchema.properties.max_commits, "max_commits missing on anti_regression");

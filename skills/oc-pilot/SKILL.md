@@ -36,6 +36,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `bankruptcy` - deterministic tech-debt forecast from commit history: smoothed score, slope, forecast date and an SVG chart; test weakening and security dominate the weights.
 - `query` - chainable AQL over a lightweight code graph: find, where, sort, limit, select and count; MCP tool `query_ast`.
 - `sandbox run` - execute one JS/ESM file in node:vm with imports, require, fetch and process.exit blocked; output and exact status are reported.
+- `hivemind` - encrypted TCP mesh: ed25519 identity, trusted peers, ECDH X25519 handshake and AES-256-GCM payloads; only diffs, AST and LLM requests are allowed.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
 - `anti_regression` - lines the diff re-adds after a human explicitly deleted them in git history, with the deleting commit cited.
 - `boundaries` - added imports checked against `.oc-pilot/architecture.json` layer rules, with file, line and rule reason.
@@ -89,6 +90,7 @@ oc-pilot fuzz --duration 2s --memory-limit 128MB
 oc-pilot bankruptcy --history 30d --format json
 oc-pilot query "find(CallExpression).where(name, 'stripe').select(file, line)"
 oc-pilot sandbox run scripts/demo.mjs --timeout 500ms
+oc-pilot hivemind init
 oc-pilot contract-drift --staged --fail-on-drift high
 oc-pilot anti-regression --staged --fail-on-regression
 oc-pilot boundaries --staged --fail-on-violation
