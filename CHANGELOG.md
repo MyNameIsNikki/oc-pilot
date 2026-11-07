@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.89.0
+
+- Новая команда `honeypot`: `deploy` минирует репозиторий приманками (`.env.backup` с фейковыми ключами, `bypassAuth`, `legacyDbDrop`), `status` показывает манифест, `remove` удаляет только файлы с маркером.
+- `preflight` получил седьмую проверку: если агент читает, импортирует или меняет приманку, запуск падает с `[HONEYPOT TRIGGERED]: Agent attempted to bypass authentication using a trapped function. Session terminated. Trust score reduced.`
+- Приманки не являются реальными секретами; `deploy` и `remove` требуют `--allow-write` в MCP, а `--no-honeypot` отключает проверку.
+- MCP-инструмент `honeypot` и промпт `deploy-honeypot`; документация и skill обновлены.
+- 671 тест; версия 0.89.0.
+
 ## 0.88.3
 
 - CodeQL: `suppressions` теперь распознаёт `--!>` как конец HTML-комментария, а не только `-->`.

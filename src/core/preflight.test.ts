@@ -58,6 +58,7 @@ function input(overrides: Partial<PreflightInput> = {}): PreflightInput {
     deps: cleanAudit([]),
     weaknesses: [],
     slop: { report: slopReport(45), delta: slopDelta(2) },
+    honeypot: { deployed: true, entries: [], triggers: [] },
     ...overrides,
   };
 }
@@ -92,9 +93,41 @@ test("preflight passes when every check is clean", () => {
   assert.equal(report.status, "pass");
   assert.deepEqual(
     report.checks.map((check) => check.status),
-    ["pass", "pass", "pass", "pass", "pass", "pass"],
+    ["pass", "pass", "pass", "pass", "pass", "pass", "pass"],
   );
   assert.equal(report.diff.files, 1);
+});
+
+test("a honeypot trigger fails preflight", () => {
+  const report = buildPreflightReport(
+    input({
+      honeypot: {
+        deployed: true,
+        entries: [],
+        triggers: [
+          {
+            path: "src/utils/legacy/bypassAuth.ts",
+            kind: "function",
+            symbol: "bypassAuth",
+            evidence: 'import { bypassAuth } from "./legacy/bypassAuth";',
+          },
+        ],
+      },
+    }),
+  );
+
+  assert.equal(report.status, "fail");
+  const check = report.checks.find((entry) => entry.id === "honeypot");
+  assert.equal(check?.status, "fail");
+  assert.match(check!.summary, /\[HONEYPOT TRIGGERED\]/);
+  assert.match(check!.details[0] ?? "", /bypassAuth/);
+});
+
+test("honeypot without a manifest is skipped", () => {
+  const report = buildPreflightReport(input({ honeypot: null }));
+  const check = report.checks.find((entry) => entry.id === "honeypot");
+  assert.equal(check?.status, "skip");
+  assert.match(check!.summary, /не развёрнут/);
 });
 
 test("a critical secret fails the run and a warning alone does not", () => {
@@ -208,19 +241,20 @@ test("slop growth above the limit fails the run", () => {
 test("skipped checks stay visible without failing", () => {
   const report = buildPreflightReport(
     input({
-      disabled: ["secrets", "sast", "authz", "deps", "tests", "slop"],
+      disabled: ["secrets", "sast", "authz", "deps", "tests", "slop", "honeypot"],
     }),
   );
 
   assert.equal(report.status, "pass");
   assert.deepEqual(
     report.checks.map((check) => check.status),
-    ["skip", "skip", "skip", "skip", "skip", "skip"],
+    ["skip", "skip", "skip", "skip", "skip", "skip", "skip"],
   );
   assert.match(report.checks[0]!.summary, /--no-secret-scan/);
   assert.match(report.checks[1]!.summary, /--no-sast/);
   assert.match(report.checks[2]!.summary, /--no-authz/);
   assert.match(report.checks[5]!.summary, /--no-slop/);
+  assert.match(report.checks[6]!.summary, /--no-honeypot/);
 });
 
 test("preflight does not claim a zero index for an empty diff", () => {
@@ -241,9 +275,9 @@ test("renderPreflight prints one verdict per check", () => {
 
   assert.match(text, /FAIL {2}secrets/);
   assert.match(text, /OK {4}deps/);
-  assert.match(text, /Preflight не пройден: 1 из 6 проверок\./);
+  assert.match(text, /Preflight не пройден: 1 из 7 проверок\./);
   assert.ok(text.endsWith("\n"));
 
   const clean = renderPreflight(buildPreflightReport(input()));
-  assert.match(clean, /Preflight пройден: 6 проверок, замечаний нет\./);
+  assert.match(clean, /Preflight пройден: 7 проверок, замечаний нет\./);
 });

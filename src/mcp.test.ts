@@ -347,6 +347,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(preflight.inputSchema.properties.no_sast, "no_sast missing on preflight");
     assert.ok(preflight.inputSchema.properties.no_authz, "no_authz missing on preflight");
 
+    const honeypot = tools.find((tool) => tool.name === "honeypot");
+    assert.ok(honeypot, "honeypot tool missing");
+    assert.ok(honeypot.inputSchema.properties.action, "action missing on honeypot");
+    assert.ok(honeypot.inputSchema.properties.force, "force missing on honeypot");
+
     const mutate = tools.find((tool) => tool.name === "mutate");
     assert.ok(mutate, "mutate tool missing");
     assert.ok(mutate.inputSchema.properties.max_mutants, "max_mutants missing on mutate");

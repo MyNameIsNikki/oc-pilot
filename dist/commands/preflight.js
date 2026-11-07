@@ -23,6 +23,7 @@ const OPTIONS = withCommon({
     "no-deps": { type: "boolean" },
     "no-tests": { type: "boolean" },
     "no-slop": { type: "boolean" },
+    "no-honeypot": { type: "boolean" },
     invariants: { type: "boolean" },
     "fail-on-invariants": { type: "boolean" },
 });
@@ -30,7 +31,8 @@ const HELP = `Использование:
   oc-pilot preflight [пути] [опции]
 
 Офлайн-проверка изменения перед коммитом: секреты, SAST, авторизация
-маршрутов, здоровье зависимостей, ослабление тестов и дельта Slop Index.
+маршрутов, здоровье зависимостей, ослабление тестов, дельта Slop Index
+и срабатывание honeypot.
 Модель не вызывается, сеть не используется. Один вердикт и один код
 возврата для CI.
 
@@ -49,6 +51,7 @@ const HELP = `Использование:
       --no-deps             не проверять зависимости
       --no-tests            не искать ослабление тестов
       --no-slop             не считать дельту Slop Index
+      --no-honeypot         не проверять приманки honeypot
       --invariants          дополнительно проверить .oc-pilot/invariants.md моделью
       --fail-on-invariants  считать любое нарушение инвариантов блокирующим
 ${COMMON_HELP}
@@ -102,6 +105,8 @@ export async function runPreflight(argv) {
         disabled.push("tests");
     if (asBoolean(values, "no-slop"))
         disabled.push("slop");
+    if (asBoolean(values, "no-honeypot"))
+        disabled.push("honeypot");
     const data = await loadDiff(values, ctx, positionals, { optionalGit: true });
     const gate = parseGate(asString(values, "fail-on-issue"));
     const report = collectPreflight(ctx.cwd, data, {

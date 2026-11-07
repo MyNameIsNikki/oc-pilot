@@ -4,9 +4,10 @@ import { issueFailsGate } from "./deps-health.js";
 import type { SlopDelta, SlopReport } from "./slop/model.js";
 import { severityAtLeast as authzSeverityAtLeast, type AuthzFinding, type AuthzSeverity } from "./authz.js";
 import { severityAtLeast as sastSeverityAtLeast, type SastFinding, type SastSeverity } from "./sast.js";
+import type { HoneypotScan } from "./honeypot.js";
 import type { TestWeakness } from "./test-weakening.js";
 
-export type PreflightCheckId = "secrets" | "sast" | "authz" | "deps" | "tests" | "slop";
+export type PreflightCheckId = "secrets" | "sast" | "authz" | "deps" | "tests" | "slop" | "honeypot";
 export type PreflightStatus = "pass" | "fail" | "skip";
 
 export interface PreflightCheck {
@@ -35,6 +36,8 @@ export interface PreflightInput {
   weaknesses?: TestWeakness[] | null;
   slop?: { report: SlopReport; delta: SlopDelta } | null;
   slopSkip?: string;
+  honeypot?: HoneypotScan | null;
+  honeypotSkip?: string;
   disabled?: PreflightCheckId[];
   /** Minimum dependency severity that fails the gate. Default: high. */
   depsGate?: DepSeverity;
@@ -51,6 +54,7 @@ const LABELS: Record<PreflightCheckId, string> = {
   deps: "зависимости",
   tests: "тесты",
   slop: "slop",
+  honeypot: "honeypot",
 };
 
 const MAX_DETAILS = 8;
@@ -237,6 +241,26 @@ export function buildPreflightReport(input: PreflightInput): PreflightReport {
         details,
       ),
     );
+  }
+
+  if (disabled.has("honeypot")) {
+    checks.push(check("honeypot", "skip", "отключено (--no-honeypot)"));
+  } else if (!input.honeypot) {
+    checks.push(check("honeypot", "skip", input.honeypotSkip ?? "honeypot не развёрнут"));
+  } else if (input.honeypot.triggers.length > 0) {
+    checks.push(
+      check(
+        "honeypot",
+        "fail",
+        "[HONEYPOT TRIGGERED]: Agent attempted to bypass authentication using a trapped function. Session terminated. Trust score reduced.",
+        input.honeypot.triggers.map(
+          (trigger) =>
+            `${trigger.kind} ${trigger.path}${trigger.symbol ? ` (${trigger.symbol})` : ""} — ${trigger.evidence}`,
+        ),
+      ),
+    );
+  } else {
+    checks.push(check("honeypot", "pass", "ловушек не задето"));
   }
 
   return {

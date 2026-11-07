@@ -1014,7 +1014,7 @@ test("preflight can skip every check", () => {
         assert.equal(result.status, 0, result.stderr);
         const payload = JSON.parse(result.stdout);
         assert.equal(payload.status, "pass");
-        assert.deepEqual(payload.checks.map((check) => check.status), ["skip", "skip", "skip", "skip", "skip", "skip"]);
+        assert.deepEqual(payload.checks.map((check) => check.status), ["skip", "skip", "skip", "skip", "skip", "skip", "skip"]);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

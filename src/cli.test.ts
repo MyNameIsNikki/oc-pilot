@@ -1269,7 +1269,7 @@ test("preflight can skip every check", () => {
     assert.equal(payload.status, "pass");
     assert.deepEqual(
       payload.checks.map((check) => check.status),
-      ["skip", "skip", "skip", "skip", "skip", "skip"],
+      ["skip", "skip", "skip", "skip", "skip", "skip", "skip"],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

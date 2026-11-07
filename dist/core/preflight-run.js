@@ -8,6 +8,7 @@ import { scanSource } from "./sast.js";
 import { scanAuthzSource } from "./authz.js";
 import { analyzeAgainst } from "./slop/index.js";
 import { isCodeFile, isGeneratedPath } from "./slop/source.js";
+import { detectHoneypotTriggers } from "./honeypot.js";
 import { analyzeTestWeakness } from "./test-weakening.js";
 /**
  * Runs every offline preflight check against an already loaded diff.
@@ -96,6 +97,7 @@ export function collectPreflight(cwd, data, options = {}) {
         weaknesses: disabled.includes("tests") ? null : analyzeTestWeakness(data.diff),
         slop,
         slopSkip,
+        honeypot: disabled.includes("honeypot") ? null : detectHoneypotTriggers(cwd, data.diff, data.changedFiles),
         disabled,
         depsGate: options.depsGate,
         sastGate: options.sastGate,
