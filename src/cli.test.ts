@@ -1461,6 +1461,19 @@ test("injection blocks a README that tries to override the agent", () => {
   }
 });
 
+test("skeptic help documents the executable verdicts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-skeptic-"));
+  try {
+    const result = runCli(["skeptic", "--help"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /clean/);
+    assert.match(result.stdout, /bug/);
+    assert.match(result.stdout, /unfalsifiable/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {

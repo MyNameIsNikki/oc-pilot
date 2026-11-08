@@ -58,6 +58,7 @@ import { runAlienDna } from "./commands/alien-dna.js";
 import { runHyperChamberCommand } from "./commands/hyper-chamber.js";
 import { runButterflyCommand } from "./commands/butterfly.js";
 import { runBlindfold } from "./commands/blindfold.js";
+import { runSkepticCommand } from "./commands/skeptic.js";
 import { runApoptosis } from "./commands/apoptosis.js";
 import { runInjection } from "./commands/injection.js";
 import { runSast } from "./commands/sast.js";
@@ -88,6 +89,7 @@ const HANDLERS: Record<string, Handler> = {
   "hyper-chamber": runHyperChamberCommand,
   butterfly: runButterflyCommand,
   blindfold: runBlindfold,
+  skeptic: runSkepticCommand,
   apoptosis: runApoptosis,
   injection: runInjection,
   sast: runSast,
@@ -188,6 +190,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   hyper-chamber  Симуляция года работы и поиск утечек памяти
   butterfly    Локальный chaos engineering для тестов: 500, задержки, битый JSON
   blindfold    Обезличить код и допросить модель на скрытые уязвимости
+  skeptic      Проверить diff исполняемым тестом: clean, bug или unfalsifiable
   apoptosis   Найти сенесцентные функции по @lifespan и удалить их после тестов
   injection   Поиск prompt-injection и скрытых инструкций в тексте для агента
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
@@ -262,6 +265,7 @@ ${COMMON_HELP}
   oc-pilot hyper-chamber run scripts/task.mjs
   oc-pilot butterfly --command "npm test"
   oc-pilot blindfold --file src/checkout.ts
+  oc-pilot skeptic --staged
   oc-pilot apoptosis scan --fail-on-senescent
   oc-pilot injection --fail-on medium
   oc-pilot receipt --staged
@@ -310,7 +314,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }

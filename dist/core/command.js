@@ -13,12 +13,15 @@ export function runShellCommand(command, cwd, options) {
             shell: true,
             windowsHide: true,
             stdio: ["ignore", "pipe", "pipe"],
-            env: {
-                ...process.env,
-                ...options.env,
-                NO_COLOR: "1",
-                FORCE_COLOR: "0",
-            },
+            env: (() => {
+                const env = { ...process.env };
+                // A nested test command must not inherit the parent test runner context.
+                delete env.NODE_TEST_CONTEXT;
+                Object.assign(env, options.env);
+                env.NO_COLOR = "1";
+                env.FORCE_COLOR = "0";
+                return env;
+            })(),
         });
         const append = (chunk) => {
             output += chunk;

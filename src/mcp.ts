@@ -1218,6 +1218,27 @@ const TOOLS = [
     },
   },
   {
+    name: "skeptic",
+    description:
+      "Turn a review opinion into an executable proof: ask the model for one minimal test that fails on the proposed diff, apply the diff in a shadow worktree, run the test on the diff and on clean HEAD, and return clean, bug, unfalsifiable or error. Model-backed, read-only and not a proof of absence.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+        base: { type: "string" },
+        staged: { type: "boolean" },
+        unstaged: { type: "boolean" },
+        include_untracked: { type: "boolean" },
+        command: { type: "string", description: "Test command with {file}; default node --test {file}" },
+        context: { type: "string", description: "Extra context for the hypothesis" },
+        timeout_ms: { type: "integer", minimum: 1000, maximum: 600000, description: "Per-run timeout (default 120000)" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "apoptosis",
     description:
       "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
@@ -1402,6 +1423,15 @@ const PROMPTS = [
     title: "Interrogate obfuscated code",
     description:
       "Strip identifiers from the change, make the model explain the logic without names and reject the code if it cannot prove understanding or finds a vulnerability.",
+    arguments: [
+      { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "falsify-the-diff",
+    title: "Falsify the diff with a test",
+    description:
+      "Ask the model for one executable test that should fail on the proposed change, then run it in a shadow worktree against both the diff and clean HEAD.",
     arguments: [
       { name: "context", description: "What the change is supposed to do", required: false },
     ],
@@ -2989,6 +3019,29 @@ async function callBlindfold(input: JsonObject, cwd: string): Promise<ToolResult
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callSkeptic(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["skeptic", "--json"];
+    const diff = stringArg(input, "diff");
+    if (diff) args.push("--diff", temp.write("skeptic.diff", diff));
+    const base = baseArg(input);
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    const command = stringArg(input, "command");
+    if (command) args.push("--command", command);
+    const context = stringArg(input, "context");
+    if (context) args.push("--context", context);
+    const timeout = integerArg(input, "timeout_ms");
+    if (timeout !== undefined) args.push("--test-timeout", `${String(timeout)}ms`);
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
   const action = stringArg(input, "action") ?? "scan";
   const args = ["apoptosis", action, "--json"];
@@ -3270,6 +3323,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callButterfly(input, cwd);
     case "blindfold":
       return callBlindfold(input, cwd);
+    case "skeptic":
+      return callSkeptic(input, cwd);
     case "apoptosis":
       return callApoptosis(input, cwd);
     case "scan_injection":
@@ -3358,6 +3413,9 @@ function summarizeResult(value: JsonObject): string {
   }
   if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
     return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+  }
+  if (typeof value.status === "string" && typeof value.summary === "string" && typeof value.durationMs === "number" && value.hypothesis) {
+    return `oc-pilot: skeptic ${value.status}`;
   }
   if (typeof value.status === "string" && Array.isArray(value.mapping) && typeof value.summary === "string") {
     return `oc-pilot: blindfold ${value.status}, ${String(value.mapping.length)} hidden identifier(s)`;
@@ -3628,6 +3686,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "butterfly" tool with the project test command, seed=42, fail_rate=0.1, latency_rate=0.05, latency_ms=3000, broken_json_rate=0.02 and fs_fail_rate=0.05. Read the injected fault counts and the exit code. If the tests fail, find the code path that did not handle the injected 500, timeout, broken JSON or EIO and add the missing try/catch, timeout or fallback; do not lower the rates, widen the scope to hide the fault or delete the test. If the tests pass, say that this is one deterministic chaos run, not proof that every path is safe. Never claim the tool patches native or arbitrary database drivers reliably.${suffix}`;
     case "interrogate-the-blindfold":
       return `Call the oc-pilot "blindfold" tool on the added diff lines, or pass file when the change is one file. Read the obfuscated code and the verdict. If it reports [BLINDFOLD REJECTED], stop: the model could not reconstruct the logic, found a concrete vulnerability or stayed below min_confidence. Quote the explanation and fix the real code path; do not reveal the original names to the model, do not raise min_confidence to force a pass and do not add comments that explain the logic to the model. If it passes, say that the verdict is a blind review, not a mathematical proof of safety. Use dry_run only to inspect the mapping and never send the mapping to the model.${suffix}`;
+    case "falsify-the-diff":
+      return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
     case "prune-senescent-code":
       return `Call the oc-pilot "apoptosis" tool with action=scan first. Report every [Senescent] entry with file, symbol, age and reference count, and explain that an expired marker plus zero references is the only reason it is a candidate. Do not delete anything without explicit user approval. If approved, call action=apply with confirm=true and the project test command; apply runs in a shadow worktree and lands the diff only if tests pass. If tests fail, report the failure and keep the working tree unchanged. Never remove a function that still has references, never shorten the lifespan to force a candidate, and never claim that deletion is safe without the green test run.${suffix}`;
     case "scan-for-injection":

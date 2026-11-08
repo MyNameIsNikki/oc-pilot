@@ -383,6 +383,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(blindfold.inputSchema.properties.min_confidence, "min_confidence missing on blindfold");
     assert.ok(blindfold.inputSchema.properties.dry_run, "dry_run missing on blindfold");
 
+    const skeptic = tools.find((tool) => tool.name === "skeptic");
+    assert.ok(skeptic, "skeptic tool missing");
+    assert.ok(skeptic.inputSchema.properties.diff, "diff missing on skeptic");
+    assert.ok(skeptic.inputSchema.properties.command, "command missing on skeptic");
+    assert.ok(skeptic.inputSchema.properties.timeout_ms, "timeout_ms missing on skeptic");
+
     const apoptosis = tools.find((tool) => tool.name === "apoptosis");
     assert.ok(apoptosis, "apoptosis tool missing");
     assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");

@@ -42,6 +42,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `hyper-chamber` - age one JS/ESM file in node:vm with fake time and forced GC, sample the heap through node:v8 and fail with `[MEMORY LEAK DETECTED]` on sustained growth; the file must export `run`, `tick`, `main` or `default`.
 - `butterfly` - run the test command under deterministic chaos: fetch 500s, latency and broken JSON, fs EIO under `--scope`; report injected faults and whether the suite survived.
 - `blindfold` - obfuscate identifiers, send only the stripped code to the model and fail with `[BLINDFOLD REJECTED]` when the logic is unclear, a vulnerability is found or confidence is below `--min-confidence`; `--dry-run` prints the mapping without a model call.
+- `skeptic` - ask the model for a minimal executable test, run it in a shadow worktree on both the diff and clean HEAD, and report `clean`, `bug`, `unfalsifiable` or `error`; a passing test never proves the absence of bugs.
 - `apoptosis` - scan functions marked `/* @lifespan: 30d */`; report `[Senescent]` when the marker is older than the lifespan and there are no references, and only with `apply --confirm` comment them out in a shadow worktree, run tests and land the diff if green.
 - `injection` - scan README, docs, comments, HTML and source for prompt-injection, role hijacks, exfiltration URLs, hidden unicode and base64 instructions; `--fail-on` controls the gate and `--fix` strips invisible characters.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
@@ -103,6 +104,7 @@ oc-pilot alien-dna --staged
 oc-pilot hyper-chamber run scripts/task.mjs
 oc-pilot butterfly --command "npm test"
 oc-pilot blindfold --file src/checkout.ts
+oc-pilot skeptic --staged
 oc-pilot apoptosis scan --fail-on-senescent
 oc-pilot injection --fail-on medium
 oc-pilot contract-drift --staged --fail-on-drift high

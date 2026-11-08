@@ -72,6 +72,7 @@ test("skills document real commands and avoid placeholders", () => {
         "hyper-chamber",
         "butterfly",
         "blindfold",
+        "skeptic",
         "apoptosis",
         "injection",
         "contract-drift",
