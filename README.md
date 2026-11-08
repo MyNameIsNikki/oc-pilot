@@ -998,7 +998,7 @@ Start the server manually with an explicit project directory:
 ```bash
 oc-pilot-mcp --cwd /absolute/path/to/project
 # pinned for reproducibility:
-npx -y oc-pilot@0.96.0 mcp --cwd /absolute/path/to/project
+npx -y oc-pilot@0.96.1 mcp --cwd /absolute/path/to/project
 ```
 
 The `diff` and `log` tool arguments are text, not file paths. `paths` and `files` are project-relative and cannot escape the project directory. `context` is literal text, not an `@file` reference. `base` must be a git ref. `lang`, `fail_on`, `repo_context`, and `no_secret_scan` are available where the corresponding CLI command supports them.
@@ -1173,7 +1173,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.96.0
+      - uses: MyNameIsNikki/oc-pilot@v0.96.1
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1196,7 +1196,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.96.0.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.96.1.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

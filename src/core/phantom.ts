@@ -135,10 +135,13 @@ export function runSandbox(cwd: string, file: string, options: SandboxOptions = 
     const payload = join(dir, "payload.json");
     writeFileSync(worker, WORKER, "utf8");
     writeFileSync(payload, JSON.stringify({ file: target.path, timeoutMs }), "utf8");
+    const env = { ...process.env };
+    env.NODE_V8_COVERAGE = "";
+    delete env.NODE_TEST_CONTEXT;
     const result = spawnSync(
       process.execPath,
       ["--experimental-vm-modules", `--max-old-space-size=${String(memoryMb)}`, worker, payload],
-      { cwd, encoding: "utf8", timeout: timeoutMs + 1000, killSignal: "SIGKILL", maxBuffer: 2 * 1024 * 1024 },
+      { cwd, env, encoding: "utf8", timeout: timeoutMs + 1000, killSignal: "SIGKILL", maxBuffer: 2 * 1024 * 1024 },
     );
     const durationMs = Date.now() - started;
     if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {

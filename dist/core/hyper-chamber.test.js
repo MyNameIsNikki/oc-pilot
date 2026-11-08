@@ -93,7 +93,7 @@ test("a plain script is wrapped and executed repeatedly", () => {
         "plain.js": "const items = [];\nfor (let i = 0; i < 10; i += 1) items.push(i);\nconsole.log(items.length);\n",
     });
     try {
-        const result = runHyperChamber(dir, "plain.js", { budgetMs: 300, memoryMb: 256 });
+        const result = runHyperChamber(dir, "plain.js", { budgetMs: 1_000, memoryMb: 256 });
         assert.equal(result.status, "ok", result.summary);
         assert.ok(result.iterations > 0, "no iterations");
         assert.ok(result.output.includes("10"), `output=${result.output.join("|")}`);

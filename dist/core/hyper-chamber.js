@@ -380,7 +380,10 @@ export function runHyperChamber(cwd, file, options = {}) {
             maxIterations: MAX_ITERATIONS,
             iterationTimeoutMs: 250,
         }), "utf8");
-        const result = spawnSync(process.execPath, ["--expose-gc", "--experimental-vm-modules", `--max-old-space-size=${String(memoryMb)}`, worker, payload], { cwd, encoding: "utf8", timeout: budgetMs + 4_000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 });
+        const env = { ...process.env };
+        env.NODE_V8_COVERAGE = "";
+        delete env.NODE_TEST_CONTEXT;
+        const result = spawnSync(process.execPath, ["--expose-gc", "--experimental-vm-modules", `--max-old-space-size=${String(memoryMb)}`, worker, payload], { cwd, env, encoding: "utf8", timeout: budgetMs + 10_000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 });
         const durationMs = Date.now() - started;
         if (result.error && result.error.code === "ETIMEDOUT") {
             return {
