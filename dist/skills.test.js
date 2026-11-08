@@ -73,6 +73,7 @@ test("skills document real commands and avoid placeholders", () => {
         "butterfly",
         "blindfold",
         "apoptosis",
+        "injection",
         "contract-drift",
         "anti-regression",
         "boundaries",

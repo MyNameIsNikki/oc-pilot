@@ -26,6 +26,7 @@ const OPTIONS: OptionSpec = withCommon({
   "no-tests": { type: "boolean" },
   "no-slop": { type: "boolean" },
   "no-honeypot": { type: "boolean" },
+  "no-injection": { type: "boolean" },
   invariants: { type: "boolean" },
   "fail-on-invariants": { type: "boolean" },
 });
@@ -55,6 +56,7 @@ const HELP = `Использование:
       --no-tests            не искать ослабление тестов
       --no-slop             не считать дельту Slop Index
       --no-honeypot         не проверять приманки honeypot
+      --no-injection        не проверять prompt-injection в тексте для агента
       --invariants          дополнительно проверить .oc-pilot/invariants.md моделью
       --fail-on-invariants  считать любое нарушение инвариантов блокирующим
 ${COMMON_HELP}
@@ -104,6 +106,7 @@ export async function runPreflight(argv: string[]): Promise<number> {
   if (asBoolean(values, "no-tests")) disabled.push("tests");
   if (asBoolean(values, "no-slop")) disabled.push("slop");
   if (asBoolean(values, "no-honeypot")) disabled.push("honeypot");
+  if (asBoolean(values, "no-injection")) disabled.push("injection");
 
   const data = await loadDiff(values, ctx, positionals, { optionalGit: true });
 

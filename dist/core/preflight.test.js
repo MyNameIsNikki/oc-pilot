@@ -48,6 +48,7 @@ function input(overrides = {}) {
         weaknesses: [],
         slop: { report: slopReport(45), delta: slopDelta(2) },
         honeypot: { deployed: true, entries: [], triggers: [] },
+        injection: { files: 1, findings: [], counts: { high: 0, medium: 0, low: 0 }, summary: "Prompt-injection не найдено.", content: "" },
         ...overrides,
     };
 }
@@ -71,7 +72,7 @@ test("scopeDependencyIssues keeps only issues touched by the change", () => {
 test("preflight passes when every check is clean", () => {
     const report = buildPreflightReport(input());
     assert.equal(report.status, "pass");
-    assert.deepEqual(report.checks.map((check) => check.status), ["pass", "pass", "pass", "pass", "pass", "pass", "pass"]);
+    assert.deepEqual(report.checks.map((check) => check.status), ["pass", "pass", "pass", "pass", "pass", "pass", "pass", "pass"]);
     assert.equal(report.diff.files, 1);
 });
 test("a honeypot trigger fails preflight", () => {
@@ -100,6 +101,30 @@ test("honeypot without a manifest is skipped", () => {
     const check = report.checks.find((entry) => entry.id === "honeypot");
     assert.equal(check?.status, "skip");
     assert.match(check.summary, /не развёрнут/);
+});
+test("a high prompt-injection finding fails preflight", () => {
+    const report = buildPreflightReport(input({
+        injection: {
+            files: 1,
+            findings: [
+                {
+                    file: "README.md",
+                    line: 3,
+                    kind: "override",
+                    severity: "high",
+                    rule: "ignore-previous",
+                    evidence: "ignore all previous instructions",
+                },
+            ],
+            counts: { high: 1, medium: 0, low: 0 },
+            summary: "Найдено",
+            content: "",
+        },
+    }));
+    const check = report.checks.find((entry) => entry.id === "injection");
+    assert.equal(check?.status, "fail");
+    assert.match(check.summary, /\[PROMPT INJECTION DETECTED\]/);
+    assert.match(check.details[0] ?? "", /README\.md:3/);
 });
 test("a critical secret fails the run and a warning alone does not", () => {
     const failed = buildPreflightReport(input({ secrets: [CRITICAL] }));
@@ -184,15 +209,16 @@ test("slop growth above the limit fails the run", () => {
 });
 test("skipped checks stay visible without failing", () => {
     const report = buildPreflightReport(input({
-        disabled: ["secrets", "sast", "authz", "deps", "tests", "slop", "honeypot"],
+        disabled: ["secrets", "sast", "authz", "deps", "tests", "slop", "honeypot", "injection"],
     }));
     assert.equal(report.status, "pass");
-    assert.deepEqual(report.checks.map((check) => check.status), ["skip", "skip", "skip", "skip", "skip", "skip", "skip"]);
+    assert.deepEqual(report.checks.map((check) => check.status), ["skip", "skip", "skip", "skip", "skip", "skip", "skip", "skip"]);
     assert.match(report.checks[0].summary, /--no-secret-scan/);
     assert.match(report.checks[1].summary, /--no-sast/);
     assert.match(report.checks[2].summary, /--no-authz/);
     assert.match(report.checks[5].summary, /--no-slop/);
     assert.match(report.checks[6].summary, /--no-honeypot/);
+    assert.match(report.checks[7].summary, /--no-injection/);
 });
 test("preflight does not claim a zero index for an empty diff", () => {
     const report = buildPreflightReport(input({
@@ -208,9 +234,9 @@ test("renderPreflight prints one verdict per check", () => {
     const text = renderPreflight(report);
     assert.match(text, /FAIL {2}secrets/);
     assert.match(text, /OK {4}deps/);
-    assert.match(text, /Preflight не пройден: 1 из 7 проверок\./);
+    assert.match(text, /Preflight не пройден: 1 из 8 проверок\./);
     assert.ok(text.endsWith("\n"));
     const clean = renderPreflight(buildPreflightReport(input()));
-    assert.match(clean, /Preflight пройден: 7 проверок, замечаний нет\./);
+    assert.match(clean, /Preflight пройден: 8 проверок, замечаний нет\./);
 });
 //# sourceMappingURL=preflight.test.js.map

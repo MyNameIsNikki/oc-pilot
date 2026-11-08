@@ -5,9 +5,10 @@ import type { SlopDelta, SlopReport } from "./slop/model.js";
 import { severityAtLeast as authzSeverityAtLeast, type AuthzFinding, type AuthzSeverity } from "./authz.js";
 import { severityAtLeast as sastSeverityAtLeast, type SastFinding, type SastSeverity } from "./sast.js";
 import type { HoneypotScan } from "./honeypot.js";
+import type { InjectionReport } from "./injection.js";
 import type { TestWeakness } from "./test-weakening.js";
 
-export type PreflightCheckId = "secrets" | "sast" | "authz" | "deps" | "tests" | "slop" | "honeypot";
+export type PreflightCheckId = "secrets" | "sast" | "authz" | "deps" | "tests" | "slop" | "honeypot" | "injection";
 export type PreflightStatus = "pass" | "fail" | "skip";
 
 export interface PreflightCheck {
@@ -38,6 +39,8 @@ export interface PreflightInput {
   slopSkip?: string;
   honeypot?: HoneypotScan | null;
   honeypotSkip?: string;
+  injection?: InjectionReport | null;
+  injectionSkip?: string;
   disabled?: PreflightCheckId[];
   /** Minimum dependency severity that fails the gate. Default: high. */
   depsGate?: DepSeverity;
@@ -55,6 +58,7 @@ const LABELS: Record<PreflightCheckId, string> = {
   tests: "тесты",
   slop: "slop",
   honeypot: "honeypot",
+  injection: "injection",
 };
 
 const MAX_DETAILS = 8;
@@ -261,6 +265,25 @@ export function buildPreflightReport(input: PreflightInput): PreflightReport {
     );
   } else {
     checks.push(check("honeypot", "pass", "ловушек не задето"));
+  }
+
+  if (disabled.has("injection")) {
+    checks.push(check("injection", "skip", "отключено (--no-injection)"));
+  } else if (!input.injection) {
+    checks.push(check("injection", "skip", input.injectionSkip ?? "injection не проверялся"));
+  } else if (input.injection.counts.high > 0) {
+    checks.push(
+      check(
+        "injection",
+        "fail",
+        `[PROMPT INJECTION DETECTED]: ${String(input.injection.counts.high)} high-risk instruction(s) in agent-readable text.`,
+        input.injection.findings
+          .filter((finding) => finding.severity === "high")
+          .map((finding) => `${finding.file}:${String(finding.line)} ${finding.kind} — ${finding.evidence}`),
+      ),
+    );
+  } else {
+    checks.push(check("injection", "pass", "high-находок нет"));
   }
 
   return {

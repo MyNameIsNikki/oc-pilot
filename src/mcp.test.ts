@@ -389,6 +389,11 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(apoptosis.inputSchema.properties.command, "command missing on apoptosis");
     assert.ok(apoptosis.inputSchema.properties.confirm, "confirm missing on apoptosis");
 
+    const scanInjection = tools.find((tool) => tool.name === "scan_injection");
+    assert.ok(scanInjection, "scan_injection tool missing");
+    assert.ok(scanInjection.inputSchema.properties.fix, "fix missing on scan_injection");
+    assert.ok(scanInjection.inputSchema.properties.fail_on, "fail_on missing on scan_injection");
+
     const mutate = tools.find((tool) => tool.name === "mutate");
     assert.ok(mutate, "mutate tool missing");
     assert.ok(mutate.inputSchema.properties.max_mutants, "max_mutants missing on mutate");

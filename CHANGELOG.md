@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.95.0
+
+- Новая команда `injection`: офлайн-сканирование README, docs, комментариев, HTML, JSON, YAML и исходников на prompt-injection, перехват роли, exfiltration секретов, невидимый unicode, CSS-спрятанные инструкции, подозрительные markdown-картинки и base64-пейлоады.
+- `preflight` получил восьмую проверку: high-находки дают `[PROMPT INJECTION DETECTED]` и exit 1; `--no-injection` отключает проверку.
+- `--fail-on` задаёт порог high/medium/low, `--fix` удаляет невидимые Unicode-символы, `--include`/`--exclude`/`--max-files` сужают область.
+- MCP-инструмент `scan_injection` и промпт `scan-for-injection`; `fix` требует `--allow-write`.
+- Документация и skill; 6 core-тестов, CLI-тест и preflight-тест; 712 тестов; версия 0.95.0.
+
 ## 0.94.0
 
 - Новая команда `apoptosis`: сканирует функции с маркером `/* @lifespan: 30d */` и показывает `[Senescent]`, когда маркер старше срока и на символ больше нет ссылок.

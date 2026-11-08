@@ -15,6 +15,7 @@ import { scanAuthzSource, type AuthzFinding, type AuthzSeverity } from "./authz.
 import { analyzeAgainst } from "./slop/index.js";
 import { isCodeFile, isGeneratedPath } from "./slop/source.js";
 import { detectHoneypotTriggers } from "./honeypot.js";
+import { scanInjection } from "./injection.js";
 import { analyzeTestWeakness } from "./test-weakening.js";
 
 export interface CollectPreflightOptions {
@@ -122,6 +123,7 @@ export function collectPreflight(
     slop,
     slopSkip,
     honeypot: disabled.includes("honeypot") ? null : detectHoneypotTriggers(cwd, data.diff, data.changedFiles),
+    injection: disabled.includes("injection") ? null : scanInjection(cwd),
     disabled,
     depsGate: options.depsGate,
     sastGate: options.sastGate,

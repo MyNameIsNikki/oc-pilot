@@ -9,6 +9,7 @@ const LABELS = {
     tests: "тесты",
     slop: "slop",
     honeypot: "honeypot",
+    injection: "injection",
 };
 const MAX_DETAILS = 8;
 function check(id, status, summary, details = []) {
@@ -154,6 +155,20 @@ export function buildPreflightReport(input) {
     }
     else {
         checks.push(check("honeypot", "pass", "ловушек не задето"));
+    }
+    if (disabled.has("injection")) {
+        checks.push(check("injection", "skip", "отключено (--no-injection)"));
+    }
+    else if (!input.injection) {
+        checks.push(check("injection", "skip", input.injectionSkip ?? "injection не проверялся"));
+    }
+    else if (input.injection.counts.high > 0) {
+        checks.push(check("injection", "fail", `[PROMPT INJECTION DETECTED]: ${String(input.injection.counts.high)} high-risk instruction(s) in agent-readable text.`, input.injection.findings
+            .filter((finding) => finding.severity === "high")
+            .map((finding) => `${finding.file}:${String(finding.line)} ${finding.kind} — ${finding.evidence}`)));
+    }
+    else {
+        checks.push(check("injection", "pass", "high-находок нет"));
     }
     return {
         status: checks.some((item) => item.status === "fail") ? "fail" : "pass",

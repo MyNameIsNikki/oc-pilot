@@ -13,7 +13,7 @@ skill checks all four before the change leaves the machine.
 ## Setup
 
 ```bash
-npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.94.0.tar.gz
+npm i -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.95.0.tar.gz
 oc-pilot init --preset security,devops
 ```
 
@@ -53,7 +53,7 @@ example `security,node` or `security,python,devops`.
    - `DEPENDENCY_CHANGES` — new or changed packages with typosquat matches,
      unpinned specs, `git+`/URL references, and manifest/lockfile drift.
    - `PROMPT_INJECTION_RISKS` — added lines that read like instructions to an
-     AI ("ignore previous instructions", role hijacks, long base64 blobs,
+     AI ("ignore previous instructions", role hijacks, long base64 blobs, <!-- oc-pilot:ignore-injection -->
      invisible Unicode).
    - `TEST_COVERAGE_HINT` — logic changed without a matching test change.
 
