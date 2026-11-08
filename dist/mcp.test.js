@@ -322,6 +322,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(skeptic.inputSchema.properties.diff, "diff missing on skeptic");
         assert.ok(skeptic.inputSchema.properties.command, "command missing on skeptic");
         assert.ok(skeptic.inputSchema.properties.timeout_ms, "timeout_ms missing on skeptic");
+        const antibody = tools.find((tool) => tool.name === "antibody");
+        assert.ok(antibody, "antibody tool missing");
+        assert.ok(antibody.inputSchema.properties.action, "action missing on antibody");
+        assert.ok(antibody.inputSchema.properties.id, "id missing on antibody");
+        assert.ok(antibody.inputSchema.properties.force, "force missing on antibody");
+        assert.ok(antibody.inputSchema.properties.diff, "diff missing on antibody");
         const apoptosis = tools.find((tool) => tool.name === "apoptosis");
         assert.ok(apoptosis, "apoptosis tool missing");
         assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");

@@ -1239,6 +1239,28 @@ const TOOLS = [
     },
   },
   {
+    name: "antibody",
+    description:
+      "Learn SAST findings as reusable signatures in .oc-pilot/antibodies.json, then scan added diff lines for the same vulnerability pattern. Actions: learn, scan, list, forget, clear. Offline and deterministic; learn/forget/clear write files and need --allow-write.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action"],
+      properties: {
+        action: { type: "string", enum: ["learn", "scan", "list", "forget", "clear"] },
+        id: { type: "string", description: "Signature id for forget" },
+        force: { type: "boolean", description: "Confirm clear" },
+        diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+        base: { type: "string" },
+        staged: { type: "boolean" },
+        unstaged: { type: "boolean" },
+        include_untracked: { type: "boolean" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "apoptosis",
     description:
       "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
@@ -1432,6 +1454,15 @@ const PROMPTS = [
     title: "Falsify the diff with a test",
     description:
       "Ask the model for one executable test that should fail on the proposed change, then run it in a shadow worktree against both the diff and clean HEAD.",
+    arguments: [
+      { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "raise-antibodies",
+    title: "Raise antibodies for known vulnerabilities",
+    description:
+      "Learn the repository's SAST findings as signatures, then scan a diff for the same vulnerability pattern and stop on [ANTIBODY MATCH].",
     arguments: [
       { name: "context", description: "What the change is supposed to do", required: false },
     ],
@@ -3042,6 +3073,27 @@ async function callSkeptic(input: JsonObject, cwd: string): Promise<ToolResult> 
   }
 }
 
+async function callAntibody(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const action = stringArg(input, "action", true)!;
+    const args = ["antibody", action, "--json"];
+    const diff = stringArg(input, "diff");
+    if (diff) args.push("--diff", temp.write("antibody.diff", diff));
+    const base = baseArg(input);
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    const id = stringArg(input, "id");
+    if (id) args.push("--id", id);
+    if (booleanArg(input, "force")) args.push("--force");
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
   const action = stringArg(input, "action") ?? "scan";
   const args = ["apoptosis", action, "--json"];
@@ -3214,6 +3266,9 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
     if (name === "deps" && (booleanArg(input, "fix") || stringArg(input, "sbom"))) {
       throw new ToolInputError("deps fix and sbom write files and are disabled in read-only mode; start the MCP server with --allow-write");
     }
+    if (name === "antibody" && ["learn", "forget", "clear"].includes(stringArg(input, "action") ?? "")) {
+      throw new ToolInputError("antibody learn/forget/clear write .oc-pilot/antibodies.json and are disabled in read-only mode; start the MCP server with --allow-write");
+    }
     if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
       throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
     }
@@ -3325,6 +3380,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callBlindfold(input, cwd);
     case "skeptic":
       return callSkeptic(input, cwd);
+    case "antibody":
+      return callAntibody(input, cwd);
     case "apoptosis":
       return callApoptosis(input, cwd);
     case "scan_injection":
@@ -3413,6 +3470,15 @@ function summarizeResult(value: JsonObject): string {
   }
   if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
     return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+  }
+  if (typeof value.signatures === "number" && Array.isArray(value.matches)) {
+    return `oc-pilot: antibody ${String(value.matches.length)} match(es), ${String(value.signatures)} signature(s)`;
+  }
+  if (typeof value.total === "number" && typeof value.added === "number") {
+    return `oc-pilot: antibody learned ${String(value.added)}, total ${String(value.total)}`;
+  }
+  if (Array.isArray(value.signatures)) {
+    return `oc-pilot: antibody ${String(value.signatures.length)} signature(s)`;
   }
   if (typeof value.status === "string" && typeof value.summary === "string" && typeof value.durationMs === "number" && value.hypothesis) {
     return `oc-pilot: skeptic ${value.status}`;
@@ -3688,6 +3754,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "blindfold" tool on the added diff lines, or pass file when the change is one file. Read the obfuscated code and the verdict. If it reports [BLINDFOLD REJECTED], stop: the model could not reconstruct the logic, found a concrete vulnerability or stayed below min_confidence. Quote the explanation and fix the real code path; do not reveal the original names to the model, do not raise min_confidence to force a pass and do not add comments that explain the logic to the model. If it passes, say that the verdict is a blind review, not a mathematical proof of safety. Use dry_run only to inspect the mapping and never send the mapping to the model.${suffix}`;
     case "falsify-the-diff":
       return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
+    case "raise-antibodies":
+      return `Call the oc-pilot "antibody" tool with action=learn first, then action=scan on the proposed diff. Read the learned signature count and every [ANTIBODY MATCH] entry with rule, file:line and evidence. If a match is reported, stop: the diff reintroduced a vulnerability pattern that the repository already fixed. Fix the code path and rescan; do not delete the signature, do not suppress the line and do not clear the store to force a pass. If the scan is clean, say that no learned pattern matched, not that the code is safe. learn/forget/clear write files and need --allow-write; clear requires explicit user approval and force=true.${suffix}`;
     case "prune-senescent-code":
       return `Call the oc-pilot "apoptosis" tool with action=scan first. Report every [Senescent] entry with file, symbol, age and reference count, and explain that an expired marker plus zero references is the only reason it is a candidate. Do not delete anything without explicit user approval. If approved, call action=apply with confirm=true and the project test command; apply runs in a shadow worktree and lands the diff only if tests pass. If tests fail, report the failure and keep the working tree unchanged. Never remove a function that still has references, never shorten the lifespan to force a candidate, and never claim that deletion is safe without the green test run.${suffix}`;
     case "scan-for-injection":
