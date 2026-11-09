@@ -1253,6 +1253,19 @@ test("mitosis help documents the plan and apply split", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("intent help documents criteria and sphinx modes", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-intent-"));
+    try {
+        const result = runCli(["intent", "--help"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /check/);
+        assert.match(result.stdout, /sphinx/);
+        assert.match(result.stdout, /REQUIREMENTS AMBIGUOUS/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("receipt records a run and verifies against HEAD", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
     try {

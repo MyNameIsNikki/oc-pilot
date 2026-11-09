@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.103.0
+
+- Новая команда `intent`: `check` оценивает каждый критерий приёмки по diff как `met`, `partial`, `unmet` или `unverifiable` и выходит с кодом 1 при `unmet`.
+- `intent sphinx` допрашивает требования до кода: вопросы, допущения и тестируемые критерии; при открытых решениях печатает `[REQUIREMENTS AMBIGUOUS]`.
+- `--criteria`, `--criteria-text`, `--request`, `--request-file`, `--strict`, diff-флаги и JSON; `met` означает поддержку diff, а не правильность в продакшене.
+- MCP-инструмент `intent` и промпты `check-the-criteria`, `interrogate-the-intent`; 772 теста; версия 0.103.0.
+
 ## 0.102.0
 
 - Новая команда `mitosis`: `plan` разбивает большой diff на последовательность коммитов по файлам, каталогам или типам, а `apply --confirm` создаёт их в shadow worktree.

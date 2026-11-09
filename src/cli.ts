@@ -65,6 +65,7 @@ import { runPassport } from "./commands/passport.js";
 import { runOracleCommand } from "./commands/oracle.js";
 import { runVaccine } from "./commands/vaccine.js";
 import { runMitosis } from "./commands/mitosis.js";
+import { runIntent } from "./commands/intent.js";
 import { runApoptosis } from "./commands/apoptosis.js";
 import { runInjection } from "./commands/injection.js";
 import { runSast } from "./commands/sast.js";
@@ -102,6 +103,7 @@ const HANDLERS: Record<string, Handler> = {
   oracle: runOracleCommand,
   vaccine: runVaccine,
   mitosis: runMitosis,
+  intent: runIntent,
   apoptosis: runApoptosis,
   injection: runInjection,
   sast: runSast,
@@ -209,6 +211,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   oracle       Сравнить поведение HEAD и diff на одном корпусе входов
   vaccine      Превратить исправленный баг в регрессионный тест-вакцину
   mitosis      Разбить большой diff на маленькие проверяемые коммиты
+  intent       Проверить критерии приёмки против diff и допросить требования
   apoptosis   Найти сенесцентные функции по @lifespan и удалить их после тестов
   injection   Поиск prompt-injection и скрытых инструкций в тексте для агента
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
@@ -291,6 +294,7 @@ ${COMMON_HELP}
   oc-pilot oracle --command "node harness.mjs {input}" --input corpus.json --staged
   oc-pilot vaccine create --fix HEAD --context "что сломалось"
   oc-pilot mitosis plan --strategy type
+  oc-pilot intent check --criteria docs/acceptance.md --staged
   oc-pilot apoptosis scan --fail-on-senescent
   oc-pilot injection --fail-on medium
   oc-pilot receipt --staged
@@ -339,7 +343,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, polygraph, passport, oracle, vaccine, mitosis, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, polygraph, passport, oracle, vaccine, mitosis, intent, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }

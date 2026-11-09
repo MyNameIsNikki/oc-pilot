@@ -1400,6 +1400,33 @@ const TOOLS = [
     },
   },
   {
+    name: "intent",
+    description:
+      "Check acceptance criteria against the diff (met, partial, unmet, unverifiable) or interrogate a request before code (questions, assumptions, testable criteria). Model-backed, read-only and limited to what the diff can show.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action"],
+      properties: {
+        action: { type: "string", enum: ["check", "sphinx"] },
+        criteria: { type: "array", description: "Acceptance criteria as strings", items: { type: "string" } },
+        criteria_text: { type: "string", description: "Criteria as Markdown checklist or plain lines" },
+        criteria_file: { type: "string", description: "Repository-relative criteria file" },
+        request: { type: "string", description: "Feature request for sphinx" },
+        request_file: { type: "string", description: "Repository-relative request file" },
+        context: { type: "string", description: "Extra context for the model" },
+        strict: { type: "boolean", description: "Fail on partial and unverifiable criteria" },
+        diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+        base: { type: "string" },
+        staged: { type: "boolean" },
+        unstaged: { type: "boolean" },
+        include_untracked: { type: "boolean" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "apoptosis",
     description:
       "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
@@ -1649,6 +1676,24 @@ const PROMPTS = [
       "Partition a diff into small commits by file, directory or type, apply them in a shadow worktree, run tests after each and expose a branch for review.",
     arguments: [
       { name: "context", description: "Why the change is being split", required: false },
+    ],
+  },
+  {
+    name: "check-the-criteria",
+    title: "Check acceptance criteria against the diff",
+    description:
+      "Evaluate every acceptance criterion as met, partial, unmet or unverifiable against the real diff and stop on an unmet criterion.",
+    arguments: [
+      { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "interrogate-the-intent",
+    title: "Interrogate the request before code",
+    description:
+      "Extract missing decisions, hidden assumptions and testable acceptance criteria before implementation starts.",
+    arguments: [
+      { name: "context", description: "What is already known", required: false },
     ],
   },
   {
@@ -3414,6 +3459,39 @@ async function callMitosis(input: JsonObject, cwd: string): Promise<ToolResult> 
   }
 }
 
+async function callIntent(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const action = stringArg(input, "action", true)!;
+    const args = ["intent", action, "--json"];
+    if (Array.isArray(input.criteria)) {
+      const lines = input.criteria.filter((item): item is string => typeof item === "string");
+      args.push("--criteria", temp.write("intent-criteria.md", lines.map((line) => "- [ ] " + line).join("\n")));
+    }
+    const criteriaFile = stringArg(input, "criteria_file");
+    if (criteriaFile) args.push("--criteria", criteriaFile);
+    const criteriaText = stringArg(input, "criteria_text");
+    if (criteriaText) args.push("--criteria-text", criteriaText);
+    const request = stringArg(input, "request");
+    if (request) args.push("--request", request);
+    const requestFile = stringArg(input, "request_file");
+    if (requestFile) args.push("--request-file", requestFile);
+    const context = stringArg(input, "context");
+    if (context) args.push("--context", context);
+    if (booleanArg(input, "strict")) args.push("--strict");
+    const diff = stringArg(input, "diff");
+    if (diff) args.push("--diff", temp.write("intent.diff", diff));
+    const base = baseArg(input);
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
   const action = stringArg(input, "action") ?? "scan";
   const args = ["apoptosis", action, "--json"];
@@ -3721,6 +3799,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callVaccine(input, cwd);
     case "mitosis":
       return callMitosis(input, cwd);
+    case "intent":
+      return callIntent(input, cwd);
     case "apoptosis":
       return callApoptosis(input, cwd);
     case "scan_injection":
@@ -3809,6 +3889,13 @@ function summarizeResult(value: JsonObject): string {
   }
   if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
     return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+  }
+  if (typeof value.status === "string" && Array.isArray(value.results) && value.counts && typeof value.counts === "object") {
+    const counts = value.counts as Record<string, unknown>;
+    return `oc-pilot: intent ${value.status}, ${String(counts.unmet ?? 0)} unmet`;
+  }
+  if (typeof value.status === "string" && Array.isArray(value.questions) && Array.isArray(value.assumptions)) {
+    return `oc-pilot: sphinx ${value.status}, ${String(value.questions.length)} question(s)`;
   }
   if (typeof value.status === "string" && typeof value.branch === "string" && Array.isArray(value.commits)) {
     return `oc-pilot: mitosis ${value.status}, ${String(value.commits.length)} commit(s) on ${value.branch}`;
@@ -4127,6 +4214,10 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
     case "stamp-the-passport":
       return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+    case "check-the-criteria":
+      return `Call the oc-pilot "intent" tool with action=check and the acceptance criteria for this change. Read every criterion as met, partial, unmet or unverifiable. If any is unmet, stop and quote the criterion and the evidence: the diff does not do what was promised. Fix the code or the criterion, never mark it met without evidence. Partial is not done, and unverifiable means the diff cannot prove it. Model-backed and read-only.${suffix}`;
+    case "interrogate-the-intent":
+      return `Call the oc-pilot "intent" tool with action=sphinx on the request before writing code. Read the questions and assumptions. Ask the user to resolve each question; do not invent answers. Turn the criteria into tests. If it returns [REQUIREMENTS AMBIGUOUS], do not start implementation yet. Model-backed and read-only.${suffix}`;
     case "split-the-diff":
       return `Call the oc-pilot "mitosis" tool with action=plan on the proposed diff and read the commit sequence. Check that every commit is independently applicable and that config changes come before the code that needs them. Then call action=apply with confirm=true, a branch name and the project test command; read the test status after each commit. If a commit fails tests, stop: the split is wrong or the change is incomplete; fix the split and rerun. Do not delete failing commits, do not squash everything into one commit to hide the failure, and do not claim the branch is safe when tests were skipped. apply writes a branch and patch files and needs --allow-write.${suffix}`;
     case "inoculate-the-fix":
