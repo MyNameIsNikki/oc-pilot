@@ -1202,6 +1202,19 @@ test("polygraph help documents claim verdicts", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("passport help documents the manifest lifecycle", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-passport-"));
+    try {
+        const result = runCli(["passport", "--help"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /write/);
+        assert.match(result.stdout, /verify/);
+        assert.match(result.stdout, /clear/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("receipt records a run and verifies against HEAD", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
     try {

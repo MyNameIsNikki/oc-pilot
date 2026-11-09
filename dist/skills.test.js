@@ -74,6 +74,7 @@ test("skills document real commands and avoid placeholders", () => {
         "blindfold",
         "antibody",
         "polygraph",
+        "passport",
         "skeptic",
         "apoptosis",
         "injection",

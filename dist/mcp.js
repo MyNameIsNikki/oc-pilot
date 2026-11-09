@@ -1225,6 +1225,32 @@ const TOOLS = [
         },
     },
     {
+        name: "passport",
+        description: "Record and verify a provenance manifest for a commit or the current worktree: commit, tree, file hashes, agent, model and recorded checks, bound by a digest. Actions: write, verify, show, clear. write/clear write files and need --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["action"],
+            properties: {
+                action: { type: "string", enum: ["write", "verify", "show", "clear"] },
+                commit: { type: "string", description: "Commit ref for an immutable commit passport" },
+                agent: { type: "string", description: "Who produced the change" },
+                model: { type: "string", description: "Model used for the change" },
+                prompt_hash: { type: "string", description: "Hash of the prompt or session" },
+                checks: {
+                    type: "array",
+                    description: "Recorded checks as name=pass|warn|fail|skip",
+                    items: { type: "string" },
+                },
+                include_untracked: { type: "boolean" },
+                markdown: { type: "boolean", description: "Render show as Markdown for a PR" },
+                force: { type: "boolean", description: "Confirm clear" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "apoptosis",
         description: "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1416,6 +1442,14 @@ const PROMPTS = [
         name: "cross-examine-the-claim",
         title: "Cross-examine the commit claim",
         description: "Extract the claims from a commit message or PR body, check each one against the diff and stop on [CLAIM CONTRADICTED].",
+        arguments: [
+            { name: "context", description: "What the change is supposed to do", required: false },
+        ],
+    },
+    {
+        name: "stamp-the-passport",
+        title: "Stamp the provenance passport",
+        description: "Record the commit, file hashes, agent, model and real verification checks in a digest-bound manifest, then verify that the tree still matches.",
         arguments: [
             { name: "context", description: "What the change is supposed to do", required: false },
         ],
@@ -3335,6 +3369,35 @@ async function callPolygraph(input, cwd) {
         temp.cleanup();
     }
 }
+async function callPassport(input, cwd) {
+    const action = stringArg(input, "action", true);
+    const args = ["passport", action, "--json"];
+    const commit = stringArg(input, "commit");
+    if (commit)
+        args.push("--commit", commit);
+    const agent = stringArg(input, "agent");
+    if (agent)
+        args.push("--agent", agent);
+    const model = stringArg(input, "model");
+    if (model)
+        args.push("--model", model);
+    const promptHash = stringArg(input, "prompt_hash");
+    if (promptHash)
+        args.push("--prompt-hash", promptHash);
+    if (Array.isArray(input.checks)) {
+        for (const check of input.checks) {
+            if (typeof check === "string")
+                args.push("--check", check);
+        }
+    }
+    if (booleanArg(input, "include_untracked"))
+        args.push("--include-untracked");
+    if (booleanArg(input, "markdown"))
+        args.push("--markdown");
+    if (booleanArg(input, "force"))
+        args.push("--force");
+    return toToolResult(await runCli(args, cwd));
+}
 async function callApoptosis(input, cwd) {
     const action = stringArg(input, "action") ?? "scan";
     const args = ["apoptosis", action, "--json"];
@@ -3550,6 +3613,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "antibody" && ["learn", "forget", "clear"].includes(stringArg(input, "action") ?? "")) {
             throw new ToolInputError("antibody learn/forget/clear write .oc-pilot/antibodies.json and are disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name === "passport" && ["write", "clear"].includes(stringArg(input, "action") ?? "")) {
+            throw new ToolInputError("passport write/clear write .oc-pilot/passport.json and are disabled in read-only mode; start the MCP server with --allow-write");
+        }
         if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
             throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
@@ -3665,6 +3731,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callAntibody(input, cwd);
         case "polygraph":
             return callPolygraph(input, cwd);
+        case "passport":
+            return callPassport(input, cwd);
         case "apoptosis":
             return callApoptosis(input, cwd);
         case "scan_injection":
@@ -3743,6 +3811,12 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
         return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+    }
+    if (typeof value.status === "string" && Array.isArray(value.changed)) {
+        return `oc-pilot: passport ${value.status}`;
+    }
+    if (value.tool === "oc-pilot" && typeof value.verdict === "string" && Array.isArray(value.files)) {
+        return `oc-pilot: passport ${value.verdict}, ${String(value.files.length)} file(s)`;
     }
     if (typeof value.status === "string" && Array.isArray(value.claims) && value.counts && typeof value.counts === "object") {
         const counts = value.counts;
@@ -4021,6 +4095,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "blindfold" tool on the added diff lines, or pass file when the change is one file. Read the obfuscated code and the verdict. If it reports [BLINDFOLD REJECTED], stop: the model could not reconstruct the logic, found a concrete vulnerability or stayed below min_confidence. Quote the explanation and fix the real code path; do not reveal the original names to the model, do not raise min_confidence to force a pass and do not add comments that explain the logic to the model. If it passes, say that the verdict is a blind review, not a mathematical proof of safety. Use dry_run only to inspect the mapping and never send the mapping to the model.${suffix}`;
         case "falsify-the-diff":
             return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
+        case "stamp-the-passport":
+            return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
         case "cross-examine-the-claim":
             return `Call the oc-pilot "polygraph" tool on the commit or PR message and the proposed diff. Read every claim and its status. If it returns [CLAIM CONTRADICTED], stop and quote the contradicted claim with its evidence: the message asserts something the diff does not do. Fix the code or rewrite the message so it matches reality; never rewrite the message to hide a buggy diff and never delete a claim. If it returns [POLYGRAPH VERIFIED], say that the claims are consistent with the diff, not that the code is correct. If it returns [POLYGRAPH INCONCLUSIVE], list the unverifiable claims and explain what evidence would settle them. Model-backed and read-only.${suffix}`;
         case "raise-antibodies":
