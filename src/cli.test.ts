@@ -1487,6 +1487,19 @@ test("antibody help documents the lifecycle commands", () => {
   }
 });
 
+test("polygraph help documents claim verdicts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-polygraph-"));
+  try {
+    const result = runCli(["polygraph", "--help"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /supported/);
+    assert.match(result.stdout, /contradicted/);
+    assert.match(result.stdout, /unverifiable/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {

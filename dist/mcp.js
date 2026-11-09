@@ -1190,6 +1190,41 @@ const TOOLS = [
         },
     },
     {
+        name: "polygraph",
+        description: "Verify the claims in a commit message or PR body against the real diff. The model extracts falsifiable claims and deterministic checks mark each one supported, contradicted or unverifiable. Model-backed, read-only and limited to what the diff can prove.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                commit: { type: "string", description: "Commit ref; uses its message and its own diff" },
+                message: { type: "string", description: "Commit message or PR body" },
+                message_file: { type: "string", description: "Repository-relative file with the message" },
+                claims: {
+                    type: "array",
+                    description: "Pre-extracted claims; skips the model call",
+                    items: {
+                        type: "object",
+                        required: ["kind", "text"],
+                        properties: {
+                            kind: { type: "string", enum: ["test-added", "file-added", "file-removed", "api-change", "dependency", "docs", "security", "behavior", "refactor", "other"] },
+                            text: { type: "string" },
+                            polarity: { type: "string", enum: ["positive", "negative"] },
+                        },
+                    },
+                },
+                diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                fail_on: { type: "string", enum: ["contradicted", "unverifiable"] },
+                strict: { type: "boolean", description: "Fail on unverifiable claims too" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "apoptosis",
         description: "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1373,6 +1408,14 @@ const PROMPTS = [
         name: "raise-antibodies",
         title: "Raise antibodies for known vulnerabilities",
         description: "Learn the repository's SAST findings as signatures, then scan a diff for the same vulnerability pattern and stop on [ANTIBODY MATCH].",
+        arguments: [
+            { name: "context", description: "What the change is supposed to do", required: false },
+        ],
+    },
+    {
+        name: "cross-examine-the-claim",
+        title: "Cross-examine the commit claim",
+        description: "Extract the claims from a commit message or PR body, check each one against the diff and stop on [CLAIM CONTRADICTED].",
         arguments: [
             { name: "context", description: "What the change is supposed to do", required: false },
         ],
@@ -3253,6 +3296,45 @@ async function callAntibody(input, cwd) {
         temp.cleanup();
     }
 }
+async function callPolygraph(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["polygraph", "--json"];
+        const commit = stringArg(input, "commit");
+        if (commit)
+            args.push("--commit", commit);
+        const message = stringArg(input, "message");
+        if (message)
+            args.push("--message", message);
+        const messageFile = stringArg(input, "message_file");
+        if (messageFile)
+            args.push("--message-file", messageFile);
+        if (Array.isArray(input.claims)) {
+            args.push("--claims", temp.write("polygraph-claims.json", JSON.stringify({ claims: input.claims })));
+        }
+        const diff = stringArg(input, "diff");
+        if (diff)
+            args.push("--diff", temp.write("polygraph.diff", diff));
+        const base = baseArg(input);
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        const failOn = stringArg(input, "fail_on");
+        if (failOn)
+            args.push("--fail-on", failOn);
+        if (booleanArg(input, "strict"))
+            args.push("--strict");
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callApoptosis(input, cwd) {
     const action = stringArg(input, "action") ?? "scan";
     const args = ["apoptosis", action, "--json"];
@@ -3581,6 +3663,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callSkeptic(input, cwd);
         case "antibody":
             return callAntibody(input, cwd);
+        case "polygraph":
+            return callPolygraph(input, cwd);
         case "apoptosis":
             return callApoptosis(input, cwd);
         case "scan_injection":
@@ -3659,6 +3743,10 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
         return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+    }
+    if (typeof value.status === "string" && Array.isArray(value.claims) && value.counts && typeof value.counts === "object") {
+        const counts = value.counts;
+        return `oc-pilot: polygraph ${value.status}, ${String(counts.contradicted ?? 0)} contradicted, ${String(counts.unverifiable ?? 0)} unverifiable`;
     }
     if (typeof value.signatures === "number" && Array.isArray(value.matches)) {
         return `oc-pilot: antibody ${String(value.matches.length)} match(es), ${String(value.signatures)} signature(s)`;
@@ -3933,6 +4021,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "blindfold" tool on the added diff lines, or pass file when the change is one file. Read the obfuscated code and the verdict. If it reports [BLINDFOLD REJECTED], stop: the model could not reconstruct the logic, found a concrete vulnerability or stayed below min_confidence. Quote the explanation and fix the real code path; do not reveal the original names to the model, do not raise min_confidence to force a pass and do not add comments that explain the logic to the model. If it passes, say that the verdict is a blind review, not a mathematical proof of safety. Use dry_run only to inspect the mapping and never send the mapping to the model.${suffix}`;
         case "falsify-the-diff":
             return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
+        case "cross-examine-the-claim":
+            return `Call the oc-pilot "polygraph" tool on the commit or PR message and the proposed diff. Read every claim and its status. If it returns [CLAIM CONTRADICTED], stop and quote the contradicted claim with its evidence: the message asserts something the diff does not do. Fix the code or rewrite the message so it matches reality; never rewrite the message to hide a buggy diff and never delete a claim. If it returns [POLYGRAPH VERIFIED], say that the claims are consistent with the diff, not that the code is correct. If it returns [POLYGRAPH INCONCLUSIVE], list the unverifiable claims and explain what evidence would settle them. Model-backed and read-only.${suffix}`;
         case "raise-antibodies":
             return `Call the oc-pilot "antibody" tool with action=learn first, then action=scan on the proposed diff. Read the learned signature count and every [ANTIBODY MATCH] entry with rule, file:line and evidence. If a match is reported, stop: the diff reintroduced a vulnerability pattern that the repository already fixed. Fix the code path and rescan; do not delete the signature, do not suppress the line and do not clear the store to force a pass. If the scan is clean, say that no learned pattern matched, not that the code is safe. learn/forget/clear write files and need --allow-write; clear requires explicit user approval and force=true.${suffix}`;
         case "prune-senescent-code":

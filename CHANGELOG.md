@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.98.0
+
+- Новая команда `polygraph`: модель извлекает фактические утверждения из сообщения коммита или PR, а детерминированные проверки подтверждают или опровергают их по diff.
+- Типы утверждений: `test-added`, `file-added`, `file-removed`, `api-change`, `dependency`, `docs`, `security`, `behavior`, `refactor`; статусы `supported`, `contradicted`, `unverifiable`.
+- `[CLAIM CONTRADICTED]` возвращает код 1, `--strict` падает и на unverifiable; `--commit` берёт сообщение и diff одного коммита, `--claims` проверяет готовый JSON без модели.
+- MCP-инструмент `polygraph` и промпт `cross-examine-the-claim`; документация и skill; 734 теста; версия 0.98.0.
+
 ## 0.97.0
 
 - Новая команда `antibody`: `learn` сканирует репозиторий офлайн-SAST и сохраняет находки как сигнатуры в `.oc-pilot/antibodies.json`; `scan` проверяет добавленные строки diff и падает с `[ANTIBODY MATCH]` при возврате известного паттерна.

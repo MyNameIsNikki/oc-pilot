@@ -60,6 +60,7 @@ import { runButterflyCommand } from "./commands/butterfly.js";
 import { runBlindfold } from "./commands/blindfold.js";
 import { runSkepticCommand } from "./commands/skeptic.js";
 import { runAntibody } from "./commands/antibody.js";
+import { runPolygraph } from "./commands/polygraph.js";
 import { runApoptosis } from "./commands/apoptosis.js";
 import { runInjection } from "./commands/injection.js";
 import { runSast } from "./commands/sast.js";
@@ -89,6 +90,7 @@ const HANDLERS = {
     blindfold: runBlindfold,
     skeptic: runSkepticCommand,
     antibody: runAntibody,
+    polygraph: runPolygraph,
     apoptosis: runApoptosis,
     injection: runInjection,
     sast: runSast,
@@ -190,6 +192,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   blindfold    Обезличить код и допросить модель на скрытые уязвимости
   skeptic      Проверить diff исполняемым тестом: clean, bug или unfalsifiable
   antibody     Учить SAST-находки и ловить их повторное появление в diff
+  polygraph    Проверить утверждения коммита или PR против реального diff
   apoptosis   Найти сенесцентные функции по @lifespan и удалить их после тестов
   injection   Поиск prompt-injection и скрытых инструкций в тексте для агента
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
@@ -267,6 +270,7 @@ ${COMMON_HELP}
   oc-pilot skeptic --staged
   oc-pilot antibody learn
   oc-pilot antibody scan --staged
+  oc-pilot polygraph --commit HEAD
   oc-pilot apoptosis scan --fail-on-senescent
   oc-pilot injection --fail-on medium
   oc-pilot receipt --staged
@@ -311,7 +315,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, polygraph, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

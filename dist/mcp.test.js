@@ -328,6 +328,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(antibody.inputSchema.properties.id, "id missing on antibody");
         assert.ok(antibody.inputSchema.properties.force, "force missing on antibody");
         assert.ok(antibody.inputSchema.properties.diff, "diff missing on antibody");
+        const polygraph = tools.find((tool) => tool.name === "polygraph");
+        assert.ok(polygraph, "polygraph tool missing");
+        assert.ok(polygraph.inputSchema.properties.commit, "commit missing on polygraph");
+        assert.ok(polygraph.inputSchema.properties.message, "message missing on polygraph");
+        assert.ok(polygraph.inputSchema.properties.claims, "claims missing on polygraph");
+        assert.ok(polygraph.inputSchema.properties.fail_on, "fail_on missing on polygraph");
         const apoptosis = tools.find((tool) => tool.name === "apoptosis");
         assert.ok(apoptosis, "apoptosis tool missing");
         assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");
