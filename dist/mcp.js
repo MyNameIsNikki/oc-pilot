@@ -1295,6 +1295,35 @@ const TOOLS = [
         },
     },
     {
+        name: "mitosis",
+        description: "Split a large diff into reviewable commits grouped by file, directory or change type. plan is read-only; apply creates commits in a shadow worktree, optionally runs tests after each, and exposes a branch plus patch files. apply needs --allow-write and confirm=true.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["action"],
+            properties: {
+                action: { type: "string", enum: ["plan", "apply"] },
+                strategy: { type: "string", enum: ["file", "dir", "type"] },
+                max_files: { type: "integer", minimum: 1, maximum: 500 },
+                prefix: { type: "string", description: "Commit message prefix; default mitosis" },
+                branch: { type: "string", description: "Branch to create for apply" },
+                test_command: { type: "string", description: "Test command after each commit" },
+                test_timeout_ms: { type: "integer", minimum: 1000, maximum: 1800000 },
+                no_test: { type: "boolean", description: "Skip tests after commits" },
+                confirm: { type: "boolean", description: "Required for apply" },
+                force: { type: "boolean", description: "Overwrite an existing branch" },
+                markdown: { type: "boolean", description: "Render the plan as Markdown" },
+                diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "apoptosis",
         description: "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1512,6 +1541,14 @@ const PROMPTS = [
         description: "Generate a regression test for a fixed bug, prove it fails on the buggy parent and passes on the fix, store it and run the vaccine suite.",
         arguments: [
             { name: "context", description: "What broke and why the fix is correct", required: false },
+        ],
+    },
+    {
+        name: "split-the-diff",
+        title: "Split a large diff into reviewable commits",
+        description: "Partition a diff into small commits by file, directory or type, apply them in a shadow worktree, run tests after each and expose a branch for review.",
+        arguments: [
+            { name: "context", description: "Why the change is being split", required: false },
         ],
     },
     {
@@ -3521,6 +3558,58 @@ async function callVaccine(input, cwd) {
         args.push("--force");
     return toToolResult(await runCli(args, cwd));
 }
+async function callMitosis(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const action = stringArg(input, "action", true);
+        if (action === "apply" && !booleanArg(input, "confirm")) {
+            throw new ToolInputError("mitosis apply needs confirm=true");
+        }
+        const args = ["mitosis", action, "--json"];
+        const strategy = stringArg(input, "strategy");
+        if (strategy)
+            args.push("--strategy", strategy);
+        const maxFiles = integerArg(input, "max_files");
+        if (maxFiles !== undefined)
+            args.push("--max-files", String(maxFiles));
+        const prefix = stringArg(input, "prefix");
+        if (prefix)
+            args.push("--prefix", prefix);
+        const branch = stringArg(input, "branch");
+        if (branch)
+            args.push("--branch", branch);
+        const testCommand = stringArg(input, "test_command");
+        if (testCommand)
+            args.push("--test-command", testCommand);
+        const timeout = integerArg(input, "test_timeout_ms");
+        if (timeout !== undefined)
+            args.push("--test-timeout", String(Math.max(1, Math.round(timeout / 1000))) + "s");
+        if (booleanArg(input, "no_test"))
+            args.push("--no-test");
+        if (action === "apply")
+            args.push("--confirm");
+        if (booleanArg(input, "force"))
+            args.push("--force");
+        if (booleanArg(input, "markdown"))
+            args.push("--markdown");
+        const diff = stringArg(input, "diff");
+        if (diff)
+            args.push("--diff", temp.write("mitosis.diff", diff));
+        const base = baseArg(input);
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callApoptosis(input, cwd) {
     const action = stringArg(input, "action") ?? "scan";
     const args = ["apoptosis", action, "--json"];
@@ -3742,6 +3831,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "vaccine" && ["create", "forget", "clear"].includes(stringArg(input, "action") ?? "")) {
             throw new ToolInputError("vaccine create/forget/clear write .oc-pilot/vaccines and are disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name === "mitosis" && stringArg(input, "action") === "apply") {
+            throw new ToolInputError("mitosis apply creates commits and a branch and is disabled in read-only mode; start the MCP server with --allow-write");
+        }
         if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
             throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
@@ -3863,6 +3955,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callOracle(input, cwd);
         case "vaccine":
             return callVaccine(input, cwd);
+        case "mitosis":
+            return callMitosis(input, cwd);
         case "apoptosis":
             return callApoptosis(input, cwd);
         case "scan_injection":
@@ -3941,6 +4035,12 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
         return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+    }
+    if (typeof value.status === "string" && typeof value.branch === "string" && Array.isArray(value.commits)) {
+        return `oc-pilot: mitosis ${value.status}, ${String(value.commits.length)} commit(s) on ${value.branch}`;
+    }
+    if (Array.isArray(value.commits) && typeof value.files === "number" && typeof value.additions === "number") {
+        return `oc-pilot: mitosis plan ${String(value.commits.length)} commit(s), ${String(value.files)} file(s)`;
     }
     if (typeof value.total === "number" && typeof value.passed === "number" && Array.isArray(value.results)) {
         return `oc-pilot: vaccines ${String(value.passed)}/${String(value.total)} passed`;
@@ -4241,6 +4341,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
         case "stamp-the-passport":
             return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+        case "split-the-diff":
+            return `Call the oc-pilot "mitosis" tool with action=plan on the proposed diff and read the commit sequence. Check that every commit is independently applicable and that config changes come before the code that needs them. Then call action=apply with confirm=true, a branch name and the project test command; read the test status after each commit. If a commit fails tests, stop: the split is wrong or the change is incomplete; fix the split and rerun. Do not delete failing commits, do not squash everything into one commit to hide the failure, and do not claim the branch is safe when tests were skipped. apply writes a branch and patch files and needs --allow-write.${suffix}`;
         case "inoculate-the-fix":
             return `Call the oc-pilot "vaccine" tool with action=create for the fix commit and its buggy parent. Read the verification: only verified means the test fails on the bug and passes on the fix. If it is rejected, do not store it: the test does not distinguish the two trees; explain why and try a sharper test. If it is error, report the infrastructure failure. Then call action=run to prove the stored vaccines still pass on HEAD. Never mark a rejected test as a vaccine, never weaken the assertion to force a pass, and never delete a failing vaccine to make the suite green. create/forget/clear need --allow-write.${suffix}`;
         case "compare-the-behavior":

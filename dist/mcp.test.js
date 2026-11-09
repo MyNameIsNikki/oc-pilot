@@ -351,6 +351,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(vaccine.inputSchema.properties.fix, "fix missing on vaccine");
         assert.ok(vaccine.inputSchema.properties.bug, "bug missing on vaccine");
         assert.ok(vaccine.inputSchema.properties.test_timeout_ms, "test_timeout_ms missing on vaccine");
+        const mitosis = tools.find((tool) => tool.name === "mitosis");
+        assert.ok(mitosis, "mitosis tool missing");
+        assert.ok(mitosis.inputSchema.properties.action, "action missing on mitosis");
+        assert.ok(mitosis.inputSchema.properties.strategy, "strategy missing on mitosis");
+        assert.ok(mitosis.inputSchema.properties.branch, "branch missing on mitosis");
+        assert.ok(mitosis.inputSchema.properties.test_command, "test_command missing on mitosis");
         const apoptosis = tools.find((tool) => tool.name === "apoptosis");
         assert.ok(apoptosis, "apoptosis tool missing");
         assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");

@@ -1240,6 +1240,19 @@ test("vaccine help documents the create and run lifecycle", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("mitosis help documents the plan and apply split", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-mitosis-"));
+    try {
+        const result = runCli(["mitosis", "--help"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /plan/);
+        assert.match(result.stdout, /apply/);
+        assert.match(result.stdout, /MITOSIS/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("receipt records a run and verifies against HEAD", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
     try {

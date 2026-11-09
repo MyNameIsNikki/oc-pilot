@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.102.0
+
+- Новая команда `mitosis`: `plan` разбивает большой diff на последовательность коммитов по файлам, каталогам или типам, а `apply --confirm` создаёт их в shadow worktree.
+- После каждого коммита можно прогнать тестовую команду; при падении ветка останавливается на проблемном коммите, а результат остаётся веткой и патчами в `.oc-pilot/mitosis`.
+- `--strategy file|dir|type`, `--max-files`, `--branch`, `--test-command`, `--test-timeout`, `--no-test`, `--force`; plan умеет `--markdown`.
+- MCP-инструмент `mitosis` и промпт `split-the-diff`; `apply` требует `--allow-write` и `confirm=true`; 764 теста; версия 0.102.0.
+
 ## 0.101.0
 
 - Новая команда `vaccine`: `create --fix HEAD` берёт исправление и его родителя, просит модель написать регрессионный тест и доказывает его в двух shadow worktree.
