@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.111.0
+
+- Новая команда `quarantine`: хранит флейки с владельцем, причиной и сроком в `.oc-pilot/quarantine.json`.
+- `check` падает с `[QUARANTINE EXPIRED]`, когда срок истёк, чтобы подавление не стало вечным; `list`, `remove` и `clear` управляют хранилищем.
+- `add --test --owner --reason --days --issue`; `add`, `remove` и `clear` требуют `--allow-write` через MCP.
+- MCP-инструмент `quarantine` и промпт `quarantine-the-flake`; 817 тестов; версия 0.111.0.
+
 ## 0.110.0
 
 - Новая команда `beacon`: `stamp` сохраняет коммит, tree, версию инструмента, агента, модель, команды, проверки и digest в `.oc-pilot/beacon.json`.

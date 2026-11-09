@@ -401,6 +401,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(beacon.inputSchema.properties.checks, "checks missing on beacon");
         assert.ok(beacon.inputSchema.properties.key, "key missing on beacon");
         assert.ok(beacon.inputSchema.properties.identity, "identity missing on beacon");
+        const quarantine = tools.find((tool) => tool.name === "quarantine");
+        assert.ok(quarantine, "quarantine tool missing");
+        assert.ok(quarantine.inputSchema.properties.action, "action missing on quarantine");
+        assert.ok(quarantine.inputSchema.properties.test, "test missing on quarantine");
+        assert.ok(quarantine.inputSchema.properties.owner, "owner missing on quarantine");
+        assert.ok(quarantine.inputSchema.properties.days, "days missing on quarantine");
         const apoptosis = tools.find((tool) => tool.name === "apoptosis");
         assert.ok(apoptosis, "apoptosis tool missing");
         assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");

@@ -1502,6 +1502,26 @@ const TOOLS = [
         },
     },
     {
+        name: "quarantine",
+        description: "Track flaky tests with an owner and expiry in .oc-pilot/quarantine.json. check fails with [QUARANTINE EXPIRED] so suppression cannot become permanent. Actions: add, list, check, remove, clear. add/remove/clear write and need --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["action"],
+            properties: {
+                action: { type: "string", enum: ["add", "list", "check", "remove", "clear"] },
+                test: { type: "string", description: "Test name for add/remove" },
+                owner: { type: "string", description: "Who owns the quarantine" },
+                reason: { type: "string", description: "Why the test is quarantined" },
+                days: { type: "integer", minimum: 1, maximum: 365 },
+                issue: { type: "string", description: "Issue URL" },
+                force: { type: "boolean", description: "Confirm clear" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "apoptosis",
         description: "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1799,6 +1819,14 @@ const PROMPTS = [
         description: "Record the commit, tool version, agent, model, commands and real checks in a digest-bound beacon, sign it and verify the signature before sharing it.",
         arguments: [
             { name: "context", description: "What the verification covers", required: false },
+        ],
+    },
+    {
+        name: "quarantine-the-flake",
+        title: "Quarantine a flaky test with an expiry",
+        description: "Put a flaky test under an owner and a deadline, then fail the gate when the deadline passes instead of suppressing it forever.",
+        arguments: [
+            { name: "context", description: "Why the test is flaky", required: false },
         ],
     },
     {
@@ -4121,6 +4149,28 @@ async function callBeacon(input, cwd) {
         args.push("--force");
     return toToolResult(await runCli(args, cwd));
 }
+async function callQuarantine(input, cwd) {
+    const action = stringArg(input, "action", true);
+    const args = ["quarantine", action, "--json"];
+    const test = stringArg(input, "test");
+    if (test)
+        args.push("--test", test);
+    const owner = stringArg(input, "owner");
+    if (owner)
+        args.push("--owner", owner);
+    const reason = stringArg(input, "reason");
+    if (reason)
+        args.push("--reason", reason);
+    const days = integerArg(input, "days");
+    if (days !== undefined)
+        args.push("--days", String(days));
+    const issue = stringArg(input, "issue");
+    if (issue)
+        args.push("--issue", issue);
+    if (booleanArg(input, "force"))
+        args.push("--force");
+    return toToolResult(await runCli(args, cwd));
+}
 async function callApoptosis(input, cwd) {
     const action = stringArg(input, "action") ?? "scan";
     const args = ["apoptosis", action, "--json"];
@@ -4354,6 +4404,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "beacon" && ["stamp", "clear"].includes(stringArg(input, "action") ?? "")) {
             throw new ToolInputError("beacon stamp/clear write .oc-pilot/beacon.json and are disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name === "quarantine" && ["add", "remove", "clear"].includes(stringArg(input, "action") ?? "")) {
+            throw new ToolInputError("quarantine add/remove/clear write .oc-pilot/quarantine.json and are disabled in read-only mode; start the MCP server with --allow-write");
+        }
         if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
             throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
@@ -4493,6 +4546,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callChronos(input, cwd);
         case "beacon":
             return callBeacon(input, cwd);
+        case "quarantine":
+            return callQuarantine(input, cwd);
         case "apoptosis":
             return callApoptosis(input, cwd);
         case "scan_injection":
@@ -4571,6 +4626,15 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
         return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+    }
+    if (typeof value.status === "string" && Array.isArray(value.expired) && typeof value.summary === "string") {
+        return `oc-pilot: quarantine ${value.status}, ${String(value.expired.length)} expired`;
+    }
+    if (Array.isArray(value.entries) && Array.isArray(value.expired) && Array.isArray(value.active)) {
+        return `oc-pilot: quarantine ${String(value.entries.length)} test(s), ${String(value.expired.length)} expired`;
+    }
+    if (typeof value.test === "string" && typeof value.owner === "string" && typeof value.expiresAt === "string") {
+        return `oc-pilot: quarantine ${value.test} until ${value.expiresAt}`;
     }
     if (typeof value.status === "string" &&
         ["valid", "unsigned", "tampered", "unattributed", "missing", "error"].includes(value.status) &&
@@ -4922,6 +4986,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
         case "stamp-the-passport":
             return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+        case "quarantine-the-flake":
+            return `Call the oc-pilot "quarantine" tool with action=add and a real test name, owner, reason and a short expiry (14 days or less). Read the expiry and tell the user who owns the fix and when the gate will fail. Use action=check in CI; if it returns [QUARANTINE EXPIRED], fix or delete the test instead of extending the deadline silently. Never quarantine a test without an owner and never make the expiry permanent. add/remove/clear need --allow-write.${suffix}`;
         case "stamp-the-beacon":
             return `Call the oc-pilot "beacon" tool with action=stamp after the checks you actually ran, then action=verify with the same key or allowed_signers. Record only real checks, the real agent/model and the commands. If verify returns [BEACON TAMPERED] or [UNATTRIBUTED], stop: do not share or merge the beacon; re-stamp from the current state or investigate the signature. Never mark an unrun check as pass, never edit the manifest by hand and never claim that a beacon proves correctness: it proves what was recorded and who signed it. stamp/clear need --allow-write.${suffix}`;
         case "read-the-chronicle":

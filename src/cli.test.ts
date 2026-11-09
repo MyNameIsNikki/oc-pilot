@@ -1650,6 +1650,18 @@ test("beacon help documents stamp and verify", () => {
   }
 });
 
+test("quarantine help documents owners and expiry", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-quarantine-"));
+  try {
+    const result = runCli(["quarantine", "--help"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /QUARANTINE EXPIRED/);
+    assert.match(result.stdout, /--owner/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {
