@@ -1637,6 +1637,19 @@ test("chronos help documents the hotspot score", () => {
   }
 });
 
+test("beacon help documents stamp and verify", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-beacon-"));
+  try {
+    const result = runCli(["beacon", "--help"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /stamp/);
+    assert.match(result.stdout, /verify/);
+    assert.match(result.stdout, /UNATTRIBUTED/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {

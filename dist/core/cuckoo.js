@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PilotError } from "./errors.js";
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_FILE_BYTES = 1024 * 1024;
 const WORKER = String.raw `
 const { readFileSync } = require("node:fs");
@@ -153,7 +153,7 @@ export function runCuckoo(cwd, file, options = {}) {
             cwd,
             env,
             encoding: "utf8",
-            timeout: timeoutMs + 5_000,
+            timeout: timeoutMs + 60_000,
             killSignal: "SIGKILL",
             maxBuffer: 4 * 1024 * 1024,
         });

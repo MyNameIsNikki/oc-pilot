@@ -25,7 +25,7 @@ export interface CuckooOptions {
   timeoutMs?: number;
 }
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_FILE_BYTES = 1024 * 1024;
 
 const WORKER = String.raw`
@@ -185,7 +185,7 @@ export function runCuckoo(cwd: string, file: string, options: CuckooOptions = {}
       cwd,
       env,
       encoding: "utf8",
-      timeout: timeoutMs + 5_000,
+      timeout: timeoutMs + 60_000,
       killSignal: "SIGKILL",
       maxBuffer: 4 * 1024 * 1024,
     });

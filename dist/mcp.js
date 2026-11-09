@@ -1476,6 +1476,32 @@ const TOOLS = [
         },
     },
     {
+        name: "beacon",
+        description: "Create, verify and render a signed verification beacon for HEAD: commit, tree, tool version, agent, model, checks, commands and digest. Supports HMAC and ssh-keygen signatures; verify detects tampering and unattributed manifests. Actions: stamp, verify, render, clear. stamp/clear write and need --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["action"],
+            properties: {
+                action: { type: "string", enum: ["stamp", "verify", "render", "clear"] },
+                checks: { type: "array", description: "Checks as name=pass|warn|fail|skip", items: { type: "string" } },
+                commands: { type: "array", description: "Commands that produced the checks", items: { type: "string" } },
+                agent: { type: "string" },
+                model: { type: "string" },
+                prompt_hash: { type: "string" },
+                key: { type: "string", description: "HMAC key file for stamp/verify" },
+                ssh_key: { type: "string", description: "ssh-keygen key file for stamp" },
+                allowed_signers: { type: "string", description: "allowed_signers file for SSH verify" },
+                identity: { type: "string", description: "Signer identity for SSH verify" },
+                require_signature: { type: "boolean", description: "Fail verify on an unsigned beacon" },
+                markdown: { type: "boolean", description: "Render as a PR comment" },
+                force: { type: "boolean", description: "Confirm clear" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "apoptosis",
         description: "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1765,6 +1791,14 @@ const PROMPTS = [
         description: "Inspect the fix, revert and incident history of a file, count its antibodies and vaccines and decide whether it is a hotspot.",
         arguments: [
             { name: "context", description: "Why the file is under review", required: false },
+        ],
+    },
+    {
+        name: "stamp-the-beacon",
+        title: "Stamp a signed verification beacon",
+        description: "Record the commit, tool version, agent, model, commands and real checks in a digest-bound beacon, sign it and verify the signature before sharing it.",
+        arguments: [
+            { name: "context", description: "What the verification covers", required: false },
         ],
     },
     {
@@ -4043,6 +4077,50 @@ async function callChronos(input, cwd) {
         args.push("--fail-on-hotspot");
     return toToolResult(await runCli(args, cwd));
 }
+async function callBeacon(input, cwd) {
+    const action = stringArg(input, "action", true);
+    const args = ["beacon", action, "--json"];
+    if (Array.isArray(input.checks)) {
+        for (const check of input.checks) {
+            if (typeof check === "string")
+                args.push("--check", check);
+        }
+    }
+    if (Array.isArray(input.commands)) {
+        for (const command of input.commands) {
+            if (typeof command === "string")
+                args.push("--command", command);
+        }
+    }
+    const agent = stringArg(input, "agent");
+    if (agent)
+        args.push("--agent", agent);
+    const model = stringArg(input, "model");
+    if (model)
+        args.push("--model", model);
+    const promptHash = stringArg(input, "prompt_hash");
+    if (promptHash)
+        args.push("--prompt-hash", promptHash);
+    const key = stringArg(input, "key");
+    if (key)
+        args.push("--key", key);
+    const sshKey = stringArg(input, "ssh_key");
+    if (sshKey)
+        args.push("--ssh-key", sshKey);
+    const allowedSigners = stringArg(input, "allowed_signers");
+    if (allowedSigners)
+        args.push("--allowed-signers", allowedSigners);
+    const identity = stringArg(input, "identity");
+    if (identity)
+        args.push("--identity", identity);
+    if (booleanArg(input, "require_signature"))
+        args.push("--require-signature");
+    if (booleanArg(input, "markdown"))
+        args.push("--markdown");
+    if (booleanArg(input, "force"))
+        args.push("--force");
+    return toToolResult(await runCli(args, cwd));
+}
 async function callApoptosis(input, cwd) {
     const action = stringArg(input, "action") ?? "scan";
     const args = ["apoptosis", action, "--json"];
@@ -4273,6 +4351,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "mayday" && stringArg(input, "action") === "rollback") {
             throw new ToolInputError("mayday rollback creates a branch and is disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name === "beacon" && ["stamp", "clear"].includes(stringArg(input, "action") ?? "")) {
+            throw new ToolInputError("beacon stamp/clear write .oc-pilot/beacon.json and are disabled in read-only mode; start the MCP server with --allow-write");
+        }
         if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
             throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
@@ -4410,6 +4491,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callCuckoo(input, cwd);
         case "chronos":
             return callChronos(input, cwd);
+        case "beacon":
+            return callBeacon(input, cwd);
         case "apoptosis":
             return callApoptosis(input, cwd);
         case "scan_injection":
@@ -4488,6 +4571,14 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
         return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+    }
+    if (typeof value.status === "string" &&
+        ["valid", "unsigned", "tampered", "unattributed", "missing", "error"].includes(value.status) &&
+        typeof value.summary === "string") {
+        return `oc-pilot: beacon ${value.status}`;
+    }
+    if (typeof value.verdict === "string" && Array.isArray(value.checks) && typeof value.commit === "string") {
+        return `oc-pilot: beacon ${value.verdict}, ${String(value.checks.length)} check(s)`;
     }
     if (typeof value.score === "number" && typeof value.hotspot === "boolean" && value.totals && typeof value.totals === "object") {
         return `oc-pilot: chronos ${String(value.score)}, ${value.hotspot ? "hotspot" : "stable"}`;
@@ -4831,6 +4922,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
         case "stamp-the-passport":
             return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+        case "stamp-the-beacon":
+            return `Call the oc-pilot "beacon" tool with action=stamp after the checks you actually ran, then action=verify with the same key or allowed_signers. Record only real checks, the real agent/model and the commands. If verify returns [BEACON TAMPERED] or [UNATTRIBUTED], stop: do not share or merge the beacon; re-stamp from the current state or investigate the signature. Never mark an unrun check as pass, never edit the manifest by hand and never claim that a beacon proves correctness: it proves what was recorded and who signed it. stamp/clear need --allow-write.${suffix}`;
         case "read-the-chronicle":
             return `Call the oc-pilot "chronos" tool on the file. Read the fix, revert, incident and security counts, the antibodies and vaccines, and the hotspot score. If it returns [HOTSPOT], treat the file as high-risk: inspect the recent fixes and reverts before changing it, add or run a vaccine, and do not refactor it without tests. A low score is not proof that the file is safe. Offline and read-only.${suffix}`;
         case "audit-the-cuckoo":

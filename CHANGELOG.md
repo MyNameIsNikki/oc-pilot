@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.110.0
+
+- Новая команда `beacon`: `stamp` сохраняет коммит, tree, версию инструмента, агента, модель, команды, проверки и digest в `.oc-pilot/beacon.json`.
+- Подпись HMAC (`--key`) или `ssh-keygen` (`--ssh-key`); `verify` ловит `[BEACON TAMPERED]` и `[UNATTRIBUTED]`, `--require-signature` запрещает unsigned.
+- `render --markdown` печатает комментарий для PR/check; `clear --force` удаляет beacon; `stamp`/`clear` требуют `--allow-write` через MCP.
+- MCP-инструмент `beacon` и промпт `stamp-the-beacon`; 812 тестов; версия 0.110.0.
+
 ## 0.109.0
 
 - Новая команда `chronos`: читает историю файла, считает fix/revert/incident/security-маркеры, churn, антитела и вакцины и печатает `[HOTSPOT]`.
