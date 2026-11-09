@@ -1291,6 +1291,18 @@ test("mayday help documents bisect and rollback", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("clairvoyant help documents the CI scope", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-clairvoyant-"));
+    try {
+        const result = runCli(["clairvoyant", "--help"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /CI/);
+        assert.match(result.stdout, /--fail-on-empty/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("receipt records a run and verifies against HEAD", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
     try {

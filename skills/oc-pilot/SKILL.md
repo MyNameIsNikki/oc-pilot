@@ -52,6 +52,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `intent` - check acceptance criteria against the diff (`met`, `partial`, `unmet`, `unverifiable`, exit 1 on unmet) or interrogate a request before code with `sphinx` (`[REQUIREMENTS AMBIGUOUS]` when questions or assumptions remain).
 - `scalpel` - fix a failing test with the smallest patch: `--log` or `--command` reproduces the failure, the model proposes a patch, the current diff plus the patch are verified in a shadow worktree, and the blast radius lists touched symbols and references; `--apply` writes only a proven patch.
 - `mayday` - incident response: `bisect --good <ref> --bad <ref> --command <cmd>` finds the first failing commit; `rollback --to <ref> --confirm` reverts the range in a shadow worktree, runs tests and exposes a branch; never reset --hard or force-push.
+- `clairvoyant` - map changed files and symbols to tests by import, reference or `*.test` name and return the minimal CI subset in `[CI SCOPE]`; an empty scope means run the full suite, and the map is not a coverage proof.
 - `apoptosis` - scan functions marked `/* @lifespan: 30d */`; report `[Senescent]` when the marker is older than the lifespan and there are no references, and only with `apply --confirm` comment them out in a shadow worktree, run tests and land the diff if green.
 - `injection` - scan README, docs, comments, HTML and source for prompt-injection, role hijacks, exfiltration URLs, hidden unicode and base64 instructions; `--fail-on` controls the gate and `--fix` strips invisible characters.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
@@ -128,6 +129,7 @@ oc-pilot scalpel --log test-failure.log
 oc-pilot scalpel --command "npm test" --apply
 oc-pilot mayday bisect --good v1.2.0 --bad HEAD --command "npm test"
 oc-pilot mayday rollback --to v1.2.0 --confirm
+oc-pilot clairvoyant --staged
 oc-pilot skeptic --staged
 oc-pilot apoptosis scan --fail-on-senescent
 oc-pilot injection --fail-on medium

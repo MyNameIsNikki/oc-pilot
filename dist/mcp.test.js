@@ -375,6 +375,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(mayday.inputSchema.properties.good, "good missing on mayday");
         assert.ok(mayday.inputSchema.properties.to, "to missing on mayday");
         assert.ok(mayday.inputSchema.properties.command, "command missing on mayday");
+        const clairvoyant = tools.find((tool) => tool.name === "clairvoyant");
+        assert.ok(clairvoyant, "clairvoyant tool missing");
+        assert.ok(clairvoyant.inputSchema.properties.diff, "diff missing on clairvoyant");
+        assert.ok(clairvoyant.inputSchema.properties.fail_on_empty, "fail_on_empty missing on clairvoyant");
         const apoptosis = tools.find((tool) => tool.name === "apoptosis");
         assert.ok(apoptosis, "apoptosis tool missing");
         assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");
