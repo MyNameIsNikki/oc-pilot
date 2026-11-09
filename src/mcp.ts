@@ -1348,6 +1348,28 @@ const TOOLS = [
     },
   },
   {
+    name: "vaccine",
+    description:
+      "Turn a fixed bug into a regression test: ask the model for one test, prove it fails on the buggy parent and passes on the fix in two shadow worktrees, store only verified vaccines in .oc-pilot/vaccines, and run them on HEAD. Actions: create, run, list, forget, clear. create/forget/clear write and need --allow-write.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action"],
+      properties: {
+        action: { type: "string", enum: ["create", "run", "list", "forget", "clear"] },
+        fix: { type: "string", description: "Fixed commit ref; defaults to HEAD" },
+        bug: { type: "string", description: "Buggy commit ref; defaults to the parent of fix" },
+        command: { type: "string", description: "Test command with {file}; default node --test {file}" },
+        context: { type: "string", description: "What broke and what the fix should preserve" },
+        test_timeout_ms: { type: "integer", minimum: 1000, maximum: 600000 },
+        id: { type: "string", description: "Vaccine id for forget" },
+        force: { type: "boolean", description: "Confirm clear" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "apoptosis",
     description:
       "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
@@ -1579,6 +1601,15 @@ const PROMPTS = [
       "Run one corpus on clean HEAD and on the diff, compare stdout and exit codes, and report every [BEHAVIOR CHANGED] case with its input.",
     arguments: [
       { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "inoculate-the-fix",
+    title: "Inoculate the repository against a fixed bug",
+    description:
+      "Generate a regression test for a fixed bug, prove it fails on the buggy parent and passes on the fix, store it and run the vaccine suite.",
+    arguments: [
+      { name: "context", description: "What broke and why the fix is correct", required: false },
     ],
   },
   {
@@ -3288,6 +3319,25 @@ async function callOracle(input: JsonObject, cwd: string): Promise<ToolResult> {
   }
 }
 
+async function callVaccine(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const action = stringArg(input, "action", true)!;
+  const args = ["vaccine", action, "--json"];
+  const fix = stringArg(input, "fix");
+  if (fix) args.push("--fix", fix);
+  const bug = stringArg(input, "bug");
+  if (bug) args.push("--bug", bug);
+  const command = stringArg(input, "command");
+  if (command) args.push("--command", command);
+  const context = stringArg(input, "context");
+  if (context) args.push("--context", context);
+  const timeout = integerArg(input, "test_timeout_ms");
+  if (timeout !== undefined) args.push("--test-timeout", String(timeout) + "ms");
+  const id = stringArg(input, "id");
+  if (id) args.push("--id", id);
+  if (booleanArg(input, "force")) args.push("--force");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
   const action = stringArg(input, "action") ?? "scan";
   const args = ["apoptosis", action, "--json"];
@@ -3466,6 +3516,9 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
     if (name === "passport" && ["write", "clear"].includes(stringArg(input, "action") ?? "")) {
       throw new ToolInputError("passport write/clear write .oc-pilot/passport.json and are disabled in read-only mode; start the MCP server with --allow-write");
     }
+    if (name === "vaccine" && ["create", "forget", "clear"].includes(stringArg(input, "action") ?? "")) {
+      throw new ToolInputError("vaccine create/forget/clear write .oc-pilot/vaccines and are disabled in read-only mode; start the MCP server with --allow-write");
+    }
     if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
       throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
     }
@@ -3585,6 +3638,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callPassport(input, cwd);
     case "oracle":
       return callOracle(input, cwd);
+    case "vaccine":
+      return callVaccine(input, cwd);
     case "apoptosis":
       return callApoptosis(input, cwd);
     case "scan_injection":
@@ -3673,6 +3728,19 @@ function summarizeResult(value: JsonObject): string {
   }
   if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
     return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+  }
+  if (typeof value.total === "number" && typeof value.passed === "number" && Array.isArray(value.results)) {
+    return `oc-pilot: vaccines ${String(value.passed)}/${String(value.total)} passed`;
+  }
+  if (Array.isArray(value.vaccines) && typeof value.total !== "number") {
+    return `oc-pilot: vaccines ${String(value.vaccines.length)}`;
+  }
+  if (
+    typeof value.status === "string" &&
+    typeof value.durationMs === "number" &&
+    ["verified", "rejected", "error"].includes(value.status)
+  ) {
+    return `oc-pilot: vaccine ${value.status}`;
   }
   if (typeof value.status === "string" && typeof value.changed === "number" && Array.isArray(value.results)) {
     return `oc-pilot: oracle ${value.status}, ${String(value.changed)} changed of ${String(value.cases)}`;
@@ -3972,6 +4040,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
     case "stamp-the-passport":
       return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+    case "inoculate-the-fix":
+      return `Call the oc-pilot "vaccine" tool with action=create for the fix commit and its buggy parent. Read the verification: only verified means the test fails on the bug and passes on the fix. If it is rejected, do not store it: the test does not distinguish the two trees; explain why and try a sharper test. If it is error, report the infrastructure failure. Then call action=run to prove the stored vaccines still pass on HEAD. Never mark a rejected test as a vaccine, never weaken the assertion to force a pass, and never delete a failing vaccine to make the suite green. create/forget/clear need --allow-write.${suffix}`;
     case "compare-the-behavior":
       return `Call the oc-pilot "oracle" tool with a deterministic command that reads the {input} JSON file, a corpus of real cases and the proposed diff. Read every [BEHAVIOR CHANGED] case with its input and before/after output. If behavior changed, decide whether it was intended: update the corpus or expectations only for intended changes, and fix unintended ones. Do not delete failing cases, do not shrink the corpus to hide a difference, and do not claim behavioral equivalence from a corpus that does not cover the change. A same result is evidence for the supplied inputs, not a proof for all inputs. Model-free and read-only.${suffix}`;
     case "cross-examine-the-claim":

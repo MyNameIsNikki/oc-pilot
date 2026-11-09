@@ -76,6 +76,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
       "cross-examine-the-claim",
       "stamp-the-passport",
       "compare-the-behavior",
+      "inoculate-the-fix",
       "prune-senescent-code",
       "scan-for-injection",
       "compile-hologram",

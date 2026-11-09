@@ -416,6 +416,13 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(oracle.inputSchema.properties.cases, "cases missing on oracle");
     assert.ok(oracle.inputSchema.properties.case_timeout_ms, "case_timeout_ms missing on oracle");
 
+    const vaccine = tools.find((tool) => tool.name === "vaccine");
+    assert.ok(vaccine, "vaccine tool missing");
+    assert.ok(vaccine.inputSchema.properties.action, "action missing on vaccine");
+    assert.ok(vaccine.inputSchema.properties.fix, "fix missing on vaccine");
+    assert.ok(vaccine.inputSchema.properties.bug, "bug missing on vaccine");
+    assert.ok(vaccine.inputSchema.properties.test_timeout_ms, "test_timeout_ms missing on vaccine");
+
     const apoptosis = tools.find((tool) => tool.name === "apoptosis");
     assert.ok(apoptosis, "apoptosis tool missing");
     assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");

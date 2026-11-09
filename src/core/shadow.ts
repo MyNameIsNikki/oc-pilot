@@ -15,16 +15,19 @@ export interface ShadowApplyResult {
   files: number;
 }
 
-/** Creates a detached git worktree at .oc-pilot/<name>, based on HEAD. */
-export function createShadow(cwd: string, name = "shadow-tree"): ShadowWorktree {
+/** Creates a detached git worktree at .oc-pilot/<name>, based on ref (HEAD by default). */
+export function createShadow(cwd: string, name = "shadow-tree", ref = "HEAD"): ShadowWorktree {
   if (!/^[A-Za-z0-9._-]+$/.test(name)) {
     throw new PilotError("Некорректное имя shadow worktree", { exitCode: 2 });
   }
+  if (!ref || ref.startsWith("-")) {
+    throw new PilotError("Некорректная ссылка для shadow worktree", { exitCode: 2 });
+  }
   const dir = join(cwd, ".oc-pilot", name);
-  const check = runGit(["rev-parse", "--verify", "HEAD"], cwd);
+  const check = runGit(["rev-parse", "--verify", `${ref}^{commit}`], cwd);
   if (check.status !== 0) {
-    throw new PilotError("Shadow worktree требует хотя бы один коммит", {
-      hint: "Сделайте первый коммит или уберите --shadow.",
+    throw new PilotError(`Shadow worktree требует существующий коммит: ${ref}`, {
+      hint: "Проверьте ref или сделайте первый коммит.",
       exitCode: 2,
     });
   }
@@ -33,7 +36,7 @@ export function createShadow(cwd: string, name = "shadow-tree"): ShadowWorktree 
     rmSync(dir, { recursive: true, force: true });
   }
   mkdirSync(dirname(dir), { recursive: true });
-  const add = runGit(["worktree", "add", "--detach", dir, "HEAD"], cwd);
+  const add = runGit(["worktree", "add", "--detach", dir, ref], cwd);
   if (add.status !== 0) {
     throw new PilotError("Не удалось создать shadow worktree", {
       hint: add.stderr.trim() || add.stdout.trim() || undefined,
