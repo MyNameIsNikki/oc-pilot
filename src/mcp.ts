@@ -1541,6 +1541,24 @@ const TOOLS = [
     },
   },
   {
+    name: "chronos",
+    description:
+      "Read a file's commit chronicle: fixes, reverts, incidents, security markers, churn, antibodies and vaccines, then score it as [HOTSPOT]. Offline and read-only.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["file"],
+      properties: {
+        file: { type: "string", description: "Repository-relative file to inspect" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        since: { type: "string", description: "Git date limit, e.g. 2025-01-01" },
+        fail_on_hotspot: { type: "boolean" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "apoptosis",
     description:
       "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
@@ -1853,6 +1871,15 @@ const PROMPTS = [
       "Run generated or untrusted JS/ESM in an instrumented sandbox and list every fs, net, child_process, env and exit attempt before trusting it.",
     arguments: [
       { name: "context", description: "Where the code came from", required: false },
+    ],
+  },
+  {
+    name: "read-the-chronicle",
+    title: "Read the file chronicle",
+    description:
+      "Inspect the fix, revert and incident history of a file, count its antibodies and vaccines and decide whether it is a hotspot.",
+    arguments: [
+      { name: "context", description: "Why the file is under review", required: false },
     ],
   },
   {
@@ -3770,6 +3797,17 @@ async function callCuckoo(input: JsonObject, cwd: string): Promise<ToolResult> {
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callChronos(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const file = stringArg(input, "file", true)!;
+  const args = ["chronos", file, "--json"];
+  const limit = integerArg(input, "limit");
+  if (limit !== undefined) args.push("--limit", String(limit));
+  const since = stringArg(input, "since");
+  if (since) args.push("--since", since);
+  if (booleanArg(input, "fail_on_hotspot")) args.push("--fail-on-hotspot");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
   const action = stringArg(input, "action") ?? "scan";
   const args = ["apoptosis", action, "--json"];
@@ -4095,6 +4133,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callHemorrhage(input, cwd);
     case "cuckoo":
       return callCuckoo(input, cwd);
+    case "chronos":
+      return callChronos(input, cwd);
     case "apoptosis":
       return callApoptosis(input, cwd);
     case "scan_injection":
@@ -4183,6 +4223,9 @@ function summarizeResult(value: JsonObject): string {
   }
   if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
     return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+  }
+  if (typeof value.score === "number" && typeof value.hotspot === "boolean" && value.totals && typeof value.totals === "object") {
+    return `oc-pilot: chronos ${String(value.score)}, ${value.hotspot ? "hotspot" : "stable"}`;
   }
   if (typeof value.status === "string" && Array.isArray(value.capabilities) && typeof value.file === "string") {
     return `oc-pilot: cuckoo ${value.status}, ${String(value.capabilities.length)} capability(ies)`;
@@ -4539,6 +4582,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
     case "stamp-the-passport":
       return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+    case "read-the-chronicle":
+      return `Call the oc-pilot "chronos" tool on the file. Read the fix, revert, incident and security counts, the antibodies and vaccines, and the hotspot score. If it returns [HOTSPOT], treat the file as high-risk: inspect the recent fixes and reverts before changing it, add or run a vaccine, and do not refactor it without tests. A low score is not proof that the file is safe. Offline and read-only.${suffix}`;
     case "audit-the-cuckoo":
       return `Call the oc-pilot "cuckoo" tool on the generated or untrusted JS/ESM file. Read every capability: fs, net, child_process, env, exit, require, import. If it returns [CAPABILITY DENIED], do not trust or run the file with real privileges; remove the capability or isolate it behind an explicit allowlist. A clean result covers only this file and this sandbox, not transitive native code or dynamic imports. Offline and read-only.${suffix}`;
     case "stop-the-bleeding":

@@ -54,6 +54,8 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `mayday` - incident response: `bisect --good <ref> --bad <ref> --command <cmd>` finds the first failing commit; `rollback --to <ref> --confirm` reverts the range in a shadow worktree, runs tests and exposes a branch; never reset --hard or force-push.
 - `clairvoyant` - map changed files and symbols to tests by import, reference or `*.test` name and return the minimal CI subset in `[CI SCOPE]`; an empty scope means run the full suite, and the map is not a coverage proof.
 - `hemorrhage` - benchmark HEAD and the diff in two shadow worktrees, compare medians/p95/MAD and report `[PERFORMANCE REGRESSION]` only beyond the threshold, noise floor and Mann-Whitney p < 0.05; `--metric stdout` reads a number from the benchmark.
+- `cuckoo` - audit untrusted JS/ESM in an instrumented vm sandbox; report `[CAPABILITY DENIED]` for fs/net/child_process/env/exit/require/import, block `process.exit` and static imports, and allow only named kinds with `--allow`.
+- `chronos` - read a file's fix/revert/incident/security history plus antibodies and vaccines, score it and report `[HOTSPOT]`; a low score is not proof of safety.
 - `apoptosis` - scan functions marked `/* @lifespan: 30d */`; report `[Senescent]` when the marker is older than the lifespan and there are no references, and only with `apply --confirm` comment them out in a shadow worktree, run tests and land the diff if green.
 - `injection` - scan README, docs, comments, HTML and source for prompt-injection, role hijacks, exfiltration URLs, hidden unicode and base64 instructions; `--fail-on` controls the gate and `--fix` strips invisible characters.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
@@ -132,6 +134,8 @@ oc-pilot mayday bisect --good v1.2.0 --bad HEAD --command "npm test"
 oc-pilot mayday rollback --to v1.2.0 --confirm
 oc-pilot clairvoyant --staged
 oc-pilot hemorrhage --command "node bench.mjs" --runs 10
+oc-pilot cuckoo dist/tool.mjs
+oc-pilot chronos src/auth.ts
 oc-pilot skeptic --staged
 oc-pilot apoptosis scan --fail-on-senescent
 oc-pilot injection --fail-on medium

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.109.0
+
+- Новая команда `chronos`: читает историю файла, считает fix/revert/incident/security-маркеры, churn, антитела и вакцины и печатает `[HOTSPOT]`.
+- `--limit`, `--since`, `--fail-on-hotspot`; низкий score не доказывает безопасность, а hotspot означает высокий риск при изменении.
+- Документация `cuckoo` и `chronos`; MCP-инструмент `chronos` и промпт `read-the-chronicle`; 806 тестов; версия 0.109.0.
+
 ## 0.108.0
 
 - Новая команда `cuckoo`: запускает JS/ESM-файл в инструментированной vm-песочнице и показывает запрошенные возможности: fs, net, child_process, env, exit, require, import.
