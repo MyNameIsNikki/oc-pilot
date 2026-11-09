@@ -1564,6 +1564,18 @@ test("intent help documents criteria and sphinx modes", () => {
   }
 });
 
+test("scalpel help documents the minimal patch flow", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-scalpel-"));
+  try {
+    const result = runCli(["scalpel", "--help"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /SCALPEL/);
+    assert.match(result.stdout, /blast radius/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {

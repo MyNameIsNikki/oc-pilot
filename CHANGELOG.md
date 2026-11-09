@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.104.0
+
+- Новая команда `scalpel`: по логу падения или команде-репродукции модель предлагает минимальный патч, а oc-pilot применяет текущий diff и патч в shadow worktree и запускает тесты.
+- `[SCALPEL FIXED]` означает, что тесты проходят; `[SCALPEL REJECTED]` не применяется, `[SCALPEL UNVERIFIED]` требует ручного прогона; `--apply` записывает только доказанный патч.
+- Blast radius показывает затронутые символы и ссылки; `--log`, `--error`, `--command`, `--test-command`, `--test-timeout`, `--no-test`.
+- MCP-инструмент `scalpel` и промпт `operate-with-a-scalpel`; `apply` требует `--allow-write`; 780 тестов; версия 0.104.0.
+
 ## 0.103.0
 
 - Новая команда `intent`: `check` оценивает каждый критерий приёмки по diff как `met`, `partial`, `unmet` или `unverifiable` и выходит с кодом 1 при `unmet`.

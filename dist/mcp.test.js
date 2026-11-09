@@ -363,6 +363,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(intent.inputSchema.properties.criteria, "criteria missing on intent");
         assert.ok(intent.inputSchema.properties.request, "request missing on intent");
         assert.ok(intent.inputSchema.properties.strict, "strict missing on intent");
+        const scalpel = tools.find((tool) => tool.name === "scalpel");
+        assert.ok(scalpel, "scalpel tool missing");
+        assert.ok(scalpel.inputSchema.properties.log, "log missing on scalpel");
+        assert.ok(scalpel.inputSchema.properties.command, "command missing on scalpel");
+        assert.ok(scalpel.inputSchema.properties.apply, "apply missing on scalpel");
+        assert.ok(scalpel.inputSchema.properties.test_command, "test_command missing on scalpel");
         const apoptosis = tools.find((tool) => tool.name === "apoptosis");
         assert.ok(apoptosis, "apoptosis tool missing");
         assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");

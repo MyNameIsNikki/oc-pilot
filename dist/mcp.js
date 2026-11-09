@@ -1350,6 +1350,31 @@ const TOOLS = [
         },
     },
     {
+        name: "scalpel",
+        description: "Given a failing test log and the current diff, ask the model for the smallest patch, apply the current diff plus the patch in a shadow worktree, run tests and report the blast radius. Model-backed; apply writes to the worktree and needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                log: { type: "string", description: "Captured failing test output" },
+                error: { type: "string", description: "Error text instead of a log" },
+                command: { type: "string", description: "Command that reproduces the failure" },
+                context: { type: "string", description: "What the code is supposed to do" },
+                apply: { type: "boolean", description: "Apply a verified patch to the worktree" },
+                test_command: { type: "string", description: "Test command; defaults to detection" },
+                test_timeout_ms: { type: "integer", minimum: 1000, maximum: 900000 },
+                no_test: { type: "boolean", description: "Skip tests; result becomes unverified" },
+                diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "apoptosis",
         description: "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1591,6 +1616,14 @@ const PROMPTS = [
         description: "Extract missing decisions, hidden assumptions and testable acceptance criteria before implementation starts.",
         arguments: [
             { name: "context", description: "What is already known", required: false },
+        ],
+    },
+    {
+        name: "operate-with-a-scalpel",
+        title: "Fix a failure with the smallest patch",
+        description: "Propose a minimal patch for a failing test, prove it in a shadow worktree and show the blast radius before applying anything.",
+        arguments: [
+            { name: "context", description: "What the code is supposed to do", required: false },
         ],
     },
     {
@@ -3696,6 +3729,50 @@ async function callIntent(input, cwd) {
         temp.cleanup();
     }
 }
+async function callScalpel(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const args = ["scalpel", "--json"];
+        const log = stringArg(input, "log");
+        if (log)
+            args.push("--log", log);
+        const error = stringArg(input, "error");
+        if (error)
+            args.push("--error", error);
+        const command = stringArg(input, "command");
+        if (command)
+            args.push("--command", command);
+        const context = stringArg(input, "context");
+        if (context)
+            args.push("--context", context);
+        if (booleanArg(input, "apply"))
+            args.push("--apply");
+        const testCommand = stringArg(input, "test_command");
+        if (testCommand)
+            args.push("--test-command", testCommand);
+        const timeout = integerArg(input, "test_timeout_ms");
+        if (timeout !== undefined)
+            args.push("--test-timeout", String(Math.max(1, Math.round(timeout / 1000))) + "s");
+        if (booleanArg(input, "no_test"))
+            args.push("--no-test");
+        const diff = stringArg(input, "diff");
+        if (diff)
+            args.push("--diff", temp.write("scalpel.diff", diff));
+        const base = baseArg(input);
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callApoptosis(input, cwd) {
     const action = stringArg(input, "action") ?? "scan";
     const args = ["apoptosis", action, "--json"];
@@ -3920,6 +3997,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "mitosis" && stringArg(input, "action") === "apply") {
             throw new ToolInputError("mitosis apply creates commits and a branch and is disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name === "scalpel" && booleanArg(input, "apply")) {
+            throw new ToolInputError("scalpel apply writes to the worktree and is disabled in read-only mode; start the MCP server with --allow-write");
+        }
         if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
             throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
@@ -4045,6 +4125,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callMitosis(input, cwd);
         case "intent":
             return callIntent(input, cwd);
+        case "scalpel":
+            return callScalpel(input, cwd);
         case "apoptosis":
             return callApoptosis(input, cwd);
         case "scan_injection":
@@ -4123,6 +4205,12 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
         return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+    }
+    if (typeof value.status === "string" &&
+        ["fixed", "rejected", "unverified", "error"].includes(value.status) &&
+        Array.isArray(value.files) &&
+        typeof value.tests === "string") {
+        return `oc-pilot: scalpel ${value.status}, ${String(value.files.length)} file(s), tests ${value.tests}`;
     }
     if (typeof value.status === "string" && Array.isArray(value.results) && value.counts && typeof value.counts === "object") {
         const counts = value.counts;
@@ -4436,6 +4524,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
         case "stamp-the-passport":
             return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+        case "operate-with-a-scalpel":
+            return `Call the oc-pilot "scalpel" tool with the failing log, or a command that reproduces it, and the proposed diff. Read the patch and the blast radius. If it returns [SCALPEL FIXED], review the patch and apply it only with explicit approval. If it returns [SCALPEL REJECTED], do not apply it and do not weaken the test. If it returns [SCALPEL UNVERIFIED], run the tests yourself before claiming a fix. Never delete a failing test, never skip it, and never let the patch touch unrelated files. apply needs --allow-write.${suffix}`;
         case "check-the-criteria":
             return `Call the oc-pilot "intent" tool with action=check and the acceptance criteria for this change. Read every criterion as met, partial, unmet or unverifiable. If any is unmet, stop and quote the criterion and the evidence: the diff does not do what was promised. Fix the code or the criterion, never mark it met without evidence. Partial is not done, and unverifiable means the diff cannot prove it. Model-backed and read-only.${suffix}`;
         case "interrogate-the-intent":
