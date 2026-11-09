@@ -444,6 +444,13 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(scalpel.inputSchema.properties.apply, "apply missing on scalpel");
     assert.ok(scalpel.inputSchema.properties.test_command, "test_command missing on scalpel");
 
+    const mayday = tools.find((tool) => tool.name === "mayday");
+    assert.ok(mayday, "mayday tool missing");
+    assert.ok(mayday.inputSchema.properties.action, "action missing on mayday");
+    assert.ok(mayday.inputSchema.properties.good, "good missing on mayday");
+    assert.ok(mayday.inputSchema.properties.to, "to missing on mayday");
+    assert.ok(mayday.inputSchema.properties.command, "command missing on mayday");
+
     const apoptosis = tools.find((tool) => tool.name === "apoptosis");
     assert.ok(apoptosis, "apoptosis tool missing");
     assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");

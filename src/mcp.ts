@@ -1453,6 +1453,32 @@ const TOOLS = [
     },
   },
   {
+    name: "mayday",
+    description:
+      "Incident response: bisect history to find the first bad commit, or prepare a tested rollback branch with git revert. bisect is read-only; rollback creates a branch, needs --allow-write and confirm=true.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action"],
+      properties: {
+        action: { type: "string", enum: ["bisect", "rollback"] },
+        good: { type: "string", description: "Last known good ref for bisect" },
+        bad: { type: "string", description: "Bad ref for bisect; default HEAD" },
+        to: { type: "string", description: "Rollback target ref" },
+        command: { type: "string", description: "Check command for bisect" },
+        test_command: { type: "string", description: "Test command for rollback" },
+        test_timeout_ms: { type: "integer", minimum: 1000, maximum: 900000 },
+        max_steps: { type: "integer", minimum: 1, maximum: 64 },
+        branch: { type: "string", description: "Rollback branch name" },
+        confirm: { type: "boolean", description: "Required for rollback" },
+        force: { type: "boolean", description: "Overwrite an existing branch" },
+        no_test: { type: "boolean", description: "Skip tests for rollback" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "apoptosis",
     description:
       "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
@@ -1729,6 +1755,15 @@ const PROMPTS = [
       "Propose a minimal patch for a failing test, prove it in a shadow worktree and show the blast radius before applying anything.",
     arguments: [
       { name: "context", description: "What the code is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "declare-mayday",
+    title: "Find the bad commit and prepare a rollback",
+    description:
+      "Bisect history with a real check, identify the first bad commit and prepare a tested rollback branch without rewriting history.",
+    arguments: [
+      { name: "context", description: "What is broken in production", required: false },
     ],
   },
   {
@@ -3558,6 +3593,34 @@ async function callScalpel(input: JsonObject, cwd: string): Promise<ToolResult> 
   }
 }
 
+async function callMayday(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const action = stringArg(input, "action", true)!;
+  if (action === "rollback" && !booleanArg(input, "confirm")) {
+    throw new ToolInputError("mayday rollback needs confirm=true");
+  }
+  const args = ["mayday", action, "--json"];
+  const good = stringArg(input, "good");
+  if (good) args.push("--good", good);
+  const bad = stringArg(input, "bad");
+  if (bad) args.push("--bad", bad);
+  const to = stringArg(input, "to");
+  if (to) args.push("--to", to);
+  const command = stringArg(input, "command");
+  if (command) args.push("--command", command);
+  const testCommand = stringArg(input, "test_command");
+  if (testCommand) args.push("--test-command", testCommand);
+  const timeout = integerArg(input, "test_timeout_ms");
+  if (timeout !== undefined) args.push("--test-timeout", String(Math.max(1, Math.round(timeout / 1000))) + "s");
+  const maxSteps = integerArg(input, "max_steps");
+  if (maxSteps !== undefined) args.push("--max-steps", String(maxSteps));
+  const branch = stringArg(input, "branch");
+  if (branch) args.push("--branch", branch);
+  if (action === "rollback") args.push("--confirm");
+  if (booleanArg(input, "force")) args.push("--force");
+  if (booleanArg(input, "no_test")) args.push("--no-test");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
   const action = stringArg(input, "action") ?? "scan";
   const args = ["apoptosis", action, "--json"];
@@ -3745,6 +3808,9 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
     if (name === "scalpel" && booleanArg(input, "apply")) {
       throw new ToolInputError("scalpel apply writes to the worktree and is disabled in read-only mode; start the MCP server with --allow-write");
     }
+    if (name === "mayday" && stringArg(input, "action") === "rollback") {
+      throw new ToolInputError("mayday rollback creates a branch and is disabled in read-only mode; start the MCP server with --allow-write");
+    }
     if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
       throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
     }
@@ -3872,6 +3938,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callIntent(input, cwd);
     case "scalpel":
       return callScalpel(input, cwd);
+    case "mayday":
+      return callMayday(input, cwd);
     case "apoptosis":
       return callApoptosis(input, cwd);
     case "scan_injection":
@@ -3960,6 +4028,15 @@ function summarizeResult(value: JsonObject): string {
   }
   if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
     return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+  }
+  if (typeof value.status === "string" && Array.isArray(value.steps) && typeof value.good === "string") {
+    const first = value.firstBad && typeof value.firstBad === "object"
+      ? (value.firstBad as Record<string, unknown>).sha
+      : undefined;
+    return `oc-pilot: mayday bisect ${value.status}${typeof first === "string" ? `, first bad ${first.slice(0, 8)}` : ""}`;
+  }
+  if (typeof value.status === "string" && typeof value.reverted === "number" && typeof value.to === "string") {
+    return `oc-pilot: mayday rollback ${value.status}, ${String(value.reverted)} reverted`;
   }
   if (
     typeof value.status === "string" &&
@@ -4293,6 +4370,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
     case "stamp-the-passport":
       return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+    case "declare-mayday":
+      return `Call the oc-pilot "mayday" tool with action=bisect and the last good/bad refs plus the check command. Read the first bad commit and its diff. Then call action=rollback with confirm=true and the good ref to create a tested rollback branch. Do not reset --hard, do not force-push, do not rewrite history, and do not claim the rollback is safe if tests were skipped or failed. Tell humans exactly which commits will be reverted. rollback needs --allow-write.${suffix}`;
     case "operate-with-a-scalpel":
       return `Call the oc-pilot "scalpel" tool with the failing log, or a command that reproduces it, and the proposed diff. Read the patch and the blast radius. If it returns [SCALPEL FIXED], review the patch and apply it only with explicit approval. If it returns [SCALPEL REJECTED], do not apply it and do not weaken the test. If it returns [SCALPEL UNVERIFIED], run the tests yourself before claiming a fix. Never delete a failing test, never skip it, and never let the patch touch unrelated files. apply needs --allow-write.${suffix}`;
     case "check-the-criteria":

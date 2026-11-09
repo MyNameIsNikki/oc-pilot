@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.105.0
+
+- Новая команда `mayday`: `bisect --good <ref> --bad <ref> --command <cmd>` двоичным поиском находит первый коммит, на котором проверка начинает падать, и печатает автора, дату и статистику diff.
+- `rollback --to <ref> --confirm` откатывает диапазон через `git revert` в shadow worktree, по желанию прогоняет тесты и оставляет ветку `oc-pilot/mayday-rollback-*` для ревью.
+- `reset --hard` и force-push не используются; `[MAYDAY ROLLBACK FAILED]` всё равно оставляет ветку для разбора.
+- MCP-инструмент `mayday` и промпт `declare-mayday`; rollback требует `--allow-write` и `confirm=true`; 786 тестов; версия 0.105.0.
+
 ## 0.104.0
 
 - Новая команда `scalpel`: по логу падения или команде-репродукции модель предлагает минимальный патч, а oc-pilot применяет текущий diff и патч в shadow worktree и запускает тесты.

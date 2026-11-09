@@ -1576,6 +1576,19 @@ test("scalpel help documents the minimal patch flow", () => {
   }
 });
 
+test("mayday help documents bisect and rollback", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-mayday-"));
+  try {
+    const result = runCli(["mayday", "--help"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /bisect/);
+    assert.match(result.stdout, /rollback/);
+    assert.match(result.stdout, /MAYDAY/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {
