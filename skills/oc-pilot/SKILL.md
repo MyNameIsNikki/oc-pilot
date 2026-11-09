@@ -46,6 +46,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `antibody` - learn SAST findings into `.oc-pilot/antibodies.json` signatures, scan added diff lines for known bad patterns and fail with `[ANTIBODY MATCH]`; `learn`, `forget` and `clear` write, so MCP needs `--allow-write`.
 - `polygraph` - extract the claims from a commit or PR message, check each against the diff and report `supported`, `contradicted` or `unverifiable`; `[CLAIM CONTRADICTED]` exits 1, and `supported` only means consistent with the diff.
 - `passport` - record the commit, file hashes, agent, model and real checks in `.oc-pilot/passport.json`, bind them with a digest and verify with `passport verify`; `[PASSPORT STALE]` and `[PASSPORT TAMPERED]` mean the manifest no longer matches, and write/clear need `--allow-write`.
+- `oracle` - run the same JSON corpus against HEAD and the diff in two shadow worktrees, compare stdout and exit codes and report `[BEHAVIOR CHANGED]` with the exact input; the command must contain `{input}` and a same result covers only the supplied corpus.
 - `apoptosis` - scan functions marked `/* @lifespan: 30d */`; report `[Senescent]` when the marker is older than the lifespan and there are no references, and only with `apply --confirm` comment them out in a shadow worktree, run tests and land the diff if green.
 - `injection` - scan README, docs, comments, HTML and source for prompt-injection, role hijacks, exfiltration URLs, hidden unicode and base64 instructions; `--fail-on` controls the gate and `--fix` strips invisible characters.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
@@ -111,6 +112,7 @@ oc-pilot antibody learn
 oc-pilot antibody scan --staged
 oc-pilot polygraph --commit HEAD
 oc-pilot passport write --commit HEAD --check preflight=pass
+oc-pilot oracle --command "node harness.mjs {input}" --input corpus.json --staged
 oc-pilot skeptic --staged
 oc-pilot apoptosis scan --fail-on-senescent
 oc-pilot injection --fail-on medium

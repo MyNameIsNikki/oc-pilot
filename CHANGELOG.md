@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.100.0
+
+- Новая команда `oracle`: один и тот же JSON-корпус прогоняется на чистом HEAD и на diff в двух shadow worktree, stdout и коды выхода сравниваются.
+- Любое расхождение даёт `[BEHAVIOR CHANGED]` с точным входом и обоими выходами, совпадение — `[BEHAVIOR SAME]`; `--command` обязан содержать `{input}`.
+- `--input`, `--case-timeout`, `--max-cases`, diff-флаги и JSON; совпадение покрывает только переданный корпус, а не все входы.
+- MCP-инструмент `oracle` и промпт `compare-the-behavior`; `createShadow` принимает имя worktree; 750 тестов; версия 0.100.0.
+
 ## 0.99.0
 
 - Новая команда `passport`: `write` сохраняет коммит, tree, хеши файлов, агента, модель и выполненные проверки в `.oc-pilot/passport.json` и связывает манифест digest-ом.

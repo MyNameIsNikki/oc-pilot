@@ -1251,6 +1251,29 @@ const TOOLS = [
         },
     },
     {
+        name: "oracle",
+        description: "Run the same input corpus against clean HEAD and the proposed diff in two shadow worktrees, then compare stdout and exit codes. Deterministic and model-free; the command must contain {input}, replaced by a JSON file with one case.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["command"],
+            properties: {
+                command: { type: "string", description: "Harness command with {input}, e.g. node harness.mjs {input}" },
+                input_file: { type: "string", description: "Repository-relative JSON corpus file" },
+                cases: { type: "array", description: "Inline corpus; each item is a JSON value or {id,input}", items: {} },
+                case_timeout_ms: { type: "integer", minimum: 1000, maximum: 300000 },
+                max_cases: { type: "integer", minimum: 1, maximum: 200 },
+                diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "apoptosis",
         description: "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1450,6 +1473,14 @@ const PROMPTS = [
         name: "stamp-the-passport",
         title: "Stamp the provenance passport",
         description: "Record the commit, file hashes, agent, model and real verification checks in a digest-bound manifest, then verify that the tree still matches.",
+        arguments: [
+            { name: "context", description: "What the change is supposed to do", required: false },
+        ],
+    },
+    {
+        name: "compare-the-behavior",
+        title: "Compare behavior before and after",
+        description: "Run one corpus on clean HEAD and on the diff, compare stdout and exit codes, and report every [BEHAVIOR CHANGED] case with its input.",
         arguments: [
             { name: "context", description: "What the change is supposed to do", required: false },
         ],
@@ -3398,6 +3429,44 @@ async function callPassport(input, cwd) {
         args.push("--force");
     return toToolResult(await runCli(args, cwd));
 }
+async function callOracle(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const command = stringArg(input, "command", true);
+        const args = ["oracle", "--json", "--command", command];
+        const inputFile = stringArg(input, "input_file");
+        if (inputFile)
+            args.push("--input", inputFile);
+        else if (Array.isArray(input.cases)) {
+            args.push("--input", temp.write("oracle-cases.json", JSON.stringify({ cases: input.cases })));
+        }
+        else {
+            throw new ToolInputError("oracle needs input_file or cases");
+        }
+        const diff = stringArg(input, "diff");
+        if (diff)
+            args.push("--diff", temp.write("oracle.diff", diff));
+        const base = baseArg(input);
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        const timeout = integerArg(input, "case_timeout_ms");
+        if (timeout !== undefined)
+            args.push("--case-timeout", String(Math.max(1, Math.round(timeout / 1000))) + "s");
+        const maxCases = integerArg(input, "max_cases");
+        if (maxCases !== undefined)
+            args.push("--max-cases", String(maxCases));
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callApoptosis(input, cwd) {
     const action = stringArg(input, "action") ?? "scan";
     const args = ["apoptosis", action, "--json"];
@@ -3733,6 +3802,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callPolygraph(input, cwd);
         case "passport":
             return callPassport(input, cwd);
+        case "oracle":
+            return callOracle(input, cwd);
         case "apoptosis":
             return callApoptosis(input, cwd);
         case "scan_injection":
@@ -3811,6 +3882,9 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
         return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+    }
+    if (typeof value.status === "string" && typeof value.changed === "number" && Array.isArray(value.results)) {
+        return `oc-pilot: oracle ${value.status}, ${String(value.changed)} changed of ${String(value.cases)}`;
     }
     if (typeof value.status === "string" && Array.isArray(value.changed)) {
         return `oc-pilot: passport ${value.status}`;
@@ -4097,6 +4171,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
         case "stamp-the-passport":
             return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+        case "compare-the-behavior":
+            return `Call the oc-pilot "oracle" tool with a deterministic command that reads the {input} JSON file, a corpus of real cases and the proposed diff. Read every [BEHAVIOR CHANGED] case with its input and before/after output. If behavior changed, decide whether it was intended: update the corpus or expectations only for intended changes, and fix unintended ones. Do not delete failing cases, do not shrink the corpus to hide a difference, and do not claim behavioral equivalence from a corpus that does not cover the change. A same result is evidence for the supplied inputs, not a proof for all inputs. Model-free and read-only.${suffix}`;
         case "cross-examine-the-claim":
             return `Call the oc-pilot "polygraph" tool on the commit or PR message and the proposed diff. Read every claim and its status. If it returns [CLAIM CONTRADICTED], stop and quote the contradicted claim with its evidence: the message asserts something the diff does not do. Fix the code or rewrite the message so it matches reality; never rewrite the message to hide a buggy diff and never delete a claim. If it returns [POLYGRAPH VERIFIED], say that the claims are consistent with the diff, not that the code is correct. If it returns [POLYGRAPH INCONCLUSIVE], list the unverifiable claims and explain what evidence would settle them. Model-backed and read-only.${suffix}`;
         case "raise-antibodies":

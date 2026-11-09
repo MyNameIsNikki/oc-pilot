@@ -15,9 +15,12 @@ export interface ShadowApplyResult {
   files: number;
 }
 
-/** Creates a detached git worktree at .oc-pilot/shadow-tree, based on HEAD. */
-export function createShadow(cwd: string): ShadowWorktree {
-  const dir = join(cwd, ".oc-pilot", "shadow-tree");
+/** Creates a detached git worktree at .oc-pilot/<name>, based on HEAD. */
+export function createShadow(cwd: string, name = "shadow-tree"): ShadowWorktree {
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+    throw new PilotError("Некорректное имя shadow worktree", { exitCode: 2 });
+  }
+  const dir = join(cwd, ".oc-pilot", name);
   const check = runGit(["rev-parse", "--verify", "HEAD"], cwd);
   if (check.status !== 0) {
     throw new PilotError("Shadow worktree требует хотя бы один коммит", {

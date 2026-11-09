@@ -1513,6 +1513,18 @@ test("passport help documents the manifest lifecycle", () => {
   }
 });
 
+test("oracle help documents the behavior verdicts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-oracle-"));
+  try {
+    const result = runCli(["oracle", "--help"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /BEHAVIOR CHANGED/);
+    assert.match(result.stdout, /BEHAVIOR SAME/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {
