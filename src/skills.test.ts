@@ -144,6 +144,7 @@ test("skills document real commands and avoid placeholders", () => {
 test("skills use only documented flags", () => {
   const flags = new Set([
     "--agent",
+    "--allow",
     "--allow-secrets",
     "--allow-unsafe-exec",
     "--allow-write",
@@ -253,6 +254,7 @@ test("skills use only documented flags", () => {
     "--require-tests",
     "--rounds",
     "--runs",
+    "--script-timeout",
     "--run-timeout",
     "--rules",
     "--request",

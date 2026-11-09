@@ -463,6 +463,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(hemorrhage.inputSchema.properties.runs, "runs missing on hemorrhage");
     assert.ok(hemorrhage.inputSchema.properties.threshold, "threshold missing on hemorrhage");
 
+    const cuckoo = tools.find((tool) => tool.name === "cuckoo");
+    assert.ok(cuckoo, "cuckoo tool missing");
+    assert.ok(cuckoo.inputSchema.properties.file, "file missing on cuckoo");
+    assert.ok(cuckoo.inputSchema.properties.script_timeout_ms, "script_timeout_ms missing on cuckoo");
+    assert.ok(cuckoo.inputSchema.properties.allow, "allow missing on cuckoo");
+
     const apoptosis = tools.find((tool) => tool.name === "apoptosis");
     assert.ok(apoptosis, "apoptosis tool missing");
     assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");

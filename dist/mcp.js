@@ -1443,6 +1443,22 @@ const TOOLS = [
         },
     },
     {
+        name: "cuckoo",
+        description: "Run a JS/ESM file in an instrumented vm sandbox and report every fs, net, child_process, env, exit, require and import attempt without granting real access. Offline and read-only.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["file"],
+            properties: {
+                file: { type: "string", description: "Repository-relative JS/ESM file to audit" },
+                script_timeout_ms: { type: "integer", minimum: 100, maximum: 60000 },
+                allow: { type: "array", description: "Allowed capability kinds", items: { type: "string" } },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "apoptosis",
         description: "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1716,6 +1732,14 @@ const PROMPTS = [
         description: "Benchmark HEAD and the diff under identical conditions, compare medians and noise, and stop on [PERFORMANCE REGRESSION].",
         arguments: [
             { name: "context", description: "What the change is supposed to do", required: false },
+        ],
+    },
+    {
+        name: "audit-the-cuckoo",
+        title: "Audit capabilities of untrusted code",
+        description: "Run generated or untrusted JS/ESM in an instrumented sandbox and list every fs, net, child_process, env and exit attempt before trusting it.",
+        arguments: [
+            { name: "context", description: "Where the code came from", required: false },
         ],
     },
     {
@@ -3968,6 +3992,19 @@ async function callHemorrhage(input, cwd) {
         temp.cleanup();
     }
 }
+async function callCuckoo(input, cwd) {
+    const file = stringArg(input, "file", true);
+    const args = ["cuckoo", file, "--json"];
+    const timeout = integerArg(input, "script_timeout_ms");
+    if (timeout !== undefined)
+        args.push("--script-timeout", String(Math.max(1, Math.round(timeout / 1000))) + "s");
+    if (Array.isArray(input.allow)) {
+        const allow = input.allow.filter((item) => typeof item === "string");
+        if (allow.length > 0)
+            args.push("--allow", allow.join(","));
+    }
+    return toToolResult(await runCli(args, cwd));
+}
 async function callApoptosis(input, cwd) {
     const action = stringArg(input, "action") ?? "scan";
     const args = ["apoptosis", action, "--json"];
@@ -4331,6 +4368,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callClairvoyant(input, cwd);
         case "hemorrhage":
             return callHemorrhage(input, cwd);
+        case "cuckoo":
+            return callCuckoo(input, cwd);
         case "apoptosis":
             return callApoptosis(input, cwd);
         case "scan_injection":
@@ -4409,6 +4448,9 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
         return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+    }
+    if (typeof value.status === "string" && Array.isArray(value.capabilities) && typeof value.file === "string") {
+        return `oc-pilot: cuckoo ${value.status}, ${String(value.capabilities.length)} capability(ies)`;
     }
     if (typeof value.status === "string" &&
         ["regression", "improvement", "same", "error"].includes(value.status) &&
@@ -4746,6 +4788,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
         case "stamp-the-passport":
             return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+        case "audit-the-cuckoo":
+            return `Call the oc-pilot "cuckoo" tool on the generated or untrusted JS/ESM file. Read every capability: fs, net, child_process, env, exit, require, import. If it returns [CAPABILITY DENIED], do not trust or run the file with real privileges; remove the capability or isolate it behind an explicit allowlist. A clean result covers only this file and this sandbox, not transitive native code or dynamic imports. Offline and read-only.${suffix}`;
         case "stop-the-bleeding":
             return `Call the oc-pilot "hemorrhage" tool with the benchmark command, 10 runs and a 5% threshold. Read medians, p95, MAD, noise and the p-value. If it returns [PERFORMANCE REGRESSION], stop: the diff is slower beyond noise; find the hot path and fix it or justify the tradeoff. Do not lower the number of runs, raise the threshold, delete the benchmark or cherry-pick faster samples to force a pass. If it returns [PERFORMANCE SAME], say the benchmark did not prove a regression, not that performance is fine everywhere. Offline and read-only.${suffix}`;
         case "predict-the-ci-scope":
