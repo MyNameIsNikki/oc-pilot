@@ -83,6 +83,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
       "operate-with-a-scalpel",
       "declare-mayday",
       "predict-the-ci-scope",
+      "stop-the-bleeding",
       "prune-senescent-code",
       "scan-for-injection",
       "compile-hologram",

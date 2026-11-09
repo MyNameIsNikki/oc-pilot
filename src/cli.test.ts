@@ -1601,6 +1601,18 @@ test("clairvoyant help documents the CI scope", () => {
   }
 });
 
+test("hemorrhage help documents the benchmark and regression verdicts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-hemorrhage-"));
+  try {
+    const result = runCli(["hemorrhage", "--help"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /PERFORMANCE REGRESSION/);
+    assert.match(result.stdout, /Mann-Whitney/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("receipt records a run and verifies against HEAD", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
   try {

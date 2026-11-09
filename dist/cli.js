@@ -69,6 +69,7 @@ import { runIntent } from "./commands/intent.js";
 import { runScalpel } from "./commands/scalpel.js";
 import { runMayday } from "./commands/mayday.js";
 import { runClairvoyant } from "./commands/clairvoyant.js";
+import { runHemorrhageCommand } from "./commands/hemorrhage.js";
 import { runApoptosis } from "./commands/apoptosis.js";
 import { runInjection } from "./commands/injection.js";
 import { runSast } from "./commands/sast.js";
@@ -107,6 +108,7 @@ const HANDLERS = {
     scalpel: runScalpel,
     mayday: runMayday,
     clairvoyant: runClairvoyant,
+    hemorrhage: runHemorrhageCommand,
     apoptosis: runApoptosis,
     injection: runInjection,
     sast: runSast,
@@ -217,6 +219,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   scalpel      Минимальный патч под падающий тест и blast radius изменений
   mayday       Найти первый плохой коммит и подготовить безопасный откат
   clairvoyant  Предсказать затронутые тесты и минимальный набор для CI
+  hemorrhage   Доказать регрессию производительности на бенчмарке
   apoptosis   Найти сенесцентные функции по @lifespan и удалить их после тестов
   injection   Поиск prompt-injection и скрытых инструкций в тексте для агента
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
@@ -303,6 +306,7 @@ ${COMMON_HELP}
   oc-pilot scalpel --log test-failure.log --apply
   oc-pilot mayday bisect --good v1.2.0 --bad HEAD --command "npm test"
   oc-pilot clairvoyant --staged
+  oc-pilot hemorrhage --command "node bench.mjs" --runs 10
   oc-pilot apoptosis scan --fail-on-senescent
   oc-pilot injection --fail-on medium
   oc-pilot receipt --staged
@@ -347,7 +351,7 @@ async function main(argv) {
             });
         }
         throw new PilotError(`Неизвестная команда: ${command}`, {
-            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, polygraph, passport, oracle, vaccine, mitosis, intent, scalpel, mayday, clairvoyant, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+            hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, polygraph, passport, oracle, vaccine, mitosis, intent, scalpel, mayday, clairvoyant, hemorrhage, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
             exitCode: 2,
         });
     }

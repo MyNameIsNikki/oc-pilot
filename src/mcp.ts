@@ -1498,6 +1498,32 @@ const TOOLS = [
     },
   },
   {
+    name: "hemorrhage",
+    description:
+      "Run the same benchmark on HEAD and the diff in two shadow worktrees, compare medians, p95 and MAD, and test significance with Mann-Whitney. Reports [PERFORMANCE REGRESSION] only beyond the threshold, noise floor and p < 0.05. Offline and read-only.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["command"],
+      properties: {
+        command: { type: "string", description: "Benchmark command; print a number for metric=stdout" },
+        metric: { type: "string", enum: ["time", "stdout"] },
+        direction: { type: "string", enum: ["lower", "higher"] },
+        runs: { type: "integer", minimum: 3, maximum: 50 },
+        warmup: { type: "integer", minimum: 0, maximum: 10 },
+        threshold: { type: "number", minimum: 0, maximum: 100 },
+        run_timeout_ms: { type: "integer", minimum: 1000, maximum: 900000 },
+        diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+        base: { type: "string" },
+        staged: { type: "boolean" },
+        unstaged: { type: "boolean" },
+        include_untracked: { type: "boolean" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "apoptosis",
     description:
       "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
@@ -1790,6 +1816,15 @@ const PROMPTS = [
     title: "Predict the minimal CI scope",
     description:
       "Map the diff to the tests that import or reference the changed symbols, then run only that subset instead of the full suite.",
+    arguments: [
+      { name: "context", description: "What the change is supposed to do", required: false },
+    ],
+  },
+  {
+    name: "stop-the-bleeding",
+    title: "Prove a performance regression",
+    description:
+      "Benchmark HEAD and the diff under identical conditions, compare medians and noise, and stop on [PERFORMANCE REGRESSION].",
     arguments: [
       { name: "context", description: "What the change is supposed to do", required: false },
     ],
@@ -3667,6 +3702,36 @@ async function callClairvoyant(input: JsonObject, cwd: string): Promise<ToolResu
   }
 }
 
+async function callHemorrhage(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const command = stringArg(input, "command", true)!;
+    const args = ["hemorrhage", "--json", "--command", command];
+    const metric = stringArg(input, "metric");
+    if (metric) args.push("--metric", metric);
+    const direction = stringArg(input, "direction");
+    if (direction) args.push("--direction", direction);
+    const runs = integerArg(input, "runs");
+    if (runs !== undefined) args.push("--runs", String(runs));
+    const warmup = integerArg(input, "warmup");
+    if (warmup !== undefined) args.push("--warmup", String(warmup));
+    const threshold = numberArg(input, "threshold");
+    if (threshold !== undefined) args.push("--threshold", String(threshold));
+    const timeout = integerArg(input, "run_timeout_ms");
+    if (timeout !== undefined) args.push("--run-timeout", String(Math.max(1, Math.round(timeout / 1000))) + "s");
+    const diff = stringArg(input, "diff");
+    if (diff) args.push("--diff", temp.write("hemorrhage.diff", diff));
+    const base = baseArg(input);
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
   const action = stringArg(input, "action") ?? "scan";
   const args = ["apoptosis", action, "--json"];
@@ -3988,6 +4053,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callMayday(input, cwd);
     case "clairvoyant":
       return callClairvoyant(input, cwd);
+    case "hemorrhage":
+      return callHemorrhage(input, cwd);
     case "apoptosis":
       return callApoptosis(input, cwd);
     case "scan_injection":
@@ -4076,6 +4143,14 @@ function summarizeResult(value: JsonObject): string {
   }
   if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
     return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+  }
+  if (
+    typeof value.status === "string" &&
+    ["regression", "improvement", "same", "error"].includes(value.status) &&
+    typeof value.changePct === "number" &&
+    typeof value.pValue === "number"
+  ) {
+    return `oc-pilot: hemorrhage ${value.status}, ${value.changePct.toFixed(1)}%, p=${value.pValue.toFixed(3)}`;
   }
   if (Array.isArray(value.scope) && Array.isArray(value.changedFiles) && Array.isArray(value.tests)) {
     return `oc-pilot: clairvoyant ${String(value.scope.length)} test(s) for ${String(value.changedFiles.length)} file(s)`;
@@ -4421,6 +4496,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
     case "stamp-the-passport":
       return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+    case "stop-the-bleeding":
+      return `Call the oc-pilot "hemorrhage" tool with the benchmark command, 10 runs and a 5% threshold. Read medians, p95, MAD, noise and the p-value. If it returns [PERFORMANCE REGRESSION], stop: the diff is slower beyond noise; find the hot path and fix it or justify the tradeoff. Do not lower the number of runs, raise the threshold, delete the benchmark or cherry-pick faster samples to force a pass. If it returns [PERFORMANCE SAME], say the benchmark did not prove a regression, not that performance is fine everywhere. Offline and read-only.${suffix}`;
     case "predict-the-ci-scope":
       return `Call the oc-pilot "clairvoyant" tool on the proposed diff. Read the scope and every reason: import, symbol or name. Run only the tests in scope when they genuinely cover the change; if the scope is empty, run the full suite instead of pretending the change is covered. Do not delete or skip tests to make the subset look sufficient. Offline and read-only.${suffix}`;
     case "declare-mayday":
