@@ -11,6 +11,7 @@ import { scanAuthzSource } from "./authz.js";
 import { authzFingerprint, loadFindingsBaseline, sastFingerprint } from "./findings-baseline.js";
 import { scanSource } from "./sast.js";
 import { readRepository } from "./slop/collect.js";
+import { isTestFile } from "./slop/source.js";
 const GRADE_LABELS = {
     "agent-ready": "готов к агенту",
     almost: "почти готов",
@@ -52,7 +53,7 @@ function ciFile(cwd) {
  * offline and cheap: no model call, no network, no test run.
  */
 function securityCheck(cwd) {
-    const files = readRepository(cwd).files;
+    const files = readRepository(cwd).files.filter((file) => !isTestFile(file.path));
     if (files.length === 0) {
         return check("security", "Безопасность", 15, "fail", "нет исходников для анализа");
     }

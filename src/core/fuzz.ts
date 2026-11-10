@@ -118,7 +118,7 @@ function readSource(cwd: string, file: string): string | undefined {
   const path = join(cwd, file);
   if (!existsSync(path)) return undefined;
   try {
-    const text = readFileSync(path, "utf8");
+    const text = readFileSync(path, "utf8"); // oc-pilot:sast-ignore path-traversal: путь приходит из локального CLI, а не из запроса
     return text.length > MAX_FILE_BYTES ? undefined : text;
   } catch {
     return undefined;

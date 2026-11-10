@@ -59,6 +59,20 @@ test("stripComments removes comments but keeps string contents and offsets", () 
     assert.equal(clean.split("\n").length, source.split("\n").length);
     assert.equal(clean.length, source.length);
 });
+test("stripComments keeps regex literals from swallowing later comments", () => {
+    const source = [
+        "const quotes = /[\"'`]/;",
+        "// exec(req.query.hidden)",
+        "const division = total / count;",
+        "const value = `exec(req.query.kept)`;",
+        "",
+    ].join("\n");
+    const clean = stripComments(source);
+    assert.equal(clean.includes("exec(req.query.hidden)"), false);
+    assert.equal(clean.includes("exec(req.query.kept)"), true);
+    assert.equal(clean.includes("const quotes = /[\"'`]/;"), true);
+    assert.equal(clean.length, source.length);
+});
 test("inline suppressions need a reason and may be scoped to a rule", () => {
     const suppressed = scanSource("src/admin.js", "exec(req.query.cmd); // oc-pilot:sast-ignore command-injection: trusted admin command\n");
     assert.deepEqual(suppressed.findings, []);

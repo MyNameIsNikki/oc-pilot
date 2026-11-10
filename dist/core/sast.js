@@ -15,7 +15,7 @@ const RULES = [
     {
         id: "shell-true",
         severity: "medium",
-        message: "spawn with shell:true turns arguments into shell syntax",
+        message: "spawn with shell:true turns arguments into shell syntax", // oc-pilot:sast-ignore shell-true: описание правила, а не вызов spawn
         sink: /\bshell\s*:\s*true\b/,
         taint: false,
     },
@@ -106,6 +106,25 @@ export function parseSastSeverity(value) {
 export function stripComments(text) {
     let out = "";
     let state = "code";
+    let inClass = false;
+    // A slash starts a regex literal only in expression position; otherwise it is division.
+    const regexAllowed = () => {
+        let index = out.length - 1;
+        while (index >= 0 && /\s/.test(out[index]))
+            index -= 1;
+        if (index < 0)
+            return true;
+        const previous = out[index];
+        if ("=(:[,!&|?{};".includes(previous))
+            return true;
+        if (previous === ">" && out[index - 1] === "=")
+            return true;
+        let start = index;
+        while (start >= 0 && /[\w$]/.test(out[start]))
+            start -= 1;
+        const word = out.slice(start + 1, index + 1);
+        return /^(?:return|case|delete|typeof|void|instanceof|in|of|yield|await)$/.test(word);
+    };
     for (let index = 0; index < text.length; index += 1) {
         const char = text[index];
         const next = text[index + 1];
@@ -120,6 +139,12 @@ export function stripComments(text) {
                 state = "block";
                 out += "  ";
                 index += 1;
+                continue;
+            }
+            if (char === "/" && regexAllowed()) {
+                state = "regex";
+                inClass = false;
+                out += char;
                 continue;
             }
             if (char === "'")
@@ -150,6 +175,21 @@ export function stripComments(text) {
             else {
                 out += char === "\n" ? "\n" : " ";
             }
+            continue;
+        }
+        if (state === "regex") {
+            out += char;
+            if (char === "\\") {
+                out += next ?? "";
+                index += 1;
+                continue;
+            }
+            if (char === "[")
+                inClass = true;
+            else if (char === "]")
+                inClass = false;
+            else if (char === "/" && !inClass)
+                state = "code";
             continue;
         }
         if (char === "\\") {

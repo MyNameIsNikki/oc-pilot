@@ -162,6 +162,21 @@ test("assessReadiness fails on a vulnerable source file", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("assessReadiness ignores vulnerable test fixtures", () => {
+    const dir = makeRepo({
+        "src/app.js": "export const ok = 1;\n",
+        "src/app.test.js": 'const { exec } = require("child_process");\nexec(req.query.cmd);\n',
+    });
+    try {
+        const security = assessReadiness(dir).checks.find((check) => check.id === "security");
+        assert.ok(security);
+        assert.equal(security.status, "pass");
+        assert.match(security.detail, /опасных паттернов нет/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("assessReadiness honors the findings baseline", () => {
     const source = 'const { exec } = require("child_process");\nexec(req.query.cmd);\n';
     const dir = makeRepo({ "src/app.js": source });

@@ -95,6 +95,17 @@ test("scanAuthzSource skips public routes and handlers passed by reference", () 
   assert.deepEqual(reference.routes, []);
 });
 
+test("scanAuthzSource ignores route examples in comments after a regex literal", () => {
+  const source = [
+    "const quotes = /[\"'`]/;",
+    '// router.get("/users/:id", (req, res) => res.send("x"));',
+    "export const ok = 1;",
+    "",
+  ].join("\n");
+  const report = scanAuthzSource("src/app.ts", source);
+  assert.deepEqual(report.findings, []);
+});
+
 test("scanAuthzSource understands Next.js app routes", () => {
   const source = [
     "export async function GET(req: Request) {",

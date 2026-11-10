@@ -30,7 +30,7 @@ export function runShellCommand(
 
     const child = spawn(command, {
       cwd,
-      shell: true,
+      shell: true, // oc-pilot:sast-ignore shell-true: команда из конфигурации исполняется через shell по контракту
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: (() => {

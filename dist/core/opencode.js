@@ -203,7 +203,7 @@ export function runOpenCode(options) {
         const child = process.platform === "win32"
             ? spawn(windowsCommand, {
                 cwd: prepared.cwd,
-                shell: true,
+                shell: true, // oc-pilot:sast-ignore shell-true: Windows требует shell для запуска .cmd-обёртки opencode
                 windowsHide: true,
                 stdio: ["pipe", "pipe", "pipe"],
                 env: prepared.env,
