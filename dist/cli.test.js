@@ -1364,6 +1364,18 @@ test("quarantine help documents owners and expiry", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("mirage help documents record and replay", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-mirage-"));
+    try {
+        const result = runCli(["mirage", "--help"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /record/);
+        assert.match(result.stdout, /MIRAGE MISS/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("receipt records a run and verifies against HEAD", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
     try {

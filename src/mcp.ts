@@ -1607,6 +1607,25 @@ const TOOLS = [
     },
   },
   {
+    name: "mirage",
+    description:
+      "Record fetch responses and Date.now into a cassette, then replay them without the network; replay fails with [MIRAGE MISS] on an unrecorded URL. Actions: record, replay, list, show, clear. record/clear write and need --allow-write; replay executes the command.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action"],
+      properties: {
+        action: { type: "string", enum: ["record", "replay", "list", "show", "clear"] },
+        command: { type: "string", description: "Command to run under the preload" },
+        cassette: { type: "string", description: "Repository-relative cassette JSON" },
+        timeout_ms: { type: "integer", minimum: 1000, maximum: 900000 },
+        force: { type: "boolean", description: "Confirm clear" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "apoptosis",
     description:
       "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
@@ -1946,6 +1965,15 @@ const PROMPTS = [
       "Put a flaky test under an owner and a deadline, then fail the gate when the deadline passes instead of suppressing it forever.",
     arguments: [
       { name: "context", description: "Why the test is flaky", required: false },
+    ],
+  },
+  {
+    name: "freeze-the-network",
+    title: "Freeze the network and clock",
+    description:
+      "Record real fetch responses and Date.now into a cassette, then replay them offline and fail on any unrecorded request.",
+    arguments: [
+      { name: "context", description: "What the test is exercising", required: false },
     ],
   },
   {
@@ -3924,6 +3952,19 @@ async function callQuarantine(input: JsonObject, cwd: string): Promise<ToolResul
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callMirage(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const action = stringArg(input, "action", true)!;
+  const args = ["mirage", action, "--json"];
+  const command = stringArg(input, "command");
+  if (command) args.push("--command", command);
+  const cassette = stringArg(input, "cassette");
+  if (cassette) args.push("--cassette", cassette);
+  const timeout = integerArg(input, "timeout_ms");
+  if (timeout !== undefined) args.push("--timeout", String(Math.max(1, Math.round(timeout / 1000))) + "s");
+  if (booleanArg(input, "force")) args.push("--force");
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
   const action = stringArg(input, "action") ?? "scan";
   const args = ["apoptosis", action, "--json"];
@@ -4120,6 +4161,9 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
     if (name === "quarantine" && ["add", "remove", "clear"].includes(stringArg(input, "action") ?? "")) {
       throw new ToolInputError("quarantine add/remove/clear write .oc-pilot/quarantine.json and are disabled in read-only mode; start the MCP server with --allow-write");
     }
+    if (name === "mirage" && ["record", "clear"].includes(stringArg(input, "action") ?? "")) {
+      throw new ToolInputError("mirage record/clear write cassettes and are disabled in read-only mode; start the MCP server with --allow-write");
+    }
     if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
       throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
     }
@@ -4261,6 +4305,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callBeacon(input, cwd);
     case "quarantine":
       return callQuarantine(input, cwd);
+    case "mirage":
+      return callMirage(input, cwd);
     case "apoptosis":
       return callApoptosis(input, cwd);
     case "scan_injection":
@@ -4349,6 +4395,9 @@ function summarizeResult(value: JsonObject): string {
   }
   if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
     return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+  }
+  if (typeof value.mode === "string" && typeof value.cassette === "string" && typeof value.status === "string" && typeof value.entries === "number") {
+    return `oc-pilot: mirage ${value.mode} ${value.status}, ${String(value.entries)} fetch`;
   }
   if (typeof value.status === "string" && Array.isArray(value.expired) && typeof value.summary === "string") {
     return `oc-pilot: quarantine ${value.status}, ${String(value.expired.length)} expired`;
@@ -4727,6 +4776,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
     case "stamp-the-passport":
       return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+    case "freeze-the-network":
+      return `Call the oc-pilot "mirage" tool with action=record, the test command and a cassette path. Then stop the network or run in an environment without it and call action=replay with the same command. Read the recorded entries and clock values. If replay returns [MIRAGE MISS], stop: the test depends on an unrecorded request; record it explicitly instead of widening the matcher or deleting the assertion. Do not hand-edit the cassette to fake a response. record/clear need --allow-write.${suffix}`;
     case "quarantine-the-flake":
       return `Call the oc-pilot "quarantine" tool with action=add and a real test name, owner, reason and a short expiry (14 days or less). Read the expiry and tell the user who owns the fix and when the gate will fail. Use action=check in CI; if it returns [QUARANTINE EXPIRED], fix or delete the test instead of extending the deadline silently. Never quarantine a test without an owner and never make the expiry permanent. add/remove/clear need --allow-write.${suffix}`;
     case "stamp-the-beacon":

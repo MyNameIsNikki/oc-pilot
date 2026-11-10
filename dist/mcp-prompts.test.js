@@ -67,6 +67,7 @@ test("MCP advertises prompts and renders them with arguments", () => {
             "read-the-chronicle",
             "stamp-the-beacon",
             "quarantine-the-flake",
+            "freeze-the-network",
             "prune-senescent-code",
             "scan-for-injection",
             "compile-hologram",

@@ -74,6 +74,7 @@ import { runCuckooCommand } from "./commands/cuckoo.js";
 import { runChronos } from "./commands/chronos.js";
 import { runBeacon } from "./commands/beacon.js";
 import { runQuarantine } from "./commands/quarantine.js";
+import { runMirageCommand } from "./commands/mirage.js";
 import { runApoptosis } from "./commands/apoptosis.js";
 import { runInjection } from "./commands/injection.js";
 import { runSast } from "./commands/sast.js";
@@ -120,6 +121,7 @@ const HANDLERS: Record<string, Handler> = {
   chronos: runChronos,
   beacon: runBeacon,
   quarantine: runQuarantine,
+  mirage: runMirageCommand,
   apoptosis: runApoptosis,
   injection: runInjection,
   sast: runSast,
@@ -236,6 +238,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   chronos      История файла: fixes, reverts, инциденты и hotspot score
   beacon       Подписанный манифест проверки коммита для PR и CI
   quarantine   Флейки с владельцем и сроком, чтобы подавление не стало вечным
+  mirage       Записать и воспроизвести fetch и время без сети
   apoptosis   Найти сенесцентные функции по @lifespan и удалить их после тестов
   injection   Поиск prompt-injection и скрытых инструкций в тексте для агента
   receipt     Квитанция о тестах и preflight, привязанная к коммиту
@@ -327,6 +330,7 @@ ${COMMON_HELP}
   oc-pilot chronos src/auth.ts
   oc-pilot beacon stamp --check tests=pass --key beacon.key
   oc-pilot quarantine add --test "auth flow" --owner alice --reason "race"
+  oc-pilot mirage record --command "node test.mjs" --cassette cassettes/login.json
   oc-pilot apoptosis scan --fail-on-senescent
   oc-pilot injection --fail-on medium
   oc-pilot receipt --staged
@@ -375,7 +379,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, polygraph, passport, oracle, vaccine, mitosis, intent, scalpel, mayday, clairvoyant, hemorrhage, cuckoo, chronos, beacon, quarantine, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, polygraph, passport, oracle, vaccine, mitosis, intent, scalpel, mayday, clairvoyant, hemorrhage, cuckoo, chronos, beacon, quarantine, mirage, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }

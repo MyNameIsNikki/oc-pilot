@@ -489,6 +489,12 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(quarantine.inputSchema.properties.owner, "owner missing on quarantine");
     assert.ok(quarantine.inputSchema.properties.days, "days missing on quarantine");
 
+    const mirage = tools.find((tool) => tool.name === "mirage");
+    assert.ok(mirage, "mirage tool missing");
+    assert.ok(mirage.inputSchema.properties.action, "action missing on mirage");
+    assert.ok(mirage.inputSchema.properties.command, "command missing on mirage");
+    assert.ok(mirage.inputSchema.properties.cassette, "cassette missing on mirage");
+
     const apoptosis = tools.find((tool) => tool.name === "apoptosis");
     assert.ok(apoptosis, "apoptosis tool missing");
     assert.ok(apoptosis.inputSchema.properties.action, "action missing on apoptosis");

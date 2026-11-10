@@ -58,6 +58,7 @@ If the `oc-pilot` MCP server is configured, call its tools directly:
 - `chronos` - read a file's fix/revert/incident/security history plus antibodies and vaccines, score it and report `[HOTSPOT]`; a low score is not proof of safety.
 - `beacon` - stamp a digest-bound verification manifest for HEAD with checks, commands, agent, model and optional HMAC/ssh-keygen signature; `verify` catches tampering and `[UNATTRIBUTED]`, `render --markdown` makes a PR comment, and stamp/clear need `--allow-write`.
 - `quarantine` - track a flaky test with an owner, reason and expiry; `check` fails with `[QUARANTINE EXPIRED]` so suppression cannot become permanent, and add/remove/clear need `--allow-write`.
+- `mirage` - record `fetch` responses and `Date.now` into a cassette, replay them offline and fail with `[MIRAGE MISS]` on an unrecorded request; record/clear need `--allow-write`.
 - `apoptosis` - scan functions marked `/* @lifespan: 30d */`; report `[Senescent]` when the marker is older than the lifespan and there are no references, and only with `apply --confirm` comment them out in a shadow worktree, run tests and land the diff if green.
 - `injection` - scan README, docs, comments, HTML and source for prompt-injection, role hijacks, exfiltration URLs, hidden unicode and base64 instructions; `--fail-on` controls the gate and `--fix` strips invisible characters.
 - `contract_drift` - removed or newly required fields and type changes in TypeScript, Zod, Prisma, Pydantic and JSON Schema, plus untouched consumers of a removed field.
@@ -142,6 +143,8 @@ oc-pilot beacon stamp --check tests=pass --key beacon.key
 oc-pilot beacon verify --key beacon.key
 oc-pilot quarantine add --test "auth flow" --owner alice --reason "race"
 oc-pilot quarantine check
+oc-pilot mirage record --command "node test.mjs" --cassette cassettes/login.json
+oc-pilot mirage replay --command "node test.mjs" --cassette cassettes/login.json
 oc-pilot skeptic --staged
 oc-pilot apoptosis scan --fail-on-senescent
 oc-pilot injection --fail-on medium
