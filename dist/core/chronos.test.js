@@ -70,6 +70,29 @@ test("analyzeChronos limits history and treats a quiet file as stable", () => {
         rmSync(repo.dir, { recursive: true, force: true });
     }
 });
+test("analyzeChronos counts only the file, not the whole commit", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-chronos-scope-"));
+    try {
+        git(["init", "-q"], dir);
+        git(["config", "user.email", "test@example.com"], dir);
+        git(["config", "user.name", "Test"], dir);
+        git(["config", "core.autocrlf", "false"], dir);
+        writeFileSync(join(dir, "a.ts"), "a1\n", "utf8");
+        writeFileSync(join(dir, "b.ts"), "b1\n", "utf8");
+        git(["add", "."], dir);
+        git(["commit", "-m", "init"], dir);
+        writeFileSync(join(dir, "a.ts"), "a1\na2\na3\n", "utf8");
+        writeFileSync(join(dir, "b.ts"), "b1\nb2\nb3\nb4\nb5\n", "utf8");
+        git(["add", "."], dir);
+        git(["commit", "-m", "change both"], dir);
+        const report = analyzeChronos(dir, "a.ts");
+        assert.equal(report.totals.additions, 3);
+        assert.equal(report.totals.deletions, 0);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("analyzeChronos counts antibodies and vaccines linked to the file history", () => {
     const repo = makeRepo();
     try {

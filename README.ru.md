@@ -106,7 +106,7 @@ jobs:
       - run: npx -y oc-pilot preflight --base ${{ github.event.pull_request.base.sha }} --github
 ```
 
-`preflight` проверяет секреты, детерминированный SAST, авторизацию маршрутов, здоровье зависимостей, ослабленные тесты и дельту Slop Index. При провале он возвращает ненулевой код, дальше работает branch protection.
+`preflight` проверяет секреты, детерминированный SAST, авторизацию маршрутов, здоровье зависимостей, ослабленные тесты и дельту Slop Index. При провале он возвращает ненулевой код, дальше работает branch protection. SAST и проверка маршрутов по умолчанию пропускают тестовые фикстуры; `--include-tests` включает их.
 
 ## Под капотом
 
@@ -985,7 +985,7 @@ ZCode импортирует серверы из Claude Code, Codex, OpenCode и
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # версия зафиксирована для воспроизводимости:
-npx -y oc-pilot@0.114.0 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.114.1 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -1057,7 +1057,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.114.0
+      - uses: MyNameIsNikki/oc-pilot@v0.114.1
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

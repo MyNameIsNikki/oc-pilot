@@ -2396,6 +2396,72 @@ test("preflight runs SAST on the changed files", () => {
   }
 });
 
+test("preflight skips test fixtures in SAST and authz unless include-tests is set", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-preflight-tests-fixtures-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "base.txt"), "x\n", "utf8");
+    spawnSync("git", ["add", "base.txt"], { cwd: dir });
+    spawnSync(
+      "git",
+      ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init"],
+      { cwd: dir },
+    );
+    mkdirSync(join(dir, "src"), { recursive: true });
+    const fixture = [
+      'const { exec } = require("child_process");',
+      "exec(req.query.cmd);",
+      'app.get("/users/:id", (req, res) => res.send("x"));',
+      "",
+    ].join("\n");
+    writeFileSync(join(dir, "src", "app.js"), "export const ok = 1;\n", "utf8");
+    writeFileSync(join(dir, "src", "app.test.js"), fixture, "utf8");
+    const patch = [
+      "diff --git a/src/app.js b/src/app.js",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/app.js",
+      "@@ -0,0 +1,1 @@",
+      "+export const ok = 1;",
+      "diff --git a/src/app.test.js b/src/app.test.js",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/app.test.js",
+      "@@ -0,0 +1,3 @@",
+      '+const { exec } = require("child_process");',
+      "+exec(req.query.cmd);",
+      '+app.get("/users/:id", (req, res) => res.send("x"));',
+      "",
+    ].join("\n");
+    const diffPath = join(dir, "changes.diff");
+    writeFileSync(diffPath, patch, "utf8");
+
+    const skipped = runCli(
+      ["preflight", "--diff", diffPath, "--no-deps", "--no-slop", "--json", "--cwd", dir],
+      dir,
+    );
+    assert.equal(skipped.status, 0, skipped.stderr);
+    const skippedPayload = JSON.parse(skipped.stdout) as {
+      checks: Array<{ id: string; status: string }>;
+    };
+    assert.equal(skippedPayload.checks.find((check) => check.id === "sast")?.status, "pass");
+    assert.equal(skippedPayload.checks.find((check) => check.id === "authz")?.status, "pass");
+
+    const included = runCli(
+      ["preflight", "--diff", diffPath, "--no-deps", "--no-slop", "--include-tests", "--json", "--cwd", dir],
+      dir,
+    );
+    assert.equal(included.status, 1, included.stderr);
+    const includedPayload = JSON.parse(included.stdout) as {
+      checks: Array<{ id: string; status: string }>;
+    };
+    assert.equal(includedPayload.checks.find((check) => check.id === "sast")?.status, "fail");
+    assert.equal(includedPayload.checks.find((check) => check.id === "authz")?.status, "fail");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("preflight runs authz on changed routes", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-preflight-authz-"));
   try {

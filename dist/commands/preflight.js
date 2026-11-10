@@ -22,6 +22,7 @@ const OPTIONS = withCommon({
     "no-authz": { type: "boolean" },
     "no-deps": { type: "boolean" },
     "no-tests": { type: "boolean" },
+    "include-tests": { type: "boolean" },
     "no-slop": { type: "boolean" },
     "no-honeypot": { type: "boolean" },
     "no-injection": { type: "boolean" },
@@ -51,6 +52,7 @@ const HELP = `Использование:
       --no-authz            не проверять авторизацию маршрутов
       --no-deps             не проверять зависимости
       --no-tests            не искать ослабление тестов
+      --include-tests       сканировать тестовые файлы в SAST/authz (по умолчанию пропускаются)
       --no-slop             не считать дельту Slop Index
       --no-honeypot         не проверять приманки honeypot
       --no-injection        не проверять prompt-injection в тексте для агента
@@ -120,6 +122,7 @@ export async function runPreflight(argv) {
         authzGate: gate === "high" ? "high" : "medium",
         maxSlopDelta: optionalNumber(values, "max-delta"),
         since: asString(values, "since"),
+        includeTests: asBoolean(values, "include-tests"),
     });
     const invariants = asBoolean(values, "invariants")
         ? await checkInvariants(ctx.cwd, ctx, {

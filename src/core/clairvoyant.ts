@@ -2,7 +2,7 @@ import { dirname, extname, join } from "node:path";
 import { collectChangedFiles } from "./diff.js";
 import { extractChangedSymbols, type ChangedSymbol } from "./impact.js";
 import { readRepository } from "./slop/collect.js";
-import { isTestFile } from "./slop/source.js";
+import { isGeneratedPath, isTestFile } from "./slop/source.js";
 
 export interface ClairvoyantTest {
   path: string;
@@ -99,13 +99,14 @@ function namingCandidates(changedPath: string): string[] {
 /** Maps changed files and symbols to the tests that are most likely affected. */
 export function analyzeClairvoyant(cwd: string, diff: string): ClairvoyantReport {
   const changedFiles = collectChangedFiles(diff).filter(
-    (path) => path !== "(unknown)" && path !== "(diff)",
+    (path) => path !== "(unknown)" && path !== "(diff)" && !isGeneratedPath(path),
   );
   const changedSet = new Set(changedFiles);
-  const symbols = extractChangedSymbols(diff);
+  const symbols = extractChangedSymbols(diff).filter((symbol) => !isGeneratedPath(symbol.file));
   const repo = readRepository(cwd);
-  const known = new Set(repo.files.map((file) => normalize(file.path)));
-  const tests = repo.files.filter((file) => isTestFile(file.path));
+  const files = repo.files.filter((file) => !isGeneratedPath(file.path));
+  const known = new Set(files.map((file) => normalize(file.path)));
+  const tests = files.filter((file) => isTestFile(file.path));
 
   const results: ClairvoyantTest[] = [];
   for (const test of tests) {

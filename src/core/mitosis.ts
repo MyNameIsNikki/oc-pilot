@@ -6,7 +6,7 @@ import { PilotError } from "./errors.js";
 import { runGit } from "./git.js";
 import { detectTestCommand } from "./project.js";
 import { createShadow } from "./shadow.js";
-import { isTestFile } from "./slop/source.js";
+import { isGeneratedPath, isTestFile } from "./slop/source.js";
 
 export type MitosisStrategy = "file" | "dir" | "type";
 
@@ -80,8 +80,9 @@ function isManifest(path: string): boolean {
   );
 }
 
-function typeKey(path: string): "config" | "docs" | "tests" | "source" {
+function typeKey(path: string): "config" | "generated" | "docs" | "tests" | "source" {
   if (isManifest(path)) return "config";
+  if (isGeneratedPath(path)) return "generated";
   if (isDoc(path)) return "docs";
   if (isTestFile(path)) return "tests";
   return "source";
@@ -114,7 +115,7 @@ function groupTitle(strategy: MitosisStrategy, key: string, count: number, prefi
 
 function groupRank(strategy: MitosisStrategy, key: string): number {
   if (strategy !== "type") return 0;
-  return key === "config" ? 0 : key === "source" ? 1 : key === "tests" ? 2 : 3;
+  return key === "config" ? 0 : key === "source" ? 1 : key === "tests" ? 2 : key === "docs" ? 3 : 4;
 }
 
 /** Splits a unified diff into reviewable, independently applicable commits. */

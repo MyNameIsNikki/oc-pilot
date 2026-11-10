@@ -13,7 +13,7 @@ import {
 import { scanSource, type SastFinding, type SastSeverity } from "./sast.js";
 import { scanAuthzSource, type AuthzFinding, type AuthzSeverity } from "./authz.js";
 import { analyzeAgainst } from "./slop/index.js";
-import { isCodeFile, isGeneratedPath } from "./slop/source.js";
+import { isCodeFile, isGeneratedPath, isTestFile } from "./slop/source.js";
 import { detectHoneypotTriggers } from "./honeypot.js";
 import { scanInjection } from "./injection.js";
 import { analyzeTestWeakness } from "./test-weakening.js";
@@ -25,6 +25,8 @@ export interface CollectPreflightOptions {
   authzGate?: AuthzSeverity;
   maxSlopDelta?: number;
   since?: string;
+  /** Include test files in SAST/authz. Default: false, fixtures are noisy. */
+  includeTests?: boolean;
 }
 
 /**
@@ -78,7 +80,11 @@ export function collectPreflight(
   let sastSkip: string | undefined;
   if (!disabled.includes("sast")) {
     const files = data.changedFiles.filter(
-      (file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(cwd, file)),
+      (file) =>
+        isCodeFile(file) &&
+        !isGeneratedPath(file) &&
+        existsSync(join(cwd, file)) &&
+        (options.includeTests === true || !isTestFile(file)),
     );
     if (files.length === 0) {
       sastSkip = "нет изменённых файлов для анализа";
@@ -96,7 +102,11 @@ export function collectPreflight(
   let authzSkip: string | undefined;
   if (!disabled.includes("authz")) {
     const files = data.changedFiles.filter(
-      (file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(cwd, file)),
+      (file) =>
+        isCodeFile(file) &&
+        !isGeneratedPath(file) &&
+        existsSync(join(cwd, file)) &&
+        (options.includeTests === true || !isTestFile(file)),
     );
     if (files.length === 0) {
       authzSkip = "нет изменённых файлов для анализа";

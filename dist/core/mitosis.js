@@ -6,7 +6,7 @@ import { PilotError } from "./errors.js";
 import { runGit } from "./git.js";
 import { detectTestCommand } from "./project.js";
 import { createShadow } from "./shadow.js";
-import { isTestFile } from "./slop/source.js";
+import { isGeneratedPath, isTestFile } from "./slop/source.js";
 const MAX_OUTPUT = 4_000;
 const DEFAULT_MAX_FILES = 20;
 function cap(output) {
@@ -21,6 +21,8 @@ function isManifest(path) {
 function typeKey(path) {
     if (isManifest(path))
         return "config";
+    if (isGeneratedPath(path))
+        return "generated";
     if (isDoc(path))
         return "docs";
     if (isTestFile(path))
@@ -60,7 +62,7 @@ function groupTitle(strategy, key, count, prefix) {
 function groupRank(strategy, key) {
     if (strategy !== "type")
         return 0;
-    return key === "config" ? 0 : key === "source" ? 1 : key === "tests" ? 2 : 3;
+    return key === "config" ? 0 : key === "source" ? 1 : key === "tests" ? 2 : key === "docs" ? 3 : 4;
 }
 /** Splits a unified diff into reviewable, independently applicable commits. */
 export function buildMitosisPlan(diff, options = {}) {

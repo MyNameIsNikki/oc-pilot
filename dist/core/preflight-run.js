@@ -7,7 +7,7 @@ import { buildPreflightReport, scopeDependencyIssues, } from "./preflight.js";
 import { scanSource } from "./sast.js";
 import { scanAuthzSource } from "./authz.js";
 import { analyzeAgainst } from "./slop/index.js";
-import { isCodeFile, isGeneratedPath } from "./slop/source.js";
+import { isCodeFile, isGeneratedPath, isTestFile } from "./slop/source.js";
 import { detectHoneypotTriggers } from "./honeypot.js";
 import { scanInjection } from "./injection.js";
 import { analyzeTestWeakness } from "./test-weakening.js";
@@ -57,7 +57,10 @@ export function collectPreflight(cwd, data, options = {}) {
     let sast = null;
     let sastSkip;
     if (!disabled.includes("sast")) {
-        const files = data.changedFiles.filter((file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(cwd, file)));
+        const files = data.changedFiles.filter((file) => isCodeFile(file) &&
+            !isGeneratedPath(file) &&
+            existsSync(join(cwd, file)) &&
+            (options.includeTests === true || !isTestFile(file)));
         if (files.length === 0) {
             sastSkip = "нет изменённых файлов для анализа";
         }
@@ -73,7 +76,10 @@ export function collectPreflight(cwd, data, options = {}) {
     let authz = null;
     let authzSkip;
     if (!disabled.includes("authz")) {
-        const files = data.changedFiles.filter((file) => isCodeFile(file) && !isGeneratedPath(file) && existsSync(join(cwd, file)));
+        const files = data.changedFiles.filter((file) => isCodeFile(file) &&
+            !isGeneratedPath(file) &&
+            existsSync(join(cwd, file)) &&
+            (options.includeTests === true || !isTestFile(file)));
         if (files.length === 0) {
             authzSkip = "нет изменённых файлов для анализа";
         }

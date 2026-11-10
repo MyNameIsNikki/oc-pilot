@@ -79,6 +79,26 @@ test("buildMitosisPlan supports file and type strategies and max-files chunks", 
     assert.match(core[0]?.title ?? "", /\[1\/2\]/);
     assert.match(core[1]?.title ?? "", /\[2\/2\]/);
 });
+test("buildMitosisPlan isolates generated dist files", () => {
+    const diff = [
+        "diff --git a/src/a.ts b/src/a.ts",
+        "--- a/src/a.ts",
+        "+++ b/src/a.ts",
+        "@@ -1,1 +1,2 @@",
+        " export const a = 1;",
+        "+export const aa = 2;",
+        "diff --git a/dist/a.js b/dist/a.js",
+        "--- a/dist/a.js",
+        "+++ b/dist/a.js",
+        "@@ -1,1 +1,2 @@",
+        " export const a = 1;",
+        "+export const aa = 2;",
+        "",
+    ].join("\n");
+    const plan = buildMitosisPlan(diff, { strategy: "type" });
+    assert.deepEqual(plan.commits.map((commit) => commit.files), [["src/a.ts"], ["dist/a.js"]]);
+    assert.match(plan.commits[1]?.title ?? "", /generated/);
+});
 test("renderMitosisPlan and renderMitosisPlanMarkdown show commits and files", () => {
     const plan = buildMitosisPlan(PLAN_DIFF, { strategy: "type" });
     const text = renderMitosisPlan(plan);

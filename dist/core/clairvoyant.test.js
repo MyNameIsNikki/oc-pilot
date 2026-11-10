@@ -92,6 +92,34 @@ test("analyzeClairvoyant falls back to naming candidates when nothing is predict
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("analyzeClairvoyant ignores generated dist changes and symbols", () => {
+    const dir = makeRepo();
+    try {
+        const diff = [
+            "diff --git a/src/math.ts b/src/math.ts",
+            "--- a/src/math.ts",
+            "+++ b/src/math.ts",
+            "@@ -1,1 +1,1 @@",
+            "-export function calculate(a, b) { return a + b; }",
+            "+export function calculate(a, b) { return Number(a) + Number(b); }",
+            "diff --git a/dist/math.js b/dist/math.js",
+            "--- a/dist/math.js",
+            "+++ b/dist/math.js",
+            "@@ -1,1 +1,2 @@",
+            " export const value = 1;",
+            "+export function generatedHelper() { return 2; }",
+            "",
+        ].join("\n");
+        const report = analyzeClairvoyant(dir, diff);
+        assert.deepEqual(report.changedFiles, ["src/math.ts"]);
+        assert.ok(report.symbols.length > 0);
+        assert.ok(report.symbols.every((symbol) => symbol.file === "src/math.ts"));
+        assert.ok(!report.tests.some((entry) => entry.path.startsWith("dist/")));
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("analyzeClairvoyant reports an empty scope when only docs change", () => {
     const dir = makeRepo();
     try {

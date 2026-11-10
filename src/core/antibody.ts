@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { collectAddedLines } from "./alien-dna.js";
 import { scanSource, type SastSeverity } from "./sast.js";
 import { readRepository } from "./slop/collect.js";
-import { isCodeFile, isGeneratedPath } from "./slop/source.js";
+import { isCodeFile, isGeneratedPath, isTestFile } from "./slop/source.js";
 
 export type AntibodySeverity = SastSeverity;
 
@@ -172,7 +172,7 @@ export function learnAntibodies(cwd: string): AntibodyLearnResult {
   let added = 0;
 
   for (const file of repo.files) {
-    if (!isCodeFile(file.path) || isGeneratedPath(file.path)) continue;
+    if (!isCodeFile(file.path) || isGeneratedPath(file.path) || isTestFile(file.path)) continue;
     const result = scanSource(file.path, file.text);
     for (const finding of result.findings) {
       findings += 1;
@@ -266,7 +266,9 @@ function matchingSignature(
 /** Flags added diff lines that repeat a learned vulnerability pattern. */
 export function scanAntibodies(cwd: string, diff: string): AntibodyScanReport {
   const store = readAntibodyStore(cwd);
-  const added = collectAddedLines(diff).filter((line) => isCodeFile(line.path) && !isGeneratedPath(line.path));
+  const added = collectAddedLines(diff).filter(
+    (line) => isCodeFile(line.path) && !isGeneratedPath(line.path) && !isTestFile(line.path),
+  );
   const matches: AntibodyMatch[] = [];
   const seen = new Set<string>();
 

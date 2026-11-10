@@ -19,8 +19,8 @@ function flagsOf(subject) {
         flags.push("security");
     return flags;
 }
-function shortstat(cwd, sha) {
-    const result = runGit(["show", "--shortstat", "--format=", sha], cwd);
+function shortstat(cwd, sha, file) {
+    const result = runGit(["show", "--shortstat", "--format=", sha, "--", file], cwd);
     if (result.status !== 0)
         return { additions: 0, deletions: 0 };
     const additions = /(\d+) insertions?/.exec(result.stdout)?.[1];
@@ -52,7 +52,7 @@ export function analyzeChronos(cwd, file, options = {}) {
             const [sha, author, date, subject] = line.split("\x1f");
             if (!sha || !subject)
                 continue;
-            const stat = shortstat(cwd, sha);
+            const stat = shortstat(cwd, sha, file);
             commits.push({
                 sha,
                 author: author ?? "unknown",

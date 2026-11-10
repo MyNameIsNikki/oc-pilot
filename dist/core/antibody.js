@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { collectAddedLines } from "./alien-dna.js";
 import { scanSource } from "./sast.js";
 import { readRepository } from "./slop/collect.js";
-import { isCodeFile, isGeneratedPath } from "./slop/source.js";
+import { isCodeFile, isGeneratedPath, isTestFile } from "./slop/source.js";
 export const ANTIBODY_STORE = ".oc-pilot/antibodies.json";
 const STORE_VERSION = 1;
 const KEYWORDS = new Set([
@@ -109,7 +109,7 @@ export function learnAntibodies(cwd) {
     let findings = 0;
     let added = 0;
     for (const file of repo.files) {
-        if (!isCodeFile(file.path) || isGeneratedPath(file.path))
+        if (!isCodeFile(file.path) || isGeneratedPath(file.path) || isTestFile(file.path))
             continue;
         const result = scanSource(file.path, file.text);
         for (const finding of result.findings) {
@@ -197,7 +197,7 @@ function matchingSignature(path, line, signatures) {
 /** Flags added diff lines that repeat a learned vulnerability pattern. */
 export function scanAntibodies(cwd, diff) {
     const store = readAntibodyStore(cwd);
-    const added = collectAddedLines(diff).filter((line) => isCodeFile(line.path) && !isGeneratedPath(line.path));
+    const added = collectAddedLines(diff).filter((line) => isCodeFile(line.path) && !isGeneratedPath(line.path) && !isTestFile(line.path));
     const matches = [];
     const seen = new Set();
     for (const line of added) {

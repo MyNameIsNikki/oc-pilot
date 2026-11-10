@@ -86,6 +86,40 @@ test("scanAntibodies ignores unrelated added lines", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("learnAntibodies ignores test fixtures", () => {
+    const dir = makeRepo();
+    try {
+        rmSync(join(dir, "src", "app.ts"));
+        writeFileSync(join(dir, "src", "app.test.ts"), 'export function test(req: any) { return db.query("SELECT * FROM users WHERE id = " + req.query.id); }\n', "utf8");
+        clearAntibodies(dir);
+        const result = learnAntibodies(dir);
+        assert.equal(result.findings, 0);
+        assert.equal(result.total, 0);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("scanAntibodies ignores vulnerable lines in test files", () => {
+    const dir = makeRepo();
+    try {
+        learnAntibodies(dir);
+        const diff = [
+            "diff --git a/src/app.test.ts b/src/app.test.ts",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/app.test.ts",
+            "@@ -0,0 +1,1 @@",
+            '+export const test = db.query("SELECT * FROM users WHERE id = " + req.query.id);',
+            "",
+        ].join("\n");
+        const report = scanAntibodies(dir, diff);
+        assert.deepEqual(report.matches, []);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("forgetAntibody removes one signature and clearAntibodies removes the rest", () => {
     const dir = makeRepo();
     try {
