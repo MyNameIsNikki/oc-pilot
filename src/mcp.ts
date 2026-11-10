@@ -1647,6 +1647,31 @@ const TOOLS = [
     },
   },
   {
+    name: "tribunal",
+    description:
+      "Run security, correctness and maintainability model reviewers and keep only findings confirmed by multiple lenses. Model-backed, read-only; a single-lens finding is split, not a verdict.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        lenses: {
+          type: "array",
+          description: "Reviewer lenses; defaults to all three",
+          items: { type: "string", enum: ["security", "correctness", "maintainability"] },
+        },
+        min_consensus: { type: "integer", minimum: 1, maximum: 3 },
+        fail_on: { type: "string", enum: ["consensus", "any", "never"] },
+        diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+        base: { type: "string" },
+        staged: { type: "boolean" },
+        unstaged: { type: "boolean" },
+        include_untracked: { type: "boolean" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "apoptosis",
     description:
       "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
@@ -2004,6 +2029,15 @@ const PROMPTS = [
       "Check the diff against the policy file, stop on [POLICY VIOLATION] and fix the code instead of weakening the rule.",
     arguments: [
       { name: "context", description: "Why the change is needed", required: false },
+    ],
+  },
+  {
+    name: "convene-the-tribunal",
+    title: "Convene the review tribunal",
+    description:
+      "Ask security, correctness and maintainability reviewers separately, then report only findings confirmed by the configured number of lenses.",
+    arguments: [
+      { name: "context", description: "What the change is supposed to do", required: false },
     ],
   },
   {
@@ -4014,6 +4048,31 @@ async function callWarden(input: JsonObject, cwd: string): Promise<ToolResult> {
   }
 }
 
+async function callTribunal(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const temp = new TempFiles();
+  try {
+    const args = ["tribunal", "--json"];
+    if (Array.isArray(input.lenses)) {
+      const lenses = input.lenses.filter((item): item is string => typeof item === "string");
+      if (lenses.length > 0) args.push("--lenses", lenses.join(","));
+    }
+    const minConsensus = integerArg(input, "min_consensus");
+    if (minConsensus !== undefined) args.push("--min-consensus", String(minConsensus));
+    const failOn = stringArg(input, "fail_on");
+    if (failOn) args.push("--fail-on", failOn);
+    const diff = stringArg(input, "diff");
+    if (diff) args.push("--diff", temp.write("tribunal.diff", diff));
+    const base = baseArg(input);
+    if (base) args.push("--base", base);
+    if (booleanArg(input, "staged")) args.push("--staged");
+    if (booleanArg(input, "unstaged")) args.push("--unstaged");
+    if (booleanArg(input, "include_untracked")) args.push("--include-untracked");
+    return toToolResult(await runCli(args, cwd));
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function callApoptosis(input: JsonObject, cwd: string): Promise<ToolResult> {
   const action = stringArg(input, "action") ?? "scan";
   const args = ["apoptosis", action, "--json"];
@@ -4361,6 +4420,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callMirage(input, cwd);
     case "warden":
       return callWarden(input, cwd);
+    case "tribunal":
+      return callTribunal(input, cwd);
     case "apoptosis":
       return callApoptosis(input, cwd);
     case "scan_injection":
@@ -4449,6 +4510,9 @@ function summarizeResult(value: JsonObject): string {
   }
   if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
     return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+  }
+  if (typeof value.status === "string" && Array.isArray(value.verdicts) && Array.isArray(value.findings) && Array.isArray(value.lenses)) {
+    return `oc-pilot: tribunal ${value.status}, ${String(value.verdicts.length)} verdict(s)`;
   }
   if (typeof value.status === "string" && Array.isArray(value.violations) && typeof value.files === "number") {
     return `oc-pilot: warden ${value.status}, ${String(value.violations.length)} violation(s)`;
@@ -4836,6 +4900,8 @@ function promptBody(name: string, args: JsonObject): string {
       return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
     case "stamp-the-passport":
       return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+    case "convene-the-tribunal":
+      return `Call the oc-pilot "tribunal" tool on the proposed diff. Read the consensus verdicts first and the split findings separately. If it returns [TRIBUNAL CONSENSUS], stop and quote the issue, file and lenses; fix it or explain why the finding is wrong. Do not treat a split finding as a confirmed defect, and do not delete a lens or lower min_consensus just to get a clean result. Model-backed and read-only.${suffix}`;
     case "enforce-the-policy":
       return `Call the oc-pilot "warden" tool with action=check on the proposed diff. Read every violation with its rule, file and evidence. If it returns [POLICY VIOLATION], stop: the change breaks a repository rule. Fix the code or ask the owner to change the policy; never delete a rule, weaken a pattern or add an exception just to pass. init writes the sample policy and needs --allow-write. Deterministic and offline.${suffix}`;
     case "freeze-the-network":

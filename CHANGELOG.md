@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.114.0
+
+- Новая команда `tribunal`: три отдельных модельных ревьюера — security, correctness и maintainability — и только находки, подтверждённые кворумом.
+- `[TRIBUNAL CONSENSUS]` — подтверждённая проблема, `[TRIBUNAL SPLIT]` — мнение одной линзы, `[TRIBUNAL CLEAN]` — находок нет.
+- `--lenses`, `--min-consensus`, `--fail-on consensus|any|never`; split-находка считается зацепкой, а не вердиктом.
+- MCP-инструмент `tribunal` и промпт `convene-the-tribunal`; 834 теста; версия 0.114.0.
+
 ## 0.113.0
 
 - Новая команда `warden`: проверяет diff против `.oc-pilot/policy.json` — запрещённые пути, содержимое, зависимости и расширения, обязательные тесты и максимум файлов.

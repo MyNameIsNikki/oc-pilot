@@ -1388,6 +1388,18 @@ test("warden help documents the policy rules", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("tribunal help documents lenses and consensus", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-tribunal-"));
+    try {
+        const result = runCli(["tribunal", "--help"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /TRIBUNAL CONSENSUS/);
+        assert.match(result.stdout, /--lenses/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("receipt records a run and verifies against HEAD", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
     try {
