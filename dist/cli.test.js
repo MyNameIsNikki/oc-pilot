@@ -1376,6 +1376,18 @@ test("mirage help documents record and replay", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("warden help documents the policy rules", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-warden-"));
+    try {
+        const result = runCli(["warden", "--help"], dir);
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /POLICY VIOLATION/);
+        assert.match(result.stdout, /forbid-paths/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("receipt records a run and verifies against HEAD", () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-receipt-"));
     try {

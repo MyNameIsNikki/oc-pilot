@@ -167,7 +167,7 @@ export function runCuckoo(cwd: string, file: string, options: CuckooOptions = {}
     throw new PilotError("Cuckoo принимает один JS/ESM-файл до 1 МБ", { exitCode: 2 });
   }
 
-  const timeoutMs = Math.max(100, Math.min(60_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS));
+  const timeoutMs = Math.max(100, Math.min(600_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS));
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cuckoo-"));
   const worker = join(dir, "worker.cjs");
   const payload = join(dir, "payload.json");

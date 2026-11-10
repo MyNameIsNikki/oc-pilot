@@ -1540,6 +1540,26 @@ const TOOLS = [
         },
     },
     {
+        name: "warden",
+        description: "Check the diff against .oc-pilot/policy.json: forbidden paths, content, dependencies and extensions, required tests and max files. Deterministic, offline and read-only for check/show; init writes the policy and needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["action"],
+            properties: {
+                action: { type: "string", enum: ["check", "init", "show"] },
+                force: { type: "boolean", description: "Overwrite an existing policy on init" },
+                diff: { type: "string", description: "Unified diff text; omit to use the project's git diff" },
+                base: { type: "string" },
+                staged: { type: "boolean" },
+                unstaged: { type: "boolean" },
+                include_untracked: { type: "boolean" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "apoptosis",
         description: "Scan functions marked /* @lifespan: 30d */ and report [Senescent] when the marker is older than the lifespan and the symbol has no references. With action=apply and confirm=true, comment the senescent functions out in a shadow git worktree, run tests and land the diff only if the suite is green. Apply writes files and needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -1853,6 +1873,14 @@ const PROMPTS = [
         description: "Record real fetch responses and Date.now into a cassette, then replay them offline and fail on any unrecorded request.",
         arguments: [
             { name: "context", description: "What the test is exercising", required: false },
+        ],
+    },
+    {
+        name: "enforce-the-policy",
+        title: "Enforce the repository policy",
+        description: "Check the diff against the policy file, stop on [POLICY VIOLATION] and fix the code instead of weakening the rule.",
+        arguments: [
+            { name: "context", description: "Why the change is needed", required: false },
         ],
     },
     {
@@ -4213,6 +4241,31 @@ async function callMirage(input, cwd) {
         args.push("--force");
     return toToolResult(await runCli(args, cwd));
 }
+async function callWarden(input, cwd) {
+    const temp = new TempFiles();
+    try {
+        const action = stringArg(input, "action", true);
+        const args = ["warden", action, "--json"];
+        if (booleanArg(input, "force"))
+            args.push("--force");
+        const diff = stringArg(input, "diff");
+        if (diff)
+            args.push("--diff", temp.write("warden.diff", diff));
+        const base = baseArg(input);
+        if (base)
+            args.push("--base", base);
+        if (booleanArg(input, "staged"))
+            args.push("--staged");
+        if (booleanArg(input, "unstaged"))
+            args.push("--unstaged");
+        if (booleanArg(input, "include_untracked"))
+            args.push("--include-untracked");
+        return toToolResult(await runCli(args, cwd));
+    }
+    finally {
+        temp.cleanup();
+    }
+}
 async function callApoptosis(input, cwd) {
     const action = stringArg(input, "action") ?? "scan";
     const args = ["apoptosis", action, "--json"];
@@ -4452,6 +4505,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "mirage" && ["record", "clear"].includes(stringArg(input, "action") ?? "")) {
             throw new ToolInputError("mirage record/clear write cassettes and are disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name === "warden" && stringArg(input, "action") === "init") {
+            throw new ToolInputError("warden init writes .oc-pilot/policy.json and is disabled in read-only mode; start the MCP server with --allow-write");
+        }
         if (name === "honeypot" && (stringArg(input, "action") === "deploy" || stringArg(input, "action") === "remove")) {
             throw new ToolInputError("honeypot deploy/remove writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
@@ -4595,6 +4651,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callQuarantine(input, cwd);
         case "mirage":
             return callMirage(input, cwd);
+        case "warden":
+            return callWarden(input, cwd);
         case "apoptosis":
             return callApoptosis(input, cwd);
         case "scan_injection":
@@ -4673,6 +4731,12 @@ function summarizeResult(value) {
     }
     if (typeof value.status === "string" && Array.isArray(value.removed) && typeof value.summary === "string") {
         return `oc-pilot: apoptosis ${value.status}, ${String(value.removed.length)} removed`;
+    }
+    if (typeof value.status === "string" && Array.isArray(value.violations) && typeof value.files === "number") {
+        return `oc-pilot: warden ${value.status}, ${String(value.violations.length)} violation(s)`;
+    }
+    if (Array.isArray(value.rules) && typeof value.version === "number") {
+        return `oc-pilot: warden ${String(value.rules.length)} rule(s)`;
     }
     if (typeof value.mode === "string" && typeof value.cassette === "string" && typeof value.status === "string" && typeof value.entries === "number") {
         return `oc-pilot: mirage ${value.mode} ${value.status}, ${String(value.entries)} fetch`;
@@ -5036,6 +5100,8 @@ function promptBody(name, args) {
             return `Call the oc-pilot "skeptic" tool on the proposed diff. Read the hypothesis reason and the exact status. If it returns bug, stop and quote the failing test output: the generated test fails on the diff and passes on HEAD, so the change is falsified. Fix the code or the test expectation, then rerun; do not delete the test, do not weaken the assertion and do not claim a bug from a test that also fails on HEAD. If it returns clean, say that the hypothesis was rejected, not that the code is proven correct. If it returns unfalsifiable, explain that the test did not distinguish the diff from HEAD. If it returns error, report the infrastructure failure instead of guessing.${suffix}`;
         case "stamp-the-passport":
             return `Call the oc-pilot "passport" tool with action=write after the checks you actually ran, then action=verify. Record only real checks as name=pass|warn|fail|skip, the real agent/model and the commit. If verify returns [PASSPORT STALE] or [PASSPORT TAMPERED], stop: the manifest no longer matches the tree; rewrite it from the current state or investigate the change. Never mark a check as pass without running it, never edit the manifest by hand to hide a mismatch, and never claim that a passport proves correctness: it proves what was recorded and that the files still match. write/clear need --allow-write.${suffix}`;
+        case "enforce-the-policy":
+            return `Call the oc-pilot "warden" tool with action=check on the proposed diff. Read every violation with its rule, file and evidence. If it returns [POLICY VIOLATION], stop: the change breaks a repository rule. Fix the code or ask the owner to change the policy; never delete a rule, weaken a pattern or add an exception just to pass. init writes the sample policy and needs --allow-write. Deterministic and offline.${suffix}`;
         case "freeze-the-network":
             return `Call the oc-pilot "mirage" tool with action=record, the test command and a cassette path. Then stop the network or run in an environment without it and call action=replay with the same command. Read the recorded entries and clock values. If replay returns [MIRAGE MISS], stop: the test depends on an unrecorded request; record it explicitly instead of widening the matcher or deleting the assertion. Do not hand-edit the cassette to fake a response. record/clear need --allow-write.${suffix}`;
         case "quarantine-the-flake":

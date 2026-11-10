@@ -112,6 +112,7 @@ test("skills document real commands and avoid placeholders", () => {
     "beacon",
     "quarantine",
     "mirage",
+    "warden",
     "skeptic",
     "apoptosis",
     "injection",

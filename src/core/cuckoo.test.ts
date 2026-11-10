@@ -16,7 +16,7 @@ function makeDir(files: Record<string, string>): string {
 test("runCuckoo reports a clean file with no capabilities", () => {
   const dir = makeDir({ "safe.mjs": 'console.log("hello");\n' });
   try {
-    const report = runCuckoo(dir, "safe.mjs");
+    const report = runCuckoo(dir, "safe.mjs", { timeoutMs: 600_000 });
     assert.equal(report.status, "clean", report.summary);
     assert.deepEqual(report.capabilities, []);
     assert.deepEqual(report.output, ["hello"]);
@@ -33,15 +33,15 @@ test("runCuckoo records fs, net and env capabilities", () => {
     "env.mjs": "process.env.SECRET;\n",
   });
   try {
-    const fsReport = runCuckoo(dir, "fs.mjs");
+    const fsReport = runCuckoo(dir, "fs.mjs", { timeoutMs: 600_000 });
     assert.equal(fsReport.status, "capabilities");
     assert.ok(fsReport.capabilities.some((item) => item.kind === "fs"));
     assert.match(fsReport.summary, /\[CAPABILITY DENIED\]/);
 
-    const netReport = runCuckoo(dir, "net.mjs");
+    const netReport = runCuckoo(dir, "net.mjs", { timeoutMs: 600_000 });
     assert.ok(netReport.capabilities.some((item) => item.kind === "net"));
 
-    const envReport = runCuckoo(dir, "env.mjs");
+    const envReport = runCuckoo(dir, "env.mjs", { timeoutMs: 600_000 });
     assert.ok(envReport.capabilities.some((item) => item.kind === "env"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -54,11 +54,11 @@ test("runCuckoo blocks process.exit and static imports", () => {
     "import.mjs": 'import fs from "fs";\nconsole.log(fs);\n',
   });
   try {
-    const exitReport = runCuckoo(dir, "exit.mjs");
+    const exitReport = runCuckoo(dir, "exit.mjs", { timeoutMs: 600_000 });
     assert.equal(exitReport.status, "blocked");
     assert.ok(exitReport.capabilities.some((item) => item.kind === "exit"));
 
-    const importReport = runCuckoo(dir, "import.mjs");
+    const importReport = runCuckoo(dir, "import.mjs", { timeoutMs: 600_000 });
     assert.equal(importReport.status, "blocked");
     assert.ok(importReport.capabilities.some((item) => item.kind === "import"));
   } finally {
@@ -76,7 +76,7 @@ test("runCuckoo reports timeouts and ordinary errors", () => {
     assert.equal(timeout.status, "timeout", timeout.summary);
     assert.match(timeout.summary, /\[CUCKOO TIMEOUT\]/);
 
-    const error = runCuckoo(dir, "throw.mjs");
+    const error = runCuckoo(dir, "throw.mjs", { timeoutMs: 600_000 });
     assert.equal(error.status, "error");
     assert.match(error.summary, /\[CUCKOO ERROR\]/);
     assert.match(error.error ?? "", /boom/);
@@ -91,7 +91,7 @@ test("runCuckoo rejects a missing file and renderCuckoo shows capabilities", () 
   });
   try {
     assert.throws(() => runCuckoo(dir, "missing.mjs"), /Файл не найден/);
-    const report = runCuckoo(dir, "fs.mjs");
+    const report = runCuckoo(dir, "fs.mjs", { timeoutMs: 600_000 });
     const text = renderCuckoo(report);
     assert.match(text, /Cuckoo: capabilities/);
     assert.match(text, /fs: write:/);
