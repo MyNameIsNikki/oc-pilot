@@ -81,13 +81,36 @@ function findExecutable(name: string): string | undefined {
   return undefined;
 }
 
+export interface VersionInvocation {
+  file: string;
+  args: string[];
+  windowsVerbatimArguments?: boolean;
+}
+
+/**
+ * Builds the spawn arguments for `--version`. Windows `.cmd`/`.bat` shims
+ * cannot be launched directly, so they go through `cmd.exe`; the command line
+ * is passed verbatim to avoid Node's DEP0190 warning for shell + args.
+ */
+export function versionInvocation(command: string): VersionInvocation {
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+    return {
+      file: process.env.ComSpec ?? "cmd.exe",
+      args: ["/d", "/s", "/c", `"${command}" --version`],
+      windowsVerbatimArguments: true,
+    };
+  }
+  return { file: command, args: ["--version"] };
+}
+
 function runVersion(command: string): string | undefined {
   try {
-    const result = spawnSync(command, ["--version"], {
+    const invocation = versionInvocation(command);
+    const result = spawnSync(invocation.file, invocation.args, {
       encoding: "utf8",
       timeout: 10_000,
-      shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(command),
       windowsHide: true,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
     });
     if (result.status !== 0) return undefined;
     return (result.stdout || result.stderr).trim().split(/\r?\n/)[0]?.trim() || undefined;

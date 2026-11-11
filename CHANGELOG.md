@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.114.4
+
+- `doctor` больше не запускает `.cmd`/`.bat` через `shell: true` с аргументами: версия вызывается через `cmd.exe` с `windowsVerbatimArguments`, поэтому Node 24 не печатает DEP0190.
+- Хук `pre-commit`/`pre-push` сначала берёт `OC_PILOT_BIN`, затем локальный `./node_modules/.bin/oc-pilot`, затем глобальный `oc-pilot`; если бинарник не найден, печатает предупреждение и пропускает проверку.
+- README описывает порядок поиска бинарника; 848 тестов; версия 0.114.4.
+
 ## 0.114.3
 
 - `ready` теперь ищет pre-commit в каталоге из `core.hooksPath`, а не только в `.git/hooks`: husky и общие hooks-каталоги больше не дают ложный fail.

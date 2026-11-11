@@ -33,6 +33,17 @@ test("installHook writes a managed pre-commit hook", () => {
   }
 });
 
+test("hookScript prefers OC_PILOT_BIN and the project-local binary", () => {
+  const script = hookScript("pre-commit");
+  assert.ok(script.includes('if [ -n "$OC_PILOT_BIN" ]'));
+  assert.ok(script.includes("./node_modules/.bin/oc-pilot"));
+  assert.ok(
+    script.indexOf("./node_modules/.bin/oc-pilot") < script.indexOf("command -v oc-pilot"),
+    "local binary must be checked before the global PATH",
+  );
+  assert.ok(script.includes("OC_PILOT_BIN or install oc-pilot"));
+});
+
 test("hookScript can fall back to scan-only pre-commit", () => {
   const script = hookScript("pre-commit", "scan");
   assert.ok(script.includes("oc-pilot scan --staged"));

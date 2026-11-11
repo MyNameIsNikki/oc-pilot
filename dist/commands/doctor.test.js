@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import { test } from "node:test";
-import { runDoctor } from "./doctor.js";
+import { runDoctor, versionInvocation } from "./doctor.js";
 import { cacheKey, cacheRoot, cacheStats } from "../core/cache.js";
 import { HOOK_MARKER } from "./install-hook.js";
 function makeRepo(prefix) {
@@ -47,6 +47,21 @@ test("doctor --fix refreshes an outdated oc-pilot hook", async () => {
     finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+test("versionInvocation runs plain commands without a shell", () => {
+    const invocation = versionInvocation("git");
+    assert.equal(invocation.file, "git");
+    assert.deepEqual(invocation.args, ["--version"]);
+    assert.equal(invocation.windowsVerbatimArguments, undefined);
+});
+test("versionInvocation routes Windows command shims through cmd.exe", () => {
+    if (process.platform !== "win32")
+        return;
+    const invocation = versionInvocation("C:\\tools\\opencode.cmd");
+    assert.equal(invocation.file, process.env.ComSpec ?? "cmd.exe");
+    assert.deepEqual(invocation.args.slice(0, 3), ["/d", "/s", "/c"]);
+    assert.equal(invocation.args[3], '"C:\\tools\\opencode.cmd" --version');
+    assert.equal(invocation.windowsVerbatimArguments, true);
 });
 test("doctor keeps foreign hooks alone and prunes expired cache with --fix", async () => {
     const dir = makeRepo("oc-pilot-doctor-cache-");
