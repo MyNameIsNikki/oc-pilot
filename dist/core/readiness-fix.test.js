@@ -63,6 +63,20 @@ test("applyReadinessFixes creates the hook, config and agent instructions", () =
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("applyReadinessFixes installs the hook through core.hooksPath", () => {
+    const dir = makeRepo({ "package.json": MANIFEST });
+    try {
+        spawnSync("git", ["config", "core.hooksPath", ".githooks"], { cwd: dir });
+        const plan = planReadinessFixes(dir, assessReadiness(dir));
+        applyReadinessFixes(dir, plan);
+        const hook = readFileSync(join(dir, ".githooks", "pre-commit"), "utf8");
+        assert.match(hook, /# oc-pilot hook/);
+        assert.equal(assessReadiness(dir).checks.find((check) => check.id === "hooks")?.status, "pass");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("planReadinessFixes does not overwrite a foreign hook", () => {
     const dir = makeRepo({
         "package.json": MANIFEST,

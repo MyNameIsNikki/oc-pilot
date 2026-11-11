@@ -22,6 +22,8 @@ export interface SandboxResult {
 const DEFAULT_TIMEOUT_MS = 2_000;
 const DEFAULT_MEMORY_MB = 128;
 const MAX_FILE_BYTES = 256_000;
+/** Startup budget for the worker process; the vm timeout still bounds the script. */
+const WORKER_STARTUP_MS = 10_000;
 
 const WORKER = `import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -141,7 +143,14 @@ export function runSandbox(cwd: string, file: string, options: SandboxOptions = 
     const result = spawnSync(
       process.execPath,
       ["--experimental-vm-modules", `--max-old-space-size=${String(memoryMb)}`, worker, payload],
-      { cwd, env, encoding: "utf8", timeout: timeoutMs + 1000, killSignal: "SIGKILL", maxBuffer: 2 * 1024 * 1024 },
+      {
+        cwd,
+        env,
+        encoding: "utf8",
+        timeout: timeoutMs + WORKER_STARTUP_MS,
+        killSignal: "SIGKILL",
+        maxBuffer: 2 * 1024 * 1024,
+      },
     );
     const durationMs = Date.now() - started;
     if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {

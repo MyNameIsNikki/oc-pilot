@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { auditDependencies } from "./deps-health.js";
 import { PilotError } from "./errors.js";
 import { isGitRepo } from "./git.js";
+import { resolveHooksDir } from "./hooks.js";
 import { detectLockfile, readLockfile } from "./lockfile.js";
 import { detectTestCommand } from "./project.js";
 import { readReceipt, readReceiptPublicKey, receiptPath, verifyReceipt } from "./receipt.js";
@@ -32,6 +33,14 @@ function readIfExists(path) {
     }
     catch {
         return undefined;
+    }
+}
+function preCommitPath(cwd) {
+    try {
+        return join(resolveHooksDir(cwd), "pre-commit");
+    }
+    catch {
+        return join(cwd, ".git", "hooks", "pre-commit");
     }
 }
 export function agentDocsFile(cwd) {
@@ -121,7 +130,7 @@ export function assessReadiness(cwd, options = {}) {
                 ? check("lockfile", "Lockfile", 10, "warn", `${lock.file}: не удалось прочитать lockfile`)
                 : check("lockfile", "Lockfile", 10, "pass", lock.file));
     }
-    const hook = readIfExists(join(cwd, ".git", "hooks", "pre-commit"));
+    const hook = readIfExists(preCommitPath(cwd));
     if (hook?.includes("# oc-pilot hook")) {
         checks.push(check("hooks", "Git-хук", 15, "pass", "pre-commit проверяет изменение"));
     }

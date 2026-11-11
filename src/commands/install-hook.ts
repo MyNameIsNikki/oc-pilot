@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { PilotError } from "../core/errors.js";
-import { runGit } from "../core/git.js";
+import { resolveHooksDir } from "../core/hooks.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, withCommon, type OptionSpec } from "../core/options.js";
 import { asBoolean, asString } from "../core/parse.js";
@@ -43,15 +43,7 @@ export function hookScript(kind: HookKind, mode: HookMode = "preflight"): string
   ].join("\n");
 }
 
-/** Resolves the hooks directory honoring core.hooksPath and worktrees. */
-export function resolveHooksDir(cwd: string): string {
-  const result = runGit(["rev-parse", "--git-path", "hooks"], cwd);
-  if (result.status !== 0) {
-    throw new PilotError("Не удалось определить каталог git-хуков", { hint: result.stderr, exitCode: 2 });
-  }
-  const value = result.stdout.trim();
-  return isAbsolute(value) ? value : resolve(cwd, value);
-}
+export { resolveHooksDir };
 
 export interface HookActionResult {
   kind: HookKind;

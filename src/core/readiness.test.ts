@@ -81,6 +81,21 @@ test("assessReadiness scores a prepared repository as agent-ready", () => {
   }
 });
 
+test("assessReadiness finds a hook installed through core.hooksPath", () => {
+  const dir = makeRepo({
+    ".githooks/pre-commit": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot preflight --staged\n",
+  });
+  try {
+    spawnSync("git", ["config", "core.hooksPath", ".githooks"], { cwd: dir });
+    const hooks = assessReadiness(dir).checks.find((check) => check.id === "hooks");
+    assert.ok(hooks);
+    assert.equal(hooks.status, "pass");
+    assert.match(hooks.detail, /pre-commit/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("assessReadiness scores an empty repository as not ready", () => {
   const dir = makeRepo({});
   try {

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { installHook, resolveHooksDir } from "../commands/install-hook.js";
+import { installHook } from "../commands/install-hook.js";
+import { resolveHooksDir } from "./hooks.js";
 import { detectTestCommand } from "./project.js";
 const SKIP_REASONS = {
     tests: "нет тестовой команды — добавьте scripts.test в package.json",
