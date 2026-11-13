@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { auditDependencies } from "./deps-health.js";
 import { PilotError } from "./errors.js";
 import { isGitRepo } from "./git.js";
-import { resolveHookBinary, resolveHooksDir } from "./hooks.js";
+import { parseBinaryVersion, readBinaryVersion, resolveHookBinary, resolveHooksDir } from "./hooks.js";
+import { VERSION } from "../version.js";
 import { detectLockfile, readLockfile } from "./lockfile.js";
 import { detectTestCommand } from "./project.js";
 import { readReceipt, readReceiptPublicKey, receiptPath, verifyReceipt } from "./receipt.js";
@@ -133,9 +134,22 @@ export function assessReadiness(cwd, options = {}) {
     const hook = readIfExists(preCommitPath(cwd));
     if (hook?.includes("# oc-pilot hook")) {
         const binary = resolveHookBinary(cwd);
-        checks.push(binary
-            ? check("hooks", "Git-хук", 15, "pass", `pre-commit проверяет изменение (${binary})`)
-            : check("hooks", "Git-хук", 15, "warn", "pre-commit установлен, но oc-pilot не найден: хук пропустит проверку; задайте OC_PILOT_BIN или установите oc-pilot"));
+        if (!binary) {
+            checks.push(check("hooks", "Git-хук", 15, "warn", "pre-commit установлен, но oc-pilot не найден: хук пропустит проверку; задайте OC_PILOT_BIN или установите oc-pilot"));
+        }
+        else {
+            const reported = readBinaryVersion(binary);
+            const actual = parseBinaryVersion(reported);
+            if (!actual) {
+                checks.push(check("hooks", "Git-хук", 15, "warn", `pre-commit использует ${binary}, но версию определить не удалось; задайте OC_PILOT_BIN или обновите oc-pilot`));
+            }
+            else if (actual !== VERSION) {
+                checks.push(check("hooks", "Git-хук", 15, "warn", `pre-commit использует oc-pilot ${actual} (${binary}), а текущий ${VERSION}: обновите бинарник или задайте OC_PILOT_BIN`));
+            }
+            else {
+                checks.push(check("hooks", "Git-хук", 15, "pass", `pre-commit проверяет изменение (${binary}, ${actual})`));
+            }
+        }
     }
     else if (hook) {
         checks.push(check("hooks", "Git-хук", 15, "warn", "pre-commit есть, но не oc-pilot"));

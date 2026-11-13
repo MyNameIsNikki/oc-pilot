@@ -12,7 +12,8 @@ import { detectTestCommand } from "../core/project.js";
 import { parseCommandArgs, resolveContext, withCommon, type OptionSpec } from "../core/options.js";
 import { cacheStats, pruneCache } from "../core/cache.js";
 import { HOOK_MARKER, installHook } from "./install-hook.js";
-import { resolveHookBinary, resolveHooksDir } from "../core/hooks.js";
+import { parseBinaryVersion, readBinaryVersion, resolveHookBinary, resolveHooksDir } from "../core/hooks.js";
+export { versionInvocation } from "../core/hooks.js";
 import { VERSION } from "../version.js";
 
 const OPTIONS: OptionSpec = withCommon({
@@ -80,44 +81,6 @@ function findExecutable(name: string): string | undefined {
     }
   }
   return undefined;
-}
-
-export interface VersionInvocation {
-  file: string;
-  args: string[];
-  windowsVerbatimArguments?: boolean;
-}
-
-/**
- * Builds the spawn arguments for `--version`. Windows `.cmd`/`.bat` shims
- * cannot be launched directly, so they go through `cmd.exe`; the command line
- * is passed verbatim to avoid Node's DEP0190 warning for shell + args.
- */
-export function versionInvocation(command: string): VersionInvocation {
-  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
-    return {
-      file: process.env.ComSpec ?? "cmd.exe",
-      args: ["/d", "/s", "/c", `"${command}" --version`],
-      windowsVerbatimArguments: true,
-    };
-  }
-  return { file: command, args: ["--version"] };
-}
-
-function runVersion(command: string): string | undefined {
-  try {
-    const invocation = versionInvocation(command);
-    const result = spawnSync(invocation.file, invocation.args, {
-      encoding: "utf8",
-      timeout: 10_000,
-      windowsHide: true,
-      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-    });
-    if (result.status !== 0) return undefined;
-    return (result.stdout || result.stderr).trim().split(/\r?\n/)[0]?.trim() || undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function readJson(path: string): Record<string, unknown> | undefined {
@@ -205,7 +168,7 @@ function checkEngine(ctx: ReturnType<typeof resolveContext>): Check[] {
         fix: "npm install -g opencode-ai && opencode auth list",
       });
     } else {
-      const version = runVersion(executable);
+      const version = readBinaryVersion(executable);
       checks.push({
         id: "engine",
         status: version ? "ok" : "warn",
@@ -273,7 +236,7 @@ function checkEngine(ctx: ReturnType<typeof resolveContext>): Check[] {
 }
 
 function checkGit(cwd: string): Check[] {
-  const version = runVersion("git");
+  const version = readBinaryVersion("git");
   if (!version) {
     return [
       {
@@ -373,14 +336,37 @@ function checkHooks(cwd: string, fix: boolean): Check[] {
     });
   }
 
-  if (sawManagedHook && !resolveHookBinary(cwd)) {
-    checks.push({
-      id: "hooks",
-      status: "warn",
-      title: "oc-pilot binary not found for the installed hooks",
-      detail: "The hook will skip its check. Set OC_PILOT_BIN or install oc-pilot.",
-      fix: "npm install -g oc-pilot (or set OC_PILOT_BIN)",
-    });
+  if (sawManagedHook) {
+    const binary = resolveHookBinary(cwd);
+    if (!binary) {
+      checks.push({
+        id: "hooks",
+        status: "warn",
+        title: "oc-pilot binary not found for the installed hooks",
+        detail: "The hook will skip its check. Set OC_PILOT_BIN or install oc-pilot.",
+        fix: "npm install -g oc-pilot (or set OC_PILOT_BIN)",
+      });
+    } else {
+      const reported = readBinaryVersion(binary);
+      const actual = parseBinaryVersion(reported);
+      if (!actual) {
+        checks.push({
+          id: "hooks",
+          status: "warn",
+          title: "oc-pilot binary version could not be determined",
+          detail: `${binary} --version failed or returned an unknown format.`,
+          fix: "npm install -g oc-pilot (or set OC_PILOT_BIN)",
+        });
+      } else if (actual !== VERSION) {
+        checks.push({
+          id: "hooks",
+          status: "warn",
+          title: `hook uses oc-pilot ${actual}, current is ${VERSION}`,
+          detail: `Resolved binary: ${binary} (reports ${reported}). The hook may run a different version.`,
+          fix: "npm install -g oc-pilot (or set OC_PILOT_BIN)",
+        });
+      }
+    }
   }
 
   if (!sawAnyHook) {

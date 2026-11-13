@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { assessReadiness } from "./readiness.js";
 import { applyReadinessFixes, planReadinessFixes } from "./readiness-fix.js";
+import { VERSION } from "../version.js";
 const MANIFEST = JSON.stringify({
     name: "demo",
     private: true,
@@ -24,10 +25,13 @@ function makeRepo(files) {
 function addLocalBinary(dir) {
     const binDir = join(dir, "node_modules", ".bin");
     mkdirSync(binDir, { recursive: true });
+    if (process.platform === "win32") {
+        writeFileSync(join(binDir, "oc-pilot.cmd"), `@echo oc-pilot ${VERSION}\r\n`, "utf8");
+        return;
+    }
     const bin = join(binDir, "oc-pilot");
-    writeFileSync(bin, "#!/bin/sh\nexit 0\n", "utf8");
-    if (process.platform !== "win32")
-        chmodSync(bin, 0o755);
+    writeFileSync(bin, `#!/bin/sh\necho "oc-pilot ${VERSION}"\n`, "utf8");
+    chmodSync(bin, 0o755);
 }
 test("planReadinessFixes offers the safe fixes for a bare repository", () => {
     const dir = makeRepo({ "package.json": MANIFEST });

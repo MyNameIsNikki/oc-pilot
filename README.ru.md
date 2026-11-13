@@ -621,7 +621,7 @@ oc-pilot install-hook --pre-push
 oc-pilot install-hook --uninstall
 ```
 
-Хуки опциональны и обратимы. Чужой хук не перезаписывается без `--force`, а при замене сохраняется как `<hook>.oc-pilot.bak`. Каждый управляемый хук помечен маркером; хуки старых версий `oc-pilot doctor` показывает как устаревшие и обновляет через `oc-pilot doctor --fix`. Обход на одну команду — `OC_PILOT_SKIP=1`. Хук сначала берёт `OC_PILOT_BIN`, затем `./node_modules/.bin/oc-pilot`, затем `oc-pilot` из `PATH`; если ничего не найдено, он печатает предупреждение и пропускает проверку. Поддерживаются `core.hooksPath` и worktrees.
+Хуки опциональны и обратимы. Чужой хук не перезаписывается без `--force`, а при замене сохраняется как `<hook>.oc-pilot.bak`. Каждый управляемый хук помечен маркером; хуки старых версий `oc-pilot doctor` показывает как устаревшие и обновляет через `oc-pilot doctor --fix`. Обход на одну команду — `OC_PILOT_SKIP=1`. Хук сначала берёт `OC_PILOT_BIN`, затем `./node_modules/.bin/oc-pilot`, затем `oc-pilot` из `PATH`; если ничего не найдено, он печатает предупреждение и пропускает проверку. `oc-pilot ready` и `oc-pilot doctor` также сравнивают версию найденного бинарника с текущим CLI и предупреждают при расхождении. Поддерживаются `core.hooksPath` и worktrees.
 
 ### `restore`
 
@@ -985,7 +985,7 @@ ZCode импортирует серверы из Claude Code, Codex, OpenCode и
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # версия зафиксирована для воспроизводимости:
-npx -y oc-pilot@0.114.5 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.114.6 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -1057,7 +1057,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.114.5
+      - uses: MyNameIsNikki/oc-pilot@v0.114.6
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { VERSION } from "./version.js";
 
 const CLI = resolve("dist/cli.js");
 const AWS_KEY = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
@@ -1978,9 +1979,13 @@ test("ready --fix installs the hook, config and instructions", () => {
     );
     const binDir = join(dir, "node_modules", ".bin");
     mkdirSync(binDir, { recursive: true });
-    const bin = join(binDir, "oc-pilot");
-    writeFileSync(bin, "#!/bin/sh\nexit 0\n", "utf8");
-    if (process.platform !== "win32") chmodSync(bin, 0o755);
+    if (process.platform === "win32") {
+      writeFileSync(join(binDir, "oc-pilot.cmd"), `@echo oc-pilot ${VERSION}\r\n`, "utf8");
+    } else {
+      const bin = join(binDir, "oc-pilot");
+      writeFileSync(bin, `#!/bin/sh\necho "oc-pilot ${VERSION}"\n`, "utf8");
+      chmodSync(bin, 0o755);
+    }
 
     const before = runCli(["ready", "--cwd", dir, "--json"], dir);
     assert.equal(before.status, 0, before.stderr);

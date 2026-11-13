@@ -9,6 +9,7 @@ import { saveFindingsBaseline, sastFingerprint } from "./findings-baseline.js";
 import { scanSource } from "./sast.js";
 import { RECEIPT_VERSION, buildReceipt, generateReceiptKeyPair, saveReceipt, signReceipt } from "./receipt.js";
 import type { PreflightReport } from "./preflight.js";
+import { VERSION } from "../version.js";
 
 const PREFLIGHT: PreflightReport = {
   status: "pass",
@@ -27,12 +28,20 @@ function makeRepo(files: Record<string, string>): string {
   return dir;
 }
 
-function addLocalBinary(dir: string): void {
+function addLocalBinaryVersion(dir: string, version: string): void {
   const binDir = join(dir, "node_modules", ".bin");
   mkdirSync(binDir, { recursive: true });
+  if (process.platform === "win32") {
+    writeFileSync(join(binDir, "oc-pilot.cmd"), `@echo oc-pilot ${version}\r\n`, "utf8");
+    return;
+  }
   const bin = join(binDir, "oc-pilot");
-  writeFileSync(bin, "#!/bin/sh\nexit 0\n", "utf8");
-  if (process.platform !== "win32") chmodSync(bin, 0o755);
+  writeFileSync(bin, `#!/bin/sh\necho "oc-pilot ${version}"\n`, "utf8");
+  chmodSync(bin, 0o755);
+}
+
+function addLocalBinary(dir: string): void {
+  addLocalBinaryVersion(dir, VERSION);
 }
 
 function commit(dir: string): string {
@@ -122,6 +131,22 @@ test("assessReadiness warns when the managed hook cannot resolve oc-pilot", () =
   } finally {
     if (previous === undefined) delete process.env.OC_PILOT_BIN;
     else process.env.OC_PILOT_BIN = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("assessReadiness warns when the managed hook uses another oc-pilot version", () => {
+  const dir = makeRepo({
+    ".git/hooks/pre-commit": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot preflight --staged\n",
+  });
+  try {
+    addLocalBinaryVersion(dir, "0.0.1");
+    const hooks = assessReadiness(dir).checks.find((check) => check.id === "hooks");
+    assert.ok(hooks);
+    assert.equal(hooks.status, "warn");
+    assert.match(hooks.detail, /0\.0\.1/);
+    assert.match(hooks.detail, new RegExp(VERSION.replace(/\./g, "\\.")));
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

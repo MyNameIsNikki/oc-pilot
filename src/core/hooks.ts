@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { PilotError } from "./errors.js";
@@ -69,9 +70,57 @@ export function resolveHookBinary(
   }
 
   const local = join(cwd, "node_modules", ".bin", "oc-pilot");
-  if (isExecutableFile(local, platform)) return local;
-  if (platform === "win32" && isExecutableFile(`${local}.cmd`, platform)) {
-    return `${local}.cmd`;
+  if (platform === "win32") {
+    if (isExecutableFile(`${local}.cmd`, platform)) return `${local}.cmd`;
+    if (isExecutableFile(local, platform)) return local;
+  } else if (isExecutableFile(local, platform)) {
+    return local;
   }
   return findOnPath("oc-pilot", env, platform);
+}
+
+export interface VersionInvocation {
+  file: string;
+  args: string[];
+  windowsVerbatimArguments?: boolean;
+}
+
+/**
+ * Builds the spawn arguments for `--version`. Windows `.cmd`/`.bat` shims
+ * cannot be launched directly, so they go through `cmd.exe`; the command line
+ * is passed verbatim to avoid Node's DEP0190 warning for shell + args.
+ */
+export function versionInvocation(command: string): VersionInvocation {
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+    return {
+      file: process.env.ComSpec ?? "cmd.exe",
+      args: ["/d", "/s", "/c", `"${command}" --version`],
+      windowsVerbatimArguments: true,
+    };
+  }
+  return { file: command, args: ["--version"] };
+}
+
+/** Runs `--version` for a binary and returns its first output line. */
+export function readBinaryVersion(binary: string): string | undefined {
+  try {
+    const invocation = versionInvocation(binary);
+    const result = spawnSync(invocation.file, invocation.args, {
+      encoding: "utf8",
+      timeout: 10_000,
+      windowsHide: true,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    });
+    if (result.status !== 0) return undefined;
+    return (result.stdout || result.stderr).trim().split(/\r?\n/)[0]?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Extracts a semantic version from `oc-pilot X.Y.Z` output. */
+export function parseBinaryVersion(output: string | undefined): string | undefined {
+  if (!output) return undefined;
+  const match = /(?:^|\s)v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?:\s|$)/.exec(output);
+  return match?.[1];
 }

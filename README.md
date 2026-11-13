@@ -610,7 +610,7 @@ oc-pilot install-hook --pre-push
 oc-pilot install-hook --uninstall
 ```
 
-Hooks are opt-in and reversible. A hook that does not belong to oc-pilot is never overwritten unless `--force` is passed, and then the old file is kept as `<hook>.oc-pilot.bak`. Every managed hook is stamped with a marker; hooks written by older versions are reported as outdated by `oc-pilot doctor` and upgraded in place with `oc-pilot doctor --fix`. Set `OC_PILOT_SKIP=1` to bypass the hooks for a single command. The hook prefers `OC_PILOT_BIN`, then `./node_modules/.bin/oc-pilot`, then `oc-pilot` from `PATH`; if none is found, it prints a warning and skips the check. `core.hooksPath` and worktrees are respected.
+Hooks are opt-in and reversible. A hook that does not belong to oc-pilot is never overwritten unless `--force` is passed, and then the old file is kept as `<hook>.oc-pilot.bak`. Every managed hook is stamped with a marker; hooks written by older versions are reported as outdated by `oc-pilot doctor` and upgraded in place with `oc-pilot doctor --fix`. Set `OC_PILOT_SKIP=1` to bypass the hooks for a single command. The hook prefers `OC_PILOT_BIN`, then `./node_modules/.bin/oc-pilot`, then `oc-pilot` from `PATH`; if none is found, it prints a warning and skips the check. `oc-pilot ready` and `oc-pilot doctor` also compare the resolved binary version with the running CLI and warn when they differ. `core.hooksPath` and worktrees are respected.
 
 ### `restore`
 
@@ -1034,7 +1034,7 @@ Start the server manually with an explicit project directory:
 ```bash
 oc-pilot-mcp --cwd /absolute/path/to/project
 # pinned for reproducibility:
-npx -y oc-pilot@0.114.5 mcp --cwd /absolute/path/to/project
+npx -y oc-pilot@0.114.6 mcp --cwd /absolute/path/to/project
 ```
 
 The `diff` and `log` tool arguments are text, not file paths. `paths` and `files` are project-relative and cannot escape the project directory. `context` is literal text, not an `@file` reference. `base` must be a git ref. `lang`, `fail_on`, `repo_context`, and `no_secret_scan` are available where the corresponding CLI command supports them.
@@ -1209,7 +1209,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.114.5
+      - uses: MyNameIsNikki/oc-pilot@v0.114.6
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1232,7 +1232,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.114.5.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.114.6.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:
