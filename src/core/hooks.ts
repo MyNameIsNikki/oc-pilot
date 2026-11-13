@@ -1,4 +1,5 @@
-import { isAbsolute, resolve } from "node:path";
+import { accessSync, constants, statSync } from "node:fs";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { PilotError } from "./errors.js";
 import { runGit } from "./git.js";
 
@@ -13,4 +14,64 @@ export function resolveHooksDir(cwd: string): string {
   }
   const value = result.stdout.trim();
   return isAbsolute(value) ? value : resolve(cwd, value);
+}
+
+export interface ResolveHookBinaryOptions {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+}
+
+function isExecutableFile(path: string, platform: NodeJS.Platform): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
+    if (platform !== "win32") accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findOnPath(
+  name: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): string | undefined {
+  const pathValue = env.PATH ?? env.Path;
+  if (!pathValue) return undefined;
+  const separator = platform === "win32" ? ";" : delimiter;
+  const extensions = platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
+  for (const entry of pathValue.split(separator)) {
+    const directory = entry.trim().replace(/^"(.*)"$/, "$1");
+    if (!directory) continue;
+    for (const extension of extensions) {
+      const candidate = join(directory, `${name}${extension}`);
+      if (isExecutableFile(candidate, platform)) return candidate;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Finds the oc-pilot binary that a managed git hook will use. Mirrors the
+ * hook script order: OC_PILOT_BIN, then the project-local binary, then PATH.
+ */
+export function resolveHookBinary(
+  cwd: string,
+  options: ResolveHookBinaryOptions = {},
+): string | undefined {
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
+  const override = env.OC_PILOT_BIN?.trim();
+  if (override) {
+    const candidate = isAbsolute(override) ? override : resolve(cwd, override);
+    if (isExecutableFile(candidate, platform)) return candidate;
+    return findOnPath(override, env, platform);
+  }
+
+  const local = join(cwd, "node_modules", ".bin", "oc-pilot");
+  if (isExecutableFile(local, platform)) return local;
+  if (platform === "win32" && isExecutableFile(`${local}.cmd`, platform)) {
+    return `${local}.cmd`;
+  }
+  return findOnPath("oc-pilot", env, platform);
 }

@@ -7,7 +7,8 @@ import { DEFAULT_API_KEY_ENV, isLoopbackUrl, normalizeBaseUrl, } from "../core/e
 import { detectTestCommand } from "../core/project.js";
 import { parseCommandArgs, resolveContext, withCommon } from "../core/options.js";
 import { cacheStats, pruneCache } from "../core/cache.js";
-import { HOOK_MARKER, installHook, resolveHooksDir } from "./install-hook.js";
+import { HOOK_MARKER, installHook } from "./install-hook.js";
+import { resolveHookBinary, resolveHooksDir } from "../core/hooks.js";
 import { VERSION } from "../version.js";
 const OPTIONS = withCommon({
     fix: { type: "boolean" },
@@ -292,6 +293,7 @@ function checkHooks(cwd, fix) {
         return checks;
     }
     let sawAnyHook = false;
+    let sawManagedHook = false;
     for (const kind of ["pre-commit", "pre-push"]) {
         const hookPath = join(hooksDir, kind);
         if (!existsSync(hookPath))
@@ -305,6 +307,7 @@ function checkHooks(cwd, fix) {
             // Unreadable hook: treat as foreign.
         }
         if (content.includes(HOOK_MARKER)) {
+            sawManagedHook = true;
             checks.push({
                 id: "hooks",
                 status: "ok",
@@ -341,6 +344,15 @@ function checkHooks(cwd, fix) {
             title: `${kind} hook belongs to another tool`,
             detail: hookPath,
             fix: "oc-pilot install-hook --force (backs up the existing hook)",
+        });
+    }
+    if (sawManagedHook && !resolveHookBinary(cwd)) {
+        checks.push({
+            id: "hooks",
+            status: "warn",
+            title: "oc-pilot binary not found for the installed hooks",
+            detail: "The hook will skip its check. Set OC_PILOT_BIN or install oc-pilot.",
+            fix: "npm install -g oc-pilot (or set OC_PILOT_BIN)",
         });
     }
     if (!sawAnyHook) {

@@ -438,7 +438,7 @@ A receipt carries `{version, tool, toolVersion, createdAt, commit, branch, dirty
 
 ### `ready`
 
-Scores how ready a repository is for an AI agent. One offline number from 0 to 100 across nine checks: tests (15), lockfile (10), git hooks (15), Slop Index (15), a fresh receipt (10), agent instructions (10), CI (5), config (5) and security (15). Each check is `pass`, `warn` or `fail` and earns 100%, 50% or 0% of its weight. The security check runs the deterministic SAST and route-authorization rules over the repository and respects `.oc-pilot/baseline.json`. No model call, no network, but it does require a git repository.
+Scores how ready a repository is for an AI agent. One offline number from 0 to 100 across nine checks: tests (15), lockfile (10), git hooks (15), Slop Index (15), a fresh receipt (10), agent instructions (10), CI (5), config (5) and security (15). Each check is `pass`, `warn` or `fail` and earns 100%, 50% or 0% of its weight. The security check runs the deterministic SAST and route-authorization rules over the repository and respects `.oc-pilot/baseline.json`. No model call, no network, but it does require a git repository. The hooks check also verifies that an installed managed hook can resolve an oc-pilot binary; a hook that would silently skip is reported as a warning.
 
 ```bash
 oc-pilot ready
@@ -776,7 +776,7 @@ oc-pilot doctor --engine openai --model deepseek-chat
 oc-pilot doctor --fix
 ```
 
-It checks Node, the active engine, API credentials, git and repository state, the detected test command, project rules, oc-pilot git hooks and the response cache, and every MCP client config. `--fix` refreshes outdated oc-pilot hooks (a backup of the previous file is kept) and prunes expired cache entries; foreign hooks are never touched and are reported instead. Errors return exit code 1; `--strict` also fails on warnings. No secret values are printed.
+It checks Node, the active engine, API credentials, git and repository state, the detected test command, project rules, oc-pilot git hooks and the response cache, and every MCP client config. `--fix` refreshes outdated oc-pilot hooks (a backup of the previous file is kept) and prunes expired cache entries; foreign hooks are never touched and are reported instead. Errors return exit code 1; `--strict` also fails on warnings. No secret values are printed. It also warns when an installed managed hook cannot find an oc-pilot binary, because such a hook skips its check.
 
 ### `init`
 
@@ -1034,7 +1034,7 @@ Start the server manually with an explicit project directory:
 ```bash
 oc-pilot-mcp --cwd /absolute/path/to/project
 # pinned for reproducibility:
-npx -y oc-pilot@0.114.4 mcp --cwd /absolute/path/to/project
+npx -y oc-pilot@0.114.5 mcp --cwd /absolute/path/to/project
 ```
 
 The `diff` and `log` tool arguments are text, not file paths. `paths` and `files` are project-relative and cannot escape the project directory. `context` is literal text, not an `@file` reference. `base` must be a git ref. `lang`, `fail_on`, `repo_context`, and `no_secret_scan` are available where the corresponding CLI command supports them.
@@ -1209,7 +1209,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.114.4
+      - uses: MyNameIsNikki/oc-pilot@v0.114.5
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1232,7 +1232,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.114.4.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.114.5.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

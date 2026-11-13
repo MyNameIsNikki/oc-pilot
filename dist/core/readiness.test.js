@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -22,6 +22,14 @@ function makeRepo(files) {
         writeFileSync(full, content, "utf8");
     }
     return dir;
+}
+function addLocalBinary(dir) {
+    const binDir = join(dir, "node_modules", ".bin");
+    mkdirSync(binDir, { recursive: true });
+    const bin = join(binDir, "oc-pilot");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n", "utf8");
+    if (process.platform !== "win32")
+        chmodSync(bin, 0o755);
 }
 function commit(dir) {
     spawnSync("git", ["add", "-A"], { cwd: dir });
@@ -53,10 +61,12 @@ test("assessReadiness scores a prepared repository as agent-ready", () => {
         "src/app.ts": "export const value = 1;\n",
         "AGENTS.md": "# Agent instructions\n",
         ".oc-pilot.json": "{}\n",
+        ".gitignore": "node_modules/\n",
         ".github/workflows/ci.yml": "name: ci\n",
         ".git/hooks/pre-commit": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot preflight --staged\n",
     });
     try {
+        addLocalBinary(dir);
         const sha = commit(dir);
         saveReadyReceipt(dir, sha);
         const report = assessReadiness(dir);
@@ -71,9 +81,11 @@ test("assessReadiness scores a prepared repository as agent-ready", () => {
 });
 test("assessReadiness finds a hook installed through core.hooksPath", () => {
     const dir = makeRepo({
+        ".gitignore": "node_modules/\n",
         ".githooks/pre-commit": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot preflight --staged\n",
     });
     try {
+        addLocalBinary(dir);
         spawnSync("git", ["config", "core.hooksPath", ".githooks"], { cwd: dir });
         const hooks = assessReadiness(dir).checks.find((check) => check.id === "hooks");
         assert.ok(hooks);
@@ -81,6 +93,26 @@ test("assessReadiness finds a hook installed through core.hooksPath", () => {
         assert.match(hooks.detail, /pre-commit/);
     }
     finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("assessReadiness warns when the managed hook cannot resolve oc-pilot", () => {
+    const dir = makeRepo({
+        ".git/hooks/pre-commit": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot preflight --staged\n",
+    });
+    const previous = process.env.OC_PILOT_BIN;
+    process.env.OC_PILOT_BIN = join(dir, "missing-oc-pilot");
+    try {
+        const hooks = assessReadiness(dir).checks.find((check) => check.id === "hooks");
+        assert.ok(hooks);
+        assert.equal(hooks.status, "warn");
+        assert.match(hooks.detail, /OC_PILOT_BIN/);
+    }
+    finally {
+        if (previous === undefined)
+            delete process.env.OC_PILOT_BIN;
+        else
+            process.env.OC_PILOT_BIN = previous;
         rmSync(dir, { recursive: true, force: true });
     }
 });

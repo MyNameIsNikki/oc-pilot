@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { auditDependencies } from "./deps-health.js";
 import { PilotError } from "./errors.js";
 import { isGitRepo } from "./git.js";
-import { resolveHooksDir } from "./hooks.js";
+import { resolveHookBinary, resolveHooksDir } from "./hooks.js";
 import { detectLockfile, readLockfile } from "./lockfile.js";
 import { detectTestCommand } from "./project.js";
 import { readReceipt, readReceiptPublicKey, receiptPath, verifyReceipt } from "./receipt.js";
@@ -165,7 +165,18 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
 
   const hook = readIfExists(preCommitPath(cwd));
   if (hook?.includes("# oc-pilot hook")) {
-    checks.push(check("hooks", "Git-хук", 15, "pass", "pre-commit проверяет изменение"));
+    const binary = resolveHookBinary(cwd);
+    checks.push(
+      binary
+        ? check("hooks", "Git-хук", 15, "pass", `pre-commit проверяет изменение (${binary})`)
+        : check(
+            "hooks",
+            "Git-хук",
+            15,
+            "warn",
+            "pre-commit установлен, но oc-pilot не найден: хук пропустит проверку; задайте OC_PILOT_BIN или установите oc-pilot",
+          ),
+    );
   } else if (hook) {
     checks.push(check("hooks", "Git-хук", 15, "warn", "pre-commit есть, но не oc-pilot"));
   } else {
