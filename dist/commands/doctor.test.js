@@ -48,6 +48,40 @@ test("doctor --fix refreshes an outdated oc-pilot hook", async () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("doctor warns when an installed managed hook cannot resolve oc-pilot", async () => {
+    const dir = makeRepo("oc-pilot-doctor-hook-binary-");
+    try {
+        const hookPath = join(hooksDir(dir), "pre-commit");
+        writeFileSync(hookPath, "#!/bin/sh\n# oc-pilot hook v2\noc-pilot preflight --staged\n", "utf8");
+        const previous = process.env.OC_PILOT_BIN;
+        process.env.OC_PILOT_BIN = join(dir, "missing-oc-pilot");
+        const original = process.stdout.write;
+        let output = "";
+        process.stdout.write = ((chunk) => {
+            output += chunk.toString();
+            return true;
+        });
+        try {
+            const code = await runDoctor(doctorArgs(dir, ["--json"]));
+            assert.equal(code, 0);
+        }
+        finally {
+            process.stdout.write = original;
+            if (previous === undefined)
+                delete process.env.OC_PILOT_BIN;
+            else
+                process.env.OC_PILOT_BIN = previous;
+        }
+        const report = JSON.parse(output);
+        const warning = report.checks.find((check) => check.title === "oc-pilot binary not found for the installed hooks");
+        assert.ok(warning);
+        assert.equal(warning.status, "warn");
+        assert.match(warning.detail ?? "", /OC_PILOT_BIN/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("versionInvocation runs plain commands without a shell", () => {
     const invocation = versionInvocation("git");
     assert.equal(invocation.file, "git");

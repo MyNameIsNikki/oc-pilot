@@ -1976,6 +1976,11 @@ test("ready --fix installs the hook, config and instructions", () => {
       JSON.stringify({ name: "demo", lockfileVersion: 3, packages: { "": { name: "demo" } } }),
       "utf8",
     );
+    const binDir = join(dir, "node_modules", ".bin");
+    mkdirSync(binDir, { recursive: true });
+    const bin = join(binDir, "oc-pilot");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n", "utf8");
+    if (process.platform !== "win32") chmodSync(bin, 0o755);
 
     const before = runCli(["ready", "--cwd", dir, "--json"], dir);
     assert.equal(before.status, 0, before.stderr);

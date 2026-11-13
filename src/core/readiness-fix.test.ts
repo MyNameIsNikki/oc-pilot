@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -24,6 +24,14 @@ function makeRepo(files: Record<string, string>): string {
   return dir;
 }
 
+function addLocalBinary(dir: string): void {
+  const binDir = join(dir, "node_modules", ".bin");
+  mkdirSync(binDir, { recursive: true });
+  const bin = join(binDir, "oc-pilot");
+  writeFileSync(bin, "#!/bin/sh\nexit 0\n", "utf8");
+  if (process.platform !== "win32") chmodSync(bin, 0o755);
+}
+
 test("planReadinessFixes offers the safe fixes for a bare repository", () => {
   const dir = makeRepo({ "package.json": MANIFEST });
   try {
@@ -43,6 +51,7 @@ test("planReadinessFixes offers the safe fixes for a bare repository", () => {
 test("applyReadinessFixes creates the hook, config and agent instructions", () => {
   const dir = makeRepo({ "package.json": MANIFEST });
   try {
+    addLocalBinary(dir);
     const before = assessReadiness(dir);
     const plan = planReadinessFixes(dir, before);
     const applied = applyReadinessFixes(dir, plan);
@@ -73,6 +82,7 @@ test("applyReadinessFixes creates the hook, config and agent instructions", () =
 test("applyReadinessFixes installs the hook through core.hooksPath", () => {
   const dir = makeRepo({ "package.json": MANIFEST });
   try {
+    addLocalBinary(dir);
     spawnSync("git", ["config", "core.hooksPath", ".githooks"], { cwd: dir });
     const plan = planReadinessFixes(dir, assessReadiness(dir));
     applyReadinessFixes(dir, plan);

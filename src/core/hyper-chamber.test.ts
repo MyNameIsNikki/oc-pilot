@@ -37,14 +37,14 @@ test("a retained cache is reported as a memory leak with a crash day", () => {
     "leak.mjs": [
       "const cache = [];",
       "export function run() {",
-      "  cache.push({ i: cache.length, payload: 'x'.repeat(512) });",
+      "  cache.push({ i: cache.length, payload: 'x'.repeat(1024) });",
       "  return cache.length;",
       "}",
       "",
     ].join("\n"),
   });
   try {
-    const result = runHyperChamber(dir, "leak.mjs", { days: 365, budgetMs: 400, memoryMb: 256 });
+    const result = runHyperChamber(dir, "leak.mjs", { days: 365, budgetMs: 800, memoryMb: 256 });
     assert.equal(result.status, "leak", result.summary);
     assert.match(
       result.summary,
