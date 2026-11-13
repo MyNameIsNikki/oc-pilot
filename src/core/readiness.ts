@@ -64,11 +64,11 @@ function readIfExists(path: string): string | undefined {
   }
 }
 
-function preCommitPath(cwd: string): string {
+function hookPath(cwd: string, name: string): string {
   try {
-    return join(resolveHooksDir(cwd), "pre-commit");
+    return join(resolveHooksDir(cwd), name);
   } catch {
-    return join(cwd, ".git", "hooks", "pre-commit");
+    return join(cwd, ".git", "hooks", name);
   }
 }
 
@@ -164,8 +164,15 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
     );
   }
 
-  const hook = readIfExists(preCommitPath(cwd));
-  if (hook?.includes("# oc-pilot hook")) {
+  const preCommit = readIfExists(hookPath(cwd, "pre-commit"));
+  if (preCommit?.includes("# oc-pilot hook")) {
+    const managed = ["pre-commit", "pre-push"].filter((kind) =>
+      readIfExists(hookPath(cwd, kind))?.includes("# oc-pilot hook"),
+    );
+    const label = managed.join(" и ");
+    const installed = managed.length > 1 ? `${label} установлены` : `${label} установлен`;
+    const subject = managed.length > 1 ? `${label} используют` : `${label} использует`;
+    const verifies = managed.length > 1 ? "проверяют" : "проверяет";
     const binary = resolveHookBinary(cwd);
     if (!binary) {
       checks.push(
@@ -174,7 +181,7 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
           "Git-хук",
           15,
           "warn",
-          "pre-commit установлен, но oc-pilot не найден: хук пропустит проверку; задайте OC_PILOT_BIN или установите oc-pilot",
+          `${installed}, но oc-pilot не найден: проверка будет пропущена; задайте OC_PILOT_BIN или установите oc-pilot`,
         ),
       );
     } else {
@@ -187,7 +194,7 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
             "Git-хук",
             15,
             "warn",
-            `pre-commit использует ${binary}, но версию определить не удалось; задайте OC_PILOT_BIN или обновите oc-pilot`,
+            `${subject} ${binary}, но версию определить не удалось; задайте OC_PILOT_BIN или обновите oc-pilot`,
           ),
         );
       } else if (actual !== VERSION) {
@@ -197,14 +204,16 @@ export function assessReadiness(cwd: string, options: ReadinessOptions = {}): Re
             "Git-хук",
             15,
             "warn",
-            `pre-commit использует oc-pilot ${actual} (${binary}), а текущий ${VERSION}: обновите бинарник или задайте OC_PILOT_BIN`,
+            `${subject} oc-pilot ${actual} (${binary}), а текущий ${VERSION}: обновите бинарник или задайте OC_PILOT_BIN`,
           ),
         );
       } else {
-        checks.push(check("hooks", "Git-хук", 15, "pass", `pre-commit проверяет изменение (${binary}, ${actual})`));
+        checks.push(
+          check("hooks", "Git-хук", 15, "pass", `${label} ${verifies} изменение (${binary}, ${actual})`),
+        );
       }
     }
-  } else if (hook) {
+  } else if (preCommit) {
     checks.push(check("hooks", "Git-хук", 15, "warn", "pre-commit есть, но не oc-pilot"));
   } else {
     checks.push(check("hooks", "Git-хук", 15, "fail", "pre-commit не установлен: oc-pilot install-hook"));

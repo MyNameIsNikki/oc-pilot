@@ -139,6 +139,40 @@ test("assessReadiness warns when the managed hook uses another oc-pilot version"
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("assessReadiness checks the managed pre-push hook too", () => {
+    const dir = makeRepo({
+        ".git/hooks/pre-commit": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot preflight --staged\n",
+        ".git/hooks/pre-push": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot review --fail-on critical\n",
+    });
+    try {
+        addLocalBinary(dir);
+        const hooks = assessReadiness(dir).checks.find((check) => check.id === "hooks");
+        assert.ok(hooks);
+        assert.equal(hooks.status, "pass");
+        assert.match(hooks.detail, /pre-commit и pre-push/);
+        assert.match(hooks.detail, new RegExp(VERSION.replace(/\./g, "\\.")));
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("assessReadiness warns when the managed pre-push hook uses another version", () => {
+    const dir = makeRepo({
+        ".git/hooks/pre-commit": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot preflight --staged\n",
+        ".git/hooks/pre-push": "#!/bin/sh\n# oc-pilot hook v2\noc-pilot review --fail-on critical\n",
+    });
+    try {
+        addLocalBinaryVersion(dir, "0.0.1");
+        const hooks = assessReadiness(dir).checks.find((check) => check.id === "hooks");
+        assert.ok(hooks);
+        assert.equal(hooks.status, "warn");
+        assert.match(hooks.detail, /pre-commit и pre-push/);
+        assert.match(hooks.detail, /0\.0\.1/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("assessReadiness scores an empty repository as not ready", () => {
     const dir = makeRepo({});
     try {
