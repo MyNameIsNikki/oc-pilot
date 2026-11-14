@@ -232,14 +232,17 @@ function checkGit(cwd) {
         timeout: 10_000,
         windowsHide: true,
     });
+    const inRepo = inside.status === 0 && inside.stdout.trim() === "true";
     return [
         { id: "git", status: "ok", title: version },
         {
             id: "repository",
-            status: inside.status === 0 && inside.stdout.trim() === "true" ? "ok" : "warn",
-            title: inside.stdout.trim() === "true" ? "Inside a git repository" : "Not a git repository",
-            detail: "review and fix can still work with --diff, but normal diff collection needs git.",
-            fix: inside.stdout.trim() === "true" ? undefined : "git init",
+            status: inRepo ? "ok" : "warn",
+            title: inRepo ? "Inside a git repository" : "Not a git repository",
+            detail: inRepo
+                ? "Diff collection, review and fix use the repository history."
+                : "review and fix can still work with --diff, but normal diff collection needs git.",
+            fix: inRepo ? undefined : "git init",
         },
     ];
 }
@@ -262,7 +265,7 @@ function checkHooks(cwd, fix) {
         return checks;
     }
     let sawAnyHook = false;
-    let sawManagedHook = false;
+    const managed = [];
     for (const kind of ["pre-commit", "pre-push"]) {
         const hookPath = join(hooksDir, kind);
         if (!existsSync(hookPath))
@@ -276,13 +279,7 @@ function checkHooks(cwd, fix) {
             // Unreadable hook: treat as foreign.
         }
         if (content.includes(HOOK_MARKER)) {
-            sawManagedHook = true;
-            checks.push({
-                id: "hooks",
-                status: "ok",
-                title: `${kind} hook: oc-pilot (managed)`,
-                detail: hookPath,
-            });
+            managed.push({ kind, path: hookPath });
             continue;
         }
         if (content.includes("oc-pilot hook")) {
@@ -315,14 +312,15 @@ function checkHooks(cwd, fix) {
             fix: "oc-pilot install-hook --force (backs up the existing hook)",
         });
     }
-    if (sawManagedHook) {
+    if (managed.length > 0) {
         const binary = resolveHookBinary(cwd);
+        const paths = managed.map((hook) => hook.path).join(", ");
         if (!binary) {
             checks.push({
                 id: "hooks",
                 status: "warn",
                 title: "oc-pilot binary not found for the installed hooks",
-                detail: "The hook will skip its check. Set OC_PILOT_BIN or install oc-pilot.",
+                detail: `${paths}. The hook will skip its check. Set OC_PILOT_BIN or install oc-pilot.`,
                 fix: "npm install -g oc-pilot (or set OC_PILOT_BIN)",
             });
         }
@@ -334,7 +332,7 @@ function checkHooks(cwd, fix) {
                     id: "hooks",
                     status: "warn",
                     title: "oc-pilot binary version could not be determined",
-                    detail: `${binary} --version failed or returned an unknown format.`,
+                    detail: `${binary} --version failed or returned an unknown format. Managed hooks: ${paths}.`,
                     fix: "npm install -g oc-pilot (or set OC_PILOT_BIN)",
                 });
             }
@@ -343,9 +341,19 @@ function checkHooks(cwd, fix) {
                     id: "hooks",
                     status: "warn",
                     title: `hook uses oc-pilot ${actual}, current is ${VERSION}`,
-                    detail: `Resolved binary: ${binary} (reports ${reported}). The hook may run a different version.`,
+                    detail: `Resolved binary: ${binary} (reports ${reported}). Managed hooks: ${paths}.`,
                     fix: "npm install -g oc-pilot (or set OC_PILOT_BIN)",
                 });
+            }
+            else {
+                for (const hook of managed) {
+                    checks.push({
+                        id: "hooks",
+                        status: "ok",
+                        title: `${hook.kind} hook: oc-pilot (managed)`,
+                        detail: hook.path,
+                    });
+                }
             }
         }
     }

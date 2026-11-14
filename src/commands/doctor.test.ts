@@ -99,6 +99,11 @@ test("doctor warns when an installed managed hook cannot resolve oc-pilot", asyn
     assert.ok(warning);
     assert.equal(warning.status, "warn");
     assert.match(warning.detail ?? "", /OC_PILOT_BIN/);
+    assert.equal(
+      report.checks.filter((check) => check.id === "hooks" && check.status === "ok").length,
+      0,
+      "a hook without a binary must not also be reported ok",
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -133,6 +138,41 @@ test("doctor warns when the managed hook uses another oc-pilot version", async (
     assert.ok(warning);
     assert.equal(warning.status, "warn");
     assert.match(warning.detail ?? "", /0\.0\.1/);
+    assert.equal(
+      report.checks.filter((check) => check.id === "hooks" && check.status === "ok").length,
+      0,
+      "a stale hook must not also be reported ok",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("doctor describes an existing git repository accurately", async () => {
+  const dir = makeRepo("oc-pilot-doctor-repository-");
+  try {
+    const original = process.stdout.write;
+    let output = "";
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      output += chunk.toString();
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const code = await runDoctor(doctorArgs(dir, ["--json"]));
+      assert.equal(code, 0);
+    } finally {
+      process.stdout.write = original;
+    }
+
+    const report = JSON.parse(output) as {
+      checks: Array<{ id: string; status: string; title: string; detail?: string }>;
+    };
+    const repository = report.checks.find((check) => check.id === "repository");
+    assert.ok(repository);
+    assert.equal(repository.status, "ok");
+    assert.equal(repository.title, "Inside a git repository");
+    assert.match(repository.detail ?? "", /repository history/);
+    assert.doesNotMatch(repository.detail ?? "", /needs git/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
