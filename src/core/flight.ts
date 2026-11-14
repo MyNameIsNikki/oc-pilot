@@ -1175,6 +1175,82 @@ export function renderFlightDiff(result: FlightDiffResult): string {
     .join("\n");
 }
 
+export function renderFlightCompareHtml(result: FlightCompareResult): string {
+  const side = (label: string, value: FlightCompareSide): string => `<section class="card">
+<h2>${label}: ${escapeHtml(value.name)}</h2>
+<p class="id">${escapeHtml(value.id)}</p>
+<span class="badge ${value.valid ? "ok" : "bad"}">${value.valid ? "chain valid" : "chain tampered"}</span>
+<dl>
+<div><dt>Events</dt><dd>${value.events}</dd></div>
+<div><dt>Commands</dt><dd>${value.commands}</dd></div>
+<div><dt>Checkpoints</dt><dd>${value.checkpoints}</dd></div>
+<div><dt>Failed commands</dt><dd>${value.failedCommands}</dd></div>
+<div><dt>Duration</dt><dd>${value.durationMs} ms</dd></div>
+</dl>
+</section>`;
+  const commandList = (commands: string[][]): string =>
+    commands.length === 0
+      ? `<p class="muted">none</p>`
+      : `<ul>${commands.map((command) => `<li><code>${escapeHtml(commandLabel(command))}</code></li>`).join("")}</ul>`;
+  const differences =
+    result.exitCodeDifferences.length === 0
+      ? `<p class="muted">none</p>`
+      : `<table><thead><tr><th>Command</th><th>A</th><th>B</th></tr></thead><tbody>${result.exitCodeDifferences
+          .map(
+            (difference) =>
+              `<tr><td><code>${escapeHtml(commandLabel(difference.command))}</code></td><td>${difference.a ?? "?"}</td><td>${difference.b ?? "?"}</td></tr>`,
+          )
+          .join("")}</tbody></table>`;
+  const tree =
+    result.sameFinalTree === null
+      ? "no checkpoint on one side"
+      : result.sameFinalTree
+        ? "same tree"
+        : "different tree";
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>oc-pilot flight compare</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --ink:#17191d; --muted:#68707d; --line:#d9dde4; --accent:#2457d6; --ok:#177245; --bad:#b42318; }
+@media (prefers-color-scheme: dark) { :root { --bg:#111318; --card:#181b22; --ink:#e8ebf0; --muted:#9aa3b1; --line:#2b303a; --accent:#8ab4ff; --ok:#63d391; --bad:#ff8a80; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width:1080px; margin:0 auto; padding:40px 20px 64px; }
+h1 { margin:0 0 20px; font-size:clamp(28px,5vw,44px); line-height:1.1; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; }
+.card, section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin:16px 0; }
+.card h2 { margin:0 0 2px; font-size:18px; }
+.id { margin:0 0 10px; color:var(--muted); font-family:ui-monospace, SFMono-Regular, Consolas, monospace; }
+.badge { display:inline-block; padding:3px 10px; border:1px solid currentColor; border-radius:999px; font-size:12px; font-weight:700; }
+.badge.ok { color:var(--ok); } .badge.bad { color:var(--bad); }
+dl { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin:16px 0 0; }
+dt { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+dd { margin:2px 0 0; font-weight:700; }
+h2 { margin:0 0 12px; font-size:18px; }
+ul { margin:0; padding-left:20px; }
+code, pre { font-family:ui-monospace, SFMono-Regular, Consolas, monospace; }
+table { width:100%; border-collapse:collapse; }
+th, td { padding:8px; border-top:1px solid var(--line); text-align:left; }
+th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+.muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>oc-pilot flight compare</h1>
+<div class="cards">${side("A", result.a)}${side("B", result.b)}</div>
+<section><h2>Only in A</h2>${commandList(result.onlyA)}</section>
+<section><h2>Only in B</h2>${commandList(result.onlyB)}</section>
+<section><h2>Exit code differences</h2>${differences}</section>
+<section><h2>Final tree</h2><p>${escapeHtml(tree)}</p></section>
+</main>
+</body>
+</html>`;
+}
+
 export function renderFlightExport(result: FlightExportResult): string {
   return `[FLIGHT EXPORT] ${result.meta.id}: ${result.events.length} событий, ${result.checkpoints.length} чекпоинтов, ${result.digest.slice(0, 19)}.`;
 }

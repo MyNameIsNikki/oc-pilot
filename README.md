@@ -988,7 +988,7 @@ Tools: `review`, `invariants`, `test_fix`, `fix`, `test_gen`, `docgen`, `custom`
 
 `chronos` reads a file's chronicle: commits, churn, fix/revert/incident/security markers, antibodies and vaccines, then scores it as a hotspot. `[HOTSPOT]` means the file has a history of fixes, rollbacks or incidents; inspect it before changing it and add a vaccine for the next fix. A low score is not proof that the file is safe.
 
-`flight` records an agent session as a hash-chained black box: `flight start --name "fix auth"` writes `.git/oc-pilot/flights/<id>/events.jsonl`, `flight exec -- <command>` records each command and its output tail, and `flight checkpoint --label after-fix` creates a dangling git commit of the full worktree without moving HEAD. `flight status`, `list` and `show` inspect the journal; `flight verify <id>` recomputes the chain and prints `[FLIGHT TAMPERED]` on any edit; `flight end` closes the session. The log is local, NDJSON and zero-dependency. `flight replay --to <label|commit>` materializes a checkpoint as a detached worktree, `flight bisect -- <command>` runs a command at each checkpoint and stops at the first failure, `flight diff` compares checkpoints, and `flight export` writes a redacted bundle with a sha256 digest. `flight compare <id-a> <id-b>` compares two sessions by event count, duration, command sets, exit codes and final tree. `flight html` renders a self-contained, redacted HTML timeline with checkpoints and command output. `flight stats` aggregates sessions, commands, failures, checkpoints and duration across the journal. `flight prune` removes old ended sessions while keeping the active flight and the newest N sessions. `flight export --key <file>` signs the bundle digest with HMAC-SHA256, and `flight verify-bundle <file> --key <file>` checks the digest, chain and signature.
+`flight` records an agent session as a hash-chained black box: `flight start --name "fix auth"` writes `.git/oc-pilot/flights/<id>/events.jsonl`, `flight exec -- <command>` records each command and its output tail, and `flight checkpoint --label after-fix` creates a dangling git commit of the full worktree without moving HEAD. `flight status`, `list` and `show` inspect the journal; `flight verify <id>` recomputes the chain and prints `[FLIGHT TAMPERED]` on any edit; `flight end` closes the session. The log is local, NDJSON and zero-dependency. `flight replay --to <label|commit>` materializes a checkpoint as a detached worktree, `flight bisect -- <command>` runs a command at each checkpoint and stops at the first failure, `flight diff` compares checkpoints, and `flight export` writes a redacted bundle with a sha256 digest. `flight compare <id-a> <id-b>` compares two sessions by event count, duration, command sets, exit codes and final tree. `flight html` renders a self-contained, redacted HTML timeline with checkpoints and command output. `flight stats` aggregates sessions, commands, failures, checkpoints and duration across the journal. `flight prune` removes old ended sessions while keeping the active flight and the newest N sessions. `flight export --key <file>` signs the bundle digest with HMAC-SHA256, and `flight verify-bundle <file> --key <file>` checks the digest, chain and signature. `flight compare --html` renders a side-by-side visual comparison report.
 
 `beacon` records a verification claim for a commit: `beacon stamp --check tests=pass --check preflight=pass --key beacon.key` stores the commit, tree, tool version, agent, model, commands, checks and a digest in `.oc-pilot/beacon.json`, then signs it with HMAC or `ssh-keygen`. `beacon verify` detects `[BEACON TAMPERED]` and `[UNATTRIBUTED]`; `beacon render --markdown` produces a PR comment. An unsigned beacon is valid but unattributed, so pass `--require-signature` in CI.
 
@@ -1037,7 +1037,7 @@ Start the server manually with an explicit project directory:
 ```bash
 oc-pilot-mcp --cwd /absolute/path/to/project
 # pinned for reproducibility:
-npx -y oc-pilot@0.120.1 mcp --cwd /absolute/path/to/project
+npx -y oc-pilot@0.121.0 mcp --cwd /absolute/path/to/project
 ```
 
 The `diff` and `log` tool arguments are text, not file paths. `paths` and `files` are project-relative and cannot escape the project directory. `context` is literal text, not an `@file` reference. `base` must be a git ref. `lang`, `fail_on`, `repo_context`, and `no_secret_scan` are available where the corresponding CLI command supports them.
@@ -1212,7 +1212,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.120.1
+      - uses: MyNameIsNikki/oc-pilot@v0.121.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -1235,7 +1235,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.120.1.tar.gz
+      - run: npm install -g https://github.com/MyNameIsNikki/oc-pilot/archive/refs/tags/v0.121.0.tar.gz
       - run: oc-pilot scan --base origin/${{ github.base_ref }}
       - run: oc-pilot review --base origin/${{ github.base_ref }} --fail-on warning --fail-on-secrets --github
         env:

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, readFlightEvents, renderFlightHtml, replayFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, replayFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -209,6 +209,35 @@ test("bisectFlight finds the first failing checkpoint", () => {
     finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+test("renderFlightCompareHtml escapes names and shows differences", () => {
+    const side = (id, name) => ({
+        id,
+        name,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:01.000Z",
+        durationMs: 1000,
+        events: 2,
+        commands: 1,
+        checkpoints: 1,
+        failedCommands: 0,
+        valid: true,
+        baseCommit: "abc",
+    });
+    const html = renderFlightCompareHtml({
+        a: side("a", "<script>alert(1)</script>"),
+        b: side("b", "B"),
+        common: [["npm", "test"]],
+        onlyA: [["node", "-e", "x"]],
+        onlyB: [],
+        exitCodeDifferences: [{ command: ["npm", "test"], a: 0, b: 1 }],
+        sameFinalTree: false,
+    });
+    assert.match(html, /^<!doctype html>/);
+    assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+    assert.match(html, /Exit code differences/);
+    assert.match(html, /different tree/);
 });
 test("compareFlights reports command differences and final tree equality", () => {
     const dir = makeRepo();

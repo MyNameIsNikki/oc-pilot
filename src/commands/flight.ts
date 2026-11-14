@@ -15,6 +15,7 @@ import {
   renderFlightBundleVerify,
   renderFlightCheckpoint,
   renderFlightCompare,
+  renderFlightCompareHtml,
   renderFlightDiff,
   renderFlightEnd,
   renderFlightExec,
@@ -54,6 +55,7 @@ const OPTIONS: OptionSpec = withCommon({
   "older-than": { type: "string" },
   "dry-run": { type: "boolean" },
   key: { type: "string" },
+  html: { type: "boolean" },
   to: { type: "string" },
   from: { type: "string" },
   path: { type: "string" },
@@ -71,7 +73,7 @@ const HELP = `Использование:
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
-  oc-pilot flight compare <id-a> <id-b>
+  oc-pilot flight compare <id-a> <id-b> [--html]
   oc-pilot flight html [--id <id>] [--output <файл>]
   oc-pilot flight export [--id <id>] [--output <файл>] [--key <файл>]
   oc-pilot flight verify-bundle <файл> [--key <файл>]
@@ -91,6 +93,7 @@ const HELP = `Использование:
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать, что будет удалено, без удаления
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
+      --html                HTML-отчёт для compare
       --to <ref>            чекпоинт для replay/diff: метка или commit
       --from <ref>          начальный чекпоинт для diff
       --path <путь>         каталог для replay-worktree
@@ -110,6 +113,7 @@ ${COMMON_HELP}
   oc-pilot flight bisect -- node --test
   oc-pilot flight diff --from base --to "tests green"
   oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef
+  oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef --html --output compare.html
   oc-pilot flight html --output flight.html
   oc-pilot flight export --key flight.key --output flight.json
   oc-pilot flight verify-bundle flight.json --key flight.key
@@ -311,7 +315,11 @@ export function runFlight(argv: string[]): number {
     }
     const result = compareFlights(ctx.cwd, first, second);
     writeOutput(
-      json ? JSON.stringify(result, null, 2) : renderFlightCompare(result),
+      asBoolean(values, "html")
+        ? renderFlightCompareHtml(result)
+        : json
+          ? JSON.stringify(result, null, 2)
+          : renderFlightCompare(result),
       ctx.flags.output,
     );
     return result.a.valid && result.b.valid ? 0 : 2;
