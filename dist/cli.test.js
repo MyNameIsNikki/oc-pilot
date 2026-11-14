@@ -1360,6 +1360,12 @@ test("flight records checkpoints, status, verify and end", () => {
         const saved = JSON.parse(checkpoint.stdout);
         assert.equal(saved.label, "after-b");
         assert.match(saved.commit, /^[0-9a-f]{40}$/);
+        const diff = runCli(["flight", "diff", "--json"], dir);
+        assert.equal(diff.status, 0, diff.stderr);
+        const changes = JSON.parse(diff.stdout);
+        assert.equal(changes.to.label, "after-b");
+        assert.match(changes.stat, /b\.txt/);
+        assert.match(changes.patch, /\+two/);
         const status = runCli(["flight", "status", "--json"], dir);
         assert.equal(status.status, 0, status.stderr);
         const active = JSON.parse(status.stdout);

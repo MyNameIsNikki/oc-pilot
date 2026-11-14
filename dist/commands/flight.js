@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { createCheckpoint, endFlight, execInFlight, flightStatus, listFlights, renderFlightCheckpoint, renderFlightEnd, renderFlightExec, renderFlightList, renderFlightShow, renderFlightStart, renderFlightStatus, renderFlightVerify, showFlight, startFlight, } from "../core/flight.js";
+import { bisectFlight, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStatus, listFlights, renderFlightBisect, renderFlightCheckpoint, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightList, renderFlightReplay, renderFlightShow, renderFlightStart, renderFlightStatus, renderFlightVerify, replayFlight, showFlight, startFlight, } from "../core/flight.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -9,6 +9,9 @@ const OPTIONS = withCommon({
     label: { type: "string" },
     timeout: { type: "string" },
     id: { type: "string" },
+    to: { type: "string" },
+    from: { type: "string" },
+    path: { type: "string" },
 });
 const HELP = `Использование:
   oc-pilot flight start [--name <имя>]
@@ -17,6 +20,10 @@ const HELP = `Использование:
   oc-pilot flight status
   oc-pilot flight list
   oc-pilot flight show <id>
+  oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
+  oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
+  oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
+  oc-pilot flight export [--id <id>] [--output <файл>]
   oc-pilot flight end
   oc-pilot flight verify <id>
 
@@ -26,18 +33,25 @@ const HELP = `Использование:
 Опции:
       --name <имя>          имя полёта для start
       --label <метка>       метка чекпоинта
-      --timeout <мс>        таймаут команды для exec (по умолчанию 600000)
-      --id <id>             идентификатор для show/verify
+      --timeout <мс>        таймаут команды для exec/bisect (по умолчанию 600000)
+      --id <id>             идентификатор полёта
+      --to <ref>            чекпоинт для replay/diff: метка или commit
+      --from <ref>          начальный чекпоинт для diff
+      --path <путь>         каталог для replay-worktree
 ${COMMON_HELP}
 Коды возврата:
   0  успех
-  1  ошибка или команда exec завершилась с ненулевым кодом
+  1  ошибка, команда exec/bisect завершилась с ненулевым кодом
   2  полёт не запущен или журнал повреждён
 
 Примеры:
   oc-pilot flight start --name "fix auth"
   oc-pilot flight exec -- npm test
   oc-pilot flight checkpoint --label "tests green"
+  oc-pilot flight replay --to "tests green"
+  oc-pilot flight bisect -- node --test
+  oc-pilot flight diff --from base --to "tests green"
+  oc-pilot flight export --output flight.json
   oc-pilot flight verify 20261114T120000-ab12cd`;
 function requireId(values, positionals) {
     const id = asString(values, "id") ?? positionals[1];
@@ -63,7 +77,7 @@ function timeoutOf(values) {
 export function runFlight(argv) {
     let args = [...argv];
     let explicitCommand;
-    if (args[0] === "exec") {
+    if (args[0] === "exec" || args[0] === "bisect") {
         const separator = args.indexOf("--");
         if (separator >= 0) {
             explicitCommand = args.slice(separator + 1);
@@ -124,6 +138,34 @@ export function runFlight(argv) {
             ? JSON.stringify({ id: show.meta.id, ...show.verification }, null, 2)
             : renderFlightVerify(show.verification), ctx.flags.output);
         return show.verification.valid ? 0 : 2;
+    }
+    if (action === "replay") {
+        const result = replayFlight(ctx.cwd, asString(values, "id"), asString(values, "to"), asString(values, "path"));
+        writeOutput(json ? JSON.stringify(result, null, 2) : renderFlightReplay(result), ctx.flags.output);
+        log.success(`Replay: ${result.path}`);
+        return 0;
+    }
+    if (action === "bisect") {
+        const command = explicitCommand ?? positionals.slice(1);
+        if (command.length === 0) {
+            throw new PilotError("Не указана команда для bisect.", {
+                hint: "Используйте: oc-pilot flight bisect -- <команда...>.",
+            });
+        }
+        const result = bisectFlight(ctx.cwd, asString(values, "id"), command, timeoutOf(values));
+        writeOutput(json ? JSON.stringify(result, null, 2) : renderFlightBisect(result), ctx.flags.output);
+        return result.firstBad ? 1 : 0;
+    }
+    if (action === "diff") {
+        const result = diffFlight(ctx.cwd, asString(values, "id"), asString(values, "from"), asString(values, "to"));
+        writeOutput(json ? JSON.stringify(result, null, 2) : renderFlightDiff(result), ctx.flags.output);
+        return 0;
+    }
+    if (action === "export") {
+        const result = exportFlight(ctx.cwd, asString(values, "id"));
+        writeOutput(json ? JSON.stringify(result, null, 2) : renderFlightExport(result), ctx.flags.output);
+        log.success(`Экспорт ${result.meta.id}: ${result.digest}.`);
+        return 0;
     }
     if (action === "end") {
         const result = endFlight(ctx.cwd);

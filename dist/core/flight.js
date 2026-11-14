@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { PilotError } from "./errors.js";
 import { getRepoRoot, runGit } from "./git.js";
@@ -421,5 +422,204 @@ export function renderFlightExec(result) {
 }
 export function renderFlightEnd(summary) {
     return `Полёт завершён: чекпоинтов ${String(summary.checkpoints ?? 0)}, команд ${String(summary.commands ?? 0)}, ${String(summary.durationMs ?? 0)} мс.`;
+}
+function resolveFlightId(cwd, id) {
+    if (id && id.trim().length > 0)
+        return id.trim();
+    const active = activeFlight(cwd);
+    if (!active) {
+        throw new PilotError("Полёт не запущен.", {
+            hint: "Запустите oc-pilot flight start или укажите --id.",
+        });
+    }
+    return active.meta.id;
+}
+function flightCheckpoints(show) {
+    return show.events
+        .filter((event) => event.kind === "file.checkpoint")
+        .map((event) => event.payload);
+}
+function resolveCheckpoint(checkpoints, ref) {
+    if (checkpoints.length === 0) {
+        throw new PilotError("В полёте нет чекпоинтов.", {
+            hint: "Создайте чекпоинт: oc-pilot flight checkpoint --label <метка>.",
+        });
+    }
+    if (!ref)
+        return checkpoints[checkpoints.length - 1];
+    const exact = [...checkpoints].reverse().find((checkpoint) => checkpoint.label === ref);
+    if (exact)
+        return exact;
+    const byCommit = [...checkpoints].reverse().find((checkpoint) => checkpoint.commit.startsWith(ref));
+    if (byCommit)
+        return byCommit;
+    throw new PilotError(`Чекпоинт не найден: ${ref}.`, {
+        hint: "Посмотрите oc-pilot flight show <id>.",
+    });
+}
+function sanitizeLabel(label) {
+    return label.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 40) || "checkpoint";
+}
+function removeWorktree(cwd, path) {
+    const result = runGit(["worktree", "remove", "--force", path], cwd);
+    if (result.status !== 0)
+        rmSync(path, { recursive: true, force: true });
+}
+export function replayFlight(cwd, id, to, path) {
+    const show = showFlight(cwd, resolveFlightId(cwd, id));
+    const checkpoint = resolveCheckpoint(flightCheckpoints(show), to);
+    const target = path
+        ? resolve(cwd, path)
+        : join(tmpdir(), `oc-pilot-flight-${show.meta.id}-${sanitizeLabel(checkpoint.label)}-${randomBytes(3).toString("hex")}`);
+    if (existsSync(target)) {
+        throw new PilotError(`Путь уже существует: ${target}.`, {
+            hint: "Укажите другой --path или удалите старый worktree.",
+        });
+    }
+    const result = runGit(["worktree", "add", "--detach", target, checkpoint.commit], cwd);
+    if (result.status !== 0) {
+        throw new PilotError(`Не удалось создать worktree: ${result.stderr.trim() || "git worktree failed"}.`);
+    }
+    return { id: show.meta.id, label: checkpoint.label, commit: checkpoint.commit, path: target };
+}
+export function bisectFlight(cwd, id, command, timeoutMs = 600_000) {
+    if (command.length === 0) {
+        throw new PilotError("Не указана команда для bisect.", {
+            hint: "Передайте команду после --: oc-pilot flight bisect -- <команда>.",
+        });
+    }
+    const show = showFlight(cwd, resolveFlightId(cwd, id));
+    const checkpoints = flightCheckpoints(show);
+    if (checkpoints.length === 0) {
+        throw new PilotError("В полёте нет чекпоинтов для bisect.", {
+            hint: "Создайте чекпоинты: oc-pilot flight checkpoint --label <метка>.",
+        });
+    }
+    const steps = [];
+    let firstBad;
+    for (const checkpoint of checkpoints) {
+        const replay = replayFlight(cwd, show.meta.id, checkpoint.commit);
+        const startedAt = Date.now();
+        const result = spawnSync(command[0], command.slice(1), {
+            cwd: replay.path,
+            encoding: "utf8",
+            timeout: timeoutMs,
+            maxBuffer: 16 * 1024 * 1024,
+            windowsHide: true,
+        });
+        const errorCode = result.error?.code;
+        const timedOut = errorCode === "ETIMEDOUT" || result.signal === "SIGTERM";
+        const exitCode = typeof result.status === "number" ? result.status : null;
+        const step = {
+            label: checkpoint.label,
+            commit: checkpoint.commit,
+            exitCode,
+            timedOut,
+            durationMs: Date.now() - startedAt,
+            stdoutTail: tail(result.stdout ?? ""),
+            stderrTail: tail(result.stderr ?? ""),
+        };
+        steps.push(step);
+        removeWorktree(cwd, replay.path);
+        if (timedOut || exitCode !== 0) {
+            firstBad = step;
+            break;
+        }
+    }
+    return firstBad ? { id: show.meta.id, command, steps, firstBad } : { id: show.meta.id, command, steps };
+}
+export function diffFlight(cwd, id, fromRef, toRef) {
+    const show = showFlight(cwd, resolveFlightId(cwd, id));
+    const checkpoints = flightCheckpoints(show);
+    const base = show.meta.baseCommit ?? "HEAD";
+    const from = fromRef
+        ? { label: fromRef, commit: resolveCheckpoint(checkpoints, fromRef).commit }
+        : { label: "base", commit: base };
+    const to = toRef
+        ? { label: toRef, commit: resolveCheckpoint(checkpoints, toRef).commit }
+        : { label: checkpoints[checkpoints.length - 1]?.label ?? "head", commit: checkpoints[checkpoints.length - 1]?.commit ?? "HEAD" };
+    const stat = runGit(["diff", "--no-color", "--stat", from.commit, to.commit], cwd);
+    const patch = runGit(["diff", "--no-color", from.commit, to.commit], cwd);
+    if (stat.status !== 0 || patch.status !== 0) {
+        throw new PilotError(`Не удалось получить diff: ${(stat.stderr || patch.stderr).trim() || "git diff failed"}.`);
+    }
+    const limit = 200_000;
+    return {
+        id: show.meta.id,
+        from,
+        to,
+        stat: stat.stdout.trimEnd(),
+        patch: patch.stdout.length > limit ? `${patch.stdout.slice(0, limit)}\n... (обрезано)` : patch.stdout,
+    };
+}
+const SECRET_PATTERNS = [
+    /sk-[A-Za-z0-9]{20,}/g,
+    /gh[pousr]_[A-Za-z0-9]{20,}/g,
+    /xox[baprs]-[A-Za-z0-9-]{10,}/g,
+    /AKIA[0-9A-Z]{16}/g,
+    /((?:api[_-]?key|token|secret|password)\s*[:=]\s*["']?)[^"'\s]{8,}/gi,
+];
+function redactText(text) {
+    let output = text;
+    for (const pattern of SECRET_PATTERNS) {
+        output = output.replace(pattern, (_match, prefix) => typeof prefix === "string" && prefix.length > 0 ? `${prefix}[REDACTED]` : "[REDACTED]");
+    }
+    return output;
+}
+function redactValue(value) {
+    if (typeof value === "string")
+        return redactText(value);
+    if (Array.isArray(value))
+        return value.map(redactValue);
+    if (value !== null && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactValue(entry)]));
+    }
+    return value;
+}
+export function exportFlight(cwd, id) {
+    const show = showFlight(cwd, resolveFlightId(cwd, id));
+    const base = show.meta.baseCommit ?? "HEAD";
+    const checkpoints = flightCheckpoints(show).map((checkpoint) => {
+        const patch = runGit(["diff", "--no-color", base, checkpoint.commit], cwd);
+        return {
+            ...checkpoint,
+            patch: patch.status === 0 ? redactText(patch.stdout) : "",
+        };
+    });
+    const manifest = {
+        format: "oc-pilot-flight-export/v1",
+        exportedAt: new Date().toISOString(),
+        meta: { ...show.meta, cwd: "." },
+        verification: show.verification,
+        events: show.events.map((event) => redactValue(event)),
+        checkpoints,
+    };
+    const digest = `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
+    return { ...manifest, digest };
+}
+export function renderFlightReplay(result) {
+    return `[FLIGHT REPLAY] ${result.label} (${result.commit.slice(0, 12)}) → ${result.path}`;
+}
+export function renderFlightBisect(result) {
+    const lines = [`[FLIGHT BISECT] ${result.id}: ${result.steps.length} чекпоинтов.`];
+    for (const step of result.steps) {
+        const marker = step === result.firstBad ? "FAIL" : "ok";
+        lines.push(`  ${marker} ${step.label} ${step.commit.slice(0, 12)} exit ${step.exitCode ?? "?"}${step.timedOut ? " timeout" : ""}`);
+    }
+    if (result.firstBad) {
+        lines.push(`[FIRST BAD STEP] ${result.firstBad.label} (${result.firstBad.commit.slice(0, 12)}).`);
+    }
+    else {
+        lines.push("[FLIGHT BISECT] все чекпоинты прошли.");
+    }
+    return lines.join("\n");
+}
+export function renderFlightDiff(result) {
+    return [`[FLIGHT DIFF] ${result.from.label}..${result.to.label}`, result.stat, result.patch]
+        .filter((part) => part.length > 0)
+        .join("\n");
+}
+export function renderFlightExport(result) {
+    return `[FLIGHT EXPORT] ${result.meta.id}: ${result.events.length} событий, ${result.checkpoints.length} чекпоинтов, ${result.digest.slice(0, 19)}.`;
 }
 //# sourceMappingURL=flight.js.map

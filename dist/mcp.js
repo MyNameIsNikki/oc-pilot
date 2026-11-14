@@ -1568,6 +1568,66 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_replay",
+        description: "Materialize a flight checkpoint as a detached git worktree without touching the main worktree. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                id: { type: "string", description: "Flight session id; defaults to the active flight" },
+                to: { type: "string", description: "Checkpoint label or commit; defaults to the latest checkpoint" },
+                path: { type: "string", description: "Target worktree path; defaults to a temp directory" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_bisect",
+        description: "Run a command at each flight checkpoint in order and report the first failing step. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["command"],
+            properties: {
+                id: { type: "string", description: "Flight session id; defaults to the active flight" },
+                command: { type: "array", description: "Command argv, e.g. [\"npm\",\"test\"]", items: { type: "string" } },
+                timeout: { type: "integer", minimum: 100, maximum: 600000 },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_diff",
+        description: "Compare the flight base commit or two checkpoints and return git diff stat and patch.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                id: { type: "string", description: "Flight session id; defaults to the active flight" },
+                from: { type: "string", description: "Checkpoint label or commit; defaults to the base commit" },
+                to: { type: "string", description: "Checkpoint label or commit; defaults to the latest checkpoint" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_export",
+        description: "Export a redacted flight bundle with journal, checkpoint patches and a sha256 digest. Needs --allow-write when output is set.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                id: { type: "string", description: "Flight session id; defaults to the active flight" },
+                output: { type: "string", description: "Optional bundle file path" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "beacon",
         description: "Create, verify and render a signed verification beacon for HEAD: commit, tree, tool version, agent, model, checks, commands and digest. Supports HMAC and ssh-keygen signatures; verify detects tampering and unattributed manifests. Actions: stamp, verify, render, clear. stamp/clear write and need --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -4323,6 +4383,54 @@ async function callFlightVerify(input, cwd) {
 async function callFlightEnd(_input, cwd) {
     return toToolResult(await runCli(["flight", "end", "--json"], cwd));
 }
+async function callFlightReplay(input, cwd) {
+    const args = ["flight", "replay", "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    const to = stringArg(input, "to");
+    if (to)
+        args.push("--to", to);
+    const path = stringArg(input, "path");
+    if (path)
+        args.push("--path", path);
+    return toToolResult(await runCli(args, cwd));
+}
+async function callFlightBisect(input, cwd) {
+    const command = stringArrayArg(input, "command", true);
+    const args = ["flight", "bisect", "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    const timeout = integerArg(input, "timeout");
+    if (timeout !== undefined)
+        args.push("--timeout", String(timeout));
+    args.push("--", ...command);
+    return toToolResult(await runCli(args, cwd));
+}
+async function callFlightDiff(input, cwd) {
+    const args = ["flight", "diff", "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    const from = stringArg(input, "from");
+    if (from)
+        args.push("--from", from);
+    const to = stringArg(input, "to");
+    if (to)
+        args.push("--to", to);
+    return toToolResult(await runCli(args, cwd));
+}
+async function callFlightExport(input, cwd) {
+    const args = ["flight", "export", "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    const output = stringArg(input, "output");
+    if (output)
+        args.push("--output", output);
+    return toToolResult(await runCli(args, cwd));
+}
 async function callBeacon(input, cwd) {
     const action = stringArg(input, "action", true);
     const args = ["beacon", action, "--json"];
@@ -4714,7 +4822,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "scan_injection" && booleanArg(input, "fix")) {
             throw new ToolInputError("scan_injection fix writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
-        if (name.startsWith("flight_") && ["flight_start", "flight_exec", "flight_checkpoint", "flight_end"].includes(name)) {
+        if (name.startsWith("flight_") &&
+            ["flight_start", "flight_exec", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_export"].includes(name)) {
             throw new ToolInputError("flight write actions are disabled in read-only mode; start the MCP server with --allow-write");
         }
     }
@@ -4859,6 +4968,14 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightVerify(input, cwd);
         case "flight_end":
             return callFlightEnd(input, cwd);
+        case "flight_replay":
+            return callFlightReplay(input, cwd);
+        case "flight_bisect":
+            return callFlightBisect(input, cwd);
+        case "flight_diff":
+            return callFlightDiff(input, cwd);
+        case "flight_export":
+            return callFlightExport(input, cwd);
         case "beacon":
             return callBeacon(input, cwd);
         case "quarantine":
@@ -4979,6 +5096,24 @@ function summarizeResult(value) {
     }
     if (typeof value.score === "number" && typeof value.hotspot === "boolean" && value.totals && typeof value.totals === "object") {
         return `oc-pilot: chronos ${String(value.score)}, ${value.hotspot ? "hotspot" : "stable"}`;
+    }
+    if (typeof value.id === "string" && typeof value.label === "string" && typeof value.commit === "string" && typeof value.path === "string") {
+        return `oc-pilot: flight replay ${value.id} ${value.label}`;
+    }
+    if (typeof value.id === "string" && Array.isArray(value.command) && Array.isArray(value.steps)) {
+        const first = value.firstBad && typeof value.firstBad === "object"
+            ? value.firstBad.label
+            : undefined;
+        return `oc-pilot: flight bisect ${String(value.steps.length)} step(s)${typeof first === "string" ? `, first bad ${first}` : ", all passed"}`;
+    }
+    if (typeof value.id === "string" && value.from && typeof value.from === "object" && value.to && typeof value.to === "object" && typeof value.stat === "string") {
+        const from = value.from;
+        const to = value.to;
+        return `oc-pilot: flight diff ${typeof from.label === "string" ? from.label : "?"}..${typeof to.label === "string" ? to.label : "?"}`;
+    }
+    if (typeof value.format === "string" && value.format.startsWith("oc-pilot-flight-export/") && typeof value.digest === "string") {
+        const checkpoints = Array.isArray(value.checkpoints) ? value.checkpoints.length : 0;
+        return `oc-pilot: flight export ${String(checkpoints)} checkpoint(s), ${value.digest.slice(0, 15)}`;
     }
     if (typeof value.active === "boolean") {
         if (value.session && typeof value.session === "object") {

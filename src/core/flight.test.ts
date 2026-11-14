@@ -1,18 +1,22 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   activeFlight,
   appendFlightEvent,
+  bisectFlight,
   createCheckpoint,
+  diffFlight,
   endFlight,
   execInFlight,
+  exportFlight,
   flightStatus,
   listFlights,
   readFlightEvents,
+  replayFlight,
   showFlight,
   startFlight,
   verifyFlightEvents,
@@ -174,6 +178,82 @@ test("readFlightEvents rejects malformed JSONL", () => {
     const session = startFlight(dir, "broken");
     writeFileSync(join(session.dir, "events.jsonl"), "{not json}\n", "utf8");
     assert.throws(() => readFlightEvents(session.dir), /Повреждён журнал/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("replayFlight materializes a checkpoint in a shadow worktree", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "replay");
+    writeFileSync(join(dir, "b.txt"), "two\n", "utf8");
+    const checkpoint = createCheckpoint(dir, "after-b");
+    const result = replayFlight(dir, undefined, "after-b");
+    try {
+      assert.equal(result.label, "after-b");
+      assert.equal(result.commit, checkpoint.commit);
+      assert.equal(readFileSync(join(result.path, "b.txt"), "utf8"), "two\n");
+      assert.equal(git(["rev-parse", "HEAD"], result.path), checkpoint.commit);
+    } finally {
+      git(["worktree", "remove", "--force", result.path], dir);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("diffFlight compares the base commit with a checkpoint", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "diff");
+    writeFileSync(join(dir, "b.txt"), "two\n", "utf8");
+    createCheckpoint(dir, "after-b");
+    const result = diffFlight(dir);
+    assert.equal(result.from.label, "base");
+    assert.equal(result.to.label, "after-b");
+    assert.match(result.stat, /b\.txt/);
+    assert.match(result.patch, /\+two/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("bisectFlight finds the first failing checkpoint", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "bisect");
+    writeFileSync(join(dir, "a.txt"), "good\n", "utf8");
+    createCheckpoint(dir, "good");
+    writeFileSync(join(dir, "a.txt"), "bad\n", "utf8");
+    createCheckpoint(dir, "bad");
+    writeFileSync(join(dir, "a.txt"), "bad\n", "utf8");
+    createCheckpoint(dir, "worse");
+    const script =
+      "const fs=require('fs');process.exit(fs.readFileSync('a.txt','utf8').includes('bad')?1:0)";
+    const result = bisectFlight(dir, undefined, [process.execPath, "-e", script], 60_000);
+    assert.equal(result.steps.length, 2);
+    assert.equal(result.firstBad?.label, "bad");
+    assert.equal(result.firstBad?.exitCode, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exportFlight redacts secrets and includes a digest", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "export");
+    writeFileSync(join(dir, "secret.txt"), "token=abcdefgh12345\n", "utf8");
+    createCheckpoint(dir, "with-secret");
+    const result = exportFlight(dir);
+    assert.equal(result.format, "oc-pilot-flight-export/v1");
+    assert.equal(result.meta.id, activeFlight(dir)?.meta.id);
+    assert.equal(result.checkpoints.length, 1);
+    assert.match(result.digest, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(JSON.stringify(result).includes("abcdefgh12345"), false);
+    assert.match(JSON.stringify(result), /\[REDACTED\]/);
+    assert.equal(result.verification.valid, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
