@@ -14,6 +14,7 @@ import {
   endFlight,
   execInFlight,
   exportFlight,
+  flightStats,
   flightStatus,
   listFlights,
   readFlightEvents,
@@ -277,6 +278,43 @@ test("compareFlights reports command differences and final tree equality", () =>
     assert.equal(result.sameFinalTree, false);
     assert.equal(result.a.valid, true);
     assert.equal(result.b.valid, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("flightStats aggregates sessions and commands", () => {
+  const dir = makeRepo();
+  try {
+    const command = [
+      process.execPath,
+      "-e",
+      "process.exit(require('fs').readFileSync('a.txt','utf8').includes('bad')?1:0)",
+    ];
+    startFlight(dir, "first");
+    execInFlight(dir, command, { quiet: true });
+    createCheckpoint(dir, "first-cp");
+    endFlight(dir);
+
+    writeFileSync(join(dir, "a.txt"), "bad\n", "utf8");
+    startFlight(dir, "second");
+    execInFlight(dir, command, { quiet: true });
+    createCheckpoint(dir, "second-cp");
+    endFlight(dir);
+
+    const stats = flightStats(dir);
+    assert.equal(stats.total, 2);
+    assert.equal(stats.ended, 2);
+    assert.equal(stats.active, 0);
+    assert.equal(stats.events, 10);
+    assert.equal(stats.commands, 2);
+    assert.equal(stats.checkpoints, 2);
+    assert.equal(stats.failedCommands, 1);
+    assert.equal(stats.topCommands.length, 1);
+    assert.equal(stats.topCommands[0]?.runs, 2);
+    assert.equal(stats.topCommands[0]?.failures, 1);
+    assert.ok(stats.durationMs >= 0);
+    assert.ok(stats.averageDurationMs >= 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

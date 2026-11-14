@@ -74,6 +74,25 @@ export interface FlightListEntry extends FlightMeta {
   ended: boolean;
 }
 
+export interface FlightCommandStat {
+  command: string;
+  runs: number;
+  failures: number;
+}
+
+export interface FlightStats {
+  total: number;
+  active: number;
+  ended: number;
+  events: number;
+  commands: number;
+  checkpoints: number;
+  failedCommands: number;
+  durationMs: number;
+  averageDurationMs: number;
+  topCommands: FlightCommandStat[];
+}
+
 export interface FlightShow {
   meta: FlightMeta;
   events: FlightEvent[];
@@ -442,6 +461,59 @@ export function listFlights(cwd: string): FlightListEntry[] {
   return entries.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
+export function flightStats(cwd: string): FlightStats {
+  const flights = listFlights(cwd);
+  const commands = new Map<string, FlightCommandStat>();
+  let events = 0;
+  let commandCount = 0;
+  let checkpoints = 0;
+  let failedCommands = 0;
+  let durationMs = 0;
+  for (const entry of flights) {
+    const show = showFlight(cwd, entry.id);
+    events += show.events.length;
+    checkpoints += entry.checkpoints;
+    const startedAt = Date.parse(show.meta.startedAt);
+    const endedAt = Date.parse(show.events.at(-1)?.ts ?? show.meta.startedAt);
+    durationMs += Math.max(0, endedAt - startedAt);
+    for (const event of show.events) {
+      if (event.kind === "command.start") commandCount += 1;
+      if (event.kind !== "command.end") continue;
+      const payload = event.payload as Record<string, unknown>;
+      const command = Array.isArray(payload.command)
+        ? payload.command.filter((part): part is string => typeof part === "string")
+        : [];
+      if (command.length === 0) continue;
+      const key = JSON.stringify(command);
+      const current = commands.get(key) ?? { command: command.join(" "), runs: 0, failures: 0 };
+      current.runs += 1;
+      if (
+        payload.timedOut === true ||
+        (typeof payload.exitCode === "number" && payload.exitCode !== 0)
+      ) {
+        current.failures += 1;
+        failedCommands += 1;
+      }
+      commands.set(key, current);
+    }
+  }
+  const topCommands = [...commands.values()]
+    .sort((left, right) => right.runs - left.runs || left.command.localeCompare(right.command))
+    .slice(0, 5);
+  return {
+    total: flights.length,
+    active: flights.filter((flight) => !flight.ended).length,
+    ended: flights.filter((flight) => flight.ended).length,
+    events,
+    commands: commandCount,
+    checkpoints,
+    failedCommands,
+    durationMs,
+    averageDurationMs: flights.length === 0 ? 0 : Math.round(durationMs / flights.length),
+    topCommands,
+  };
+}
+
 export function showFlight(cwd: string, id: string): FlightShow {
   const root = flightsRoot(cwd);
   const dir = sessionDir(root, id);
@@ -491,6 +563,22 @@ export function renderFlightList(flights: FlightListEntry[]): string {
         `${flight.id}  ${flight.ended ? "завершён" : "активен"}  ${flight.name}  событий ${flight.events}, чекпоинтов ${flight.checkpoints}`,
     )
     .join("\n");
+}
+
+export function renderFlightStats(stats: FlightStats): string {
+  if (stats.total === 0) return "[FLIGHT STATS] полётов нет.";
+  const lines = [
+    `[FLIGHT STATS] всего ${stats.total}: завершено ${stats.ended}, активно ${stats.active}.`,
+    `События: ${stats.events}, команды: ${stats.commands}, чекпоинты: ${stats.checkpoints}, ошибки команд: ${stats.failedCommands}.`,
+    `Длительность: ${stats.durationMs} мс, средняя: ${stats.averageDurationMs} мс.`,
+  ];
+  if (stats.topCommands.length > 0) {
+    lines.push("Частые команды:");
+    for (const command of stats.topCommands) {
+      lines.push(`  ${command.command} — ${command.runs}, ошибок ${command.failures}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 function eventSummary(event: FlightEvent): string {

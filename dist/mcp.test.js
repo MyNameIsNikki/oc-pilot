@@ -408,6 +408,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
             "flight_diff",
             "flight_compare",
             "flight_html",
+            "flight_stats",
             "flight_export",
         ]) {
             assert.ok(tools.some((tool) => tool.name === name), `${name} tool missing`);

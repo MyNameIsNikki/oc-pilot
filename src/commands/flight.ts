@@ -7,6 +7,7 @@ import {
   endFlight,
   execInFlight,
   exportFlight,
+  flightStats,
   flightStatus,
   listFlights,
   renderFlightBisect,
@@ -21,6 +22,7 @@ import {
   renderFlightReplay,
   renderFlightShow,
   renderFlightStart,
+  renderFlightStats,
   renderFlightStatus,
   renderFlightVerify,
   replayFlight,
@@ -54,6 +56,7 @@ const HELP = `Использование:
   oc-pilot flight exec [--timeout <мс>] -- <команда...>
   oc-pilot flight checkpoint [--label <метка>]
   oc-pilot flight status
+  oc-pilot flight stats
   oc-pilot flight list
   oc-pilot flight show <id>
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
@@ -85,6 +88,7 @@ ${COMMON_HELP}
 
 Примеры:
   oc-pilot flight start --name "fix auth"
+  oc-pilot flight stats
   oc-pilot flight exec -- npm test
   oc-pilot flight checkpoint --label "tests green"
   oc-pilot flight replay --to "tests green"
@@ -181,6 +185,15 @@ export function runFlight(argv: string[]): number {
       ctx.flags.output,
     );
     return status.active ? 0 : 2;
+  }
+
+  if (action === "stats") {
+    const stats = flightStats(ctx.cwd);
+    writeOutput(
+      json ? JSON.stringify(stats, null, 2) : renderFlightStats(stats),
+      ctx.flags.output,
+    );
+    return 0;
   }
 
   if (action === "list") {

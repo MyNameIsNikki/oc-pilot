@@ -1402,6 +1402,12 @@ test("flight records checkpoints, status, verify and end", () => {
         assert.equal(compared.a.checkpoints, 1);
         assert.equal(compared.b.checkpoints, 1);
         assert.equal(compared.sameFinalTree, true);
+        const stats = runCli(["flight", "stats", "--json"], dir);
+        assert.equal(stats.status, 0, stats.stderr);
+        const totals = JSON.parse(stats.stdout);
+        assert.equal(totals.total, 2);
+        assert.equal(totals.commands, 0);
+        assert.equal(totals.checkpoints, 2);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

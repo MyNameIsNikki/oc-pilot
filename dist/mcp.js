@@ -1642,6 +1642,18 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_stats",
+        description: "Aggregate stats across flight sessions: total, active and ended sessions, events, commands, checkpoints, failed commands, duration and top commands.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "flight_export",
         description: "Export a redacted flight bundle with journal, checkpoint patches and a sha256 digest. Needs --allow-write when output is set.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -4461,6 +4473,9 @@ async function callFlightHtml(input, cwd) {
         args.push("--id", id);
     return toToolResult(await runCli(args, cwd));
 }
+async function callFlightStats(_input, cwd) {
+    return toToolResult(await runCli(["flight", "stats", "--json"], cwd));
+}
 async function callFlightExport(input, cwd) {
     const args = ["flight", "export", "--json"];
     const id = stringArg(input, "id");
@@ -5018,6 +5033,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightCompare(input, cwd);
         case "flight_html":
             return callFlightHtml(input, cwd);
+        case "flight_stats":
+            return callFlightStats(input, cwd);
         case "flight_export":
             return callFlightExport(input, cwd);
         case "beacon":
@@ -5154,6 +5171,9 @@ function summarizeResult(value) {
         const from = value.from;
         const to = value.to;
         return `oc-pilot: flight diff ${typeof from.label === "string" ? from.label : "?"}..${typeof to.label === "string" ? to.label : "?"}`;
+    }
+    if (typeof value.total === "number" && Array.isArray(value.topCommands)) {
+        return `oc-pilot: flight stats ${String(value.total)} session(s), ${String(value.commands ?? 0)} command(s), ${String(value.failedCommands ?? 0)} failed`;
     }
     if (typeof value.id === "string" && typeof value.html === "string") {
         return `oc-pilot: flight html ${value.id} (${String(value.html.length)} chars)`;
