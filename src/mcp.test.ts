@@ -491,6 +491,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
       "flight_stats",
       "flight_prune",
       "flight_export",
+      "flight_verify_bundle",
     ]) {
       assert.ok(tools.some((tool) => tool.name === name), `${name} tool missing`);
     }
@@ -517,6 +518,15 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(flightPrune, "flight_prune tool missing");
     assert.ok(flightPrune.inputSchema.properties.keep, "keep missing on flight_prune");
     assert.ok(flightPrune.inputSchema.properties.older_than_days, "older_than_days missing on flight_prune");
+
+    const flightExport = tools.find((tool) => tool.name === "flight_export");
+    assert.ok(flightExport, "flight_export tool missing");
+    assert.ok(flightExport.inputSchema.properties.key, "key missing on flight_export");
+
+    const flightVerifyBundle = tools.find((tool) => tool.name === "flight_verify_bundle");
+    assert.ok(flightVerifyBundle, "flight_verify_bundle tool missing");
+    assert.ok(flightVerifyBundle.inputSchema.properties.file, "file missing on flight_verify_bundle");
+    assert.ok(flightVerifyBundle.inputSchema.properties.key, "key missing on flight_verify_bundle");
 
     const beacon = tools.find((tool) => tool.name === "beacon");
     assert.ok(beacon, "beacon tool missing");

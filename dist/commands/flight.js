@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, renderFlightBisect, renderFlightCheckpoint, renderFlightCompare, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatus, renderFlightVerify, replayFlight, showFlight, startFlight, } from "../core/flight.js";
+import { bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatus, renderFlightVerify, replayFlight, showFlight, startFlight, verifyFlightBundle, } from "../core/flight.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -13,6 +13,7 @@ const OPTIONS = withCommon({
     keep: { type: "string" },
     "older-than": { type: "string" },
     "dry-run": { type: "boolean" },
+    key: { type: "string" },
     to: { type: "string" },
     from: { type: "string" },
     path: { type: "string" },
@@ -31,7 +32,8 @@ const HELP = `Использование:
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
   oc-pilot flight compare <id-a> <id-b>
   oc-pilot flight html [--id <id>] [--output <файл>]
-  oc-pilot flight export [--id <id>] [--output <файл>]
+  oc-pilot flight export [--id <id>] [--output <файл>] [--key <файл>]
+  oc-pilot flight verify-bundle <файл> [--key <файл>]
   oc-pilot flight end
   oc-pilot flight verify <id>
 
@@ -47,6 +49,7 @@ const HELP = `Использование:
       --keep <n>            сколько последних полётов оставить при prune (по умолчанию 20)
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать, что будет удалено, без удаления
+      --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --to <ref>            чекпоинт для replay/diff: метка или commit
       --from <ref>          начальный чекпоинт для diff
       --path <путь>         каталог для replay-worktree
@@ -67,7 +70,8 @@ ${COMMON_HELP}
   oc-pilot flight diff --from base --to "tests green"
   oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef
   oc-pilot flight html --output flight.html
-  oc-pilot flight export --output flight.json
+  oc-pilot flight export --key flight.key --output flight.json
+  oc-pilot flight verify-bundle flight.json --key flight.key
   oc-pilot flight verify 20261114T120000-ab12cd`;
 function requireId(values, positionals) {
     const id = asString(values, "id") ?? positionals[1];
@@ -213,8 +217,19 @@ export function runFlight(argv) {
         log.success(`HTML-отчёт ${result.meta.id} записан.`);
         return 0;
     }
+    if (action === "verify-bundle") {
+        const file = positionals[1];
+        if (!file) {
+            throw new PilotError("Не указан файл flight bundle.", {
+                hint: "Используйте: oc-pilot flight verify-bundle <файл> [--key <файл>].",
+            });
+        }
+        const result = verifyFlightBundle(file, asString(values, "key"));
+        writeOutput(json ? JSON.stringify(result, null, 2) : renderFlightBundleVerify(result), ctx.flags.output);
+        return result.valid ? 0 : 2;
+    }
     if (action === "export") {
-        const result = exportFlight(ctx.cwd, asString(values, "id"));
+        const result = exportFlight(ctx.cwd, asString(values, "id"), asString(values, "key"));
         writeOutput(json ? JSON.stringify(result, null, 2) : renderFlightExport(result), ctx.flags.output);
         log.success(`Экспорт ${result.meta.id}: ${result.digest}.`);
         return 0;

@@ -23,6 +23,7 @@ import {
   replayFlight,
   showFlight,
   startFlight,
+  verifyFlightBundle,
   verifyFlightEvents,
 } from "./flight.js";
 
@@ -363,6 +364,48 @@ test("renderFlightHtml escapes content and includes checkpoints", () => {
     assert.match(html, /&lt;img src=x&gt;/);
     assert.match(html, /chain valid/);
     assert.match(html, /Timeline/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exportFlight signs a bundle and verifyFlightBundle checks it", () => {
+  const dir = makeRepo();
+  try {
+    const session = startFlight(dir, "signed");
+    createCheckpoint(dir, "signed-cp");
+    endFlight(dir);
+
+    const keyPath = join(dir, "flight.key");
+    writeFileSync(keyPath, "flight-secret", "utf8");
+    const bundle = exportFlight(dir, session.meta.id, keyPath);
+    assert.equal(bundle.signature?.type, "hmac-sha256");
+    const bundlePath = join(dir, "bundle.json");
+    writeFileSync(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
+
+    const verified = verifyFlightBundle(bundlePath, keyPath);
+    assert.equal(verified.digestOk, true);
+    assert.equal(verified.chainOk, true);
+    assert.equal(verified.signature, "valid");
+    assert.equal(verified.valid, true);
+    assert.deepEqual(verified.errors, []);
+
+    const noKey = verifyFlightBundle(bundlePath);
+    assert.equal(noKey.signature, "unchecked");
+    assert.equal(noKey.valid, false);
+
+    const wrongKeyPath = join(dir, "wrong.key");
+    writeFileSync(wrongKeyPath, "wrong-secret", "utf8");
+    const wrongKey = verifyFlightBundle(bundlePath, wrongKeyPath);
+    assert.equal(wrongKey.signature, "invalid");
+    assert.equal(wrongKey.valid, false);
+
+    const tampered = { ...bundle, exportedAt: "2000-01-01T00:00:00.000Z" };
+    const tamperedPath = join(dir, "tampered.json");
+    writeFileSync(tamperedPath, JSON.stringify(tampered, null, 2), "utf8");
+    const tamperedResult = verifyFlightBundle(tamperedPath, keyPath);
+    assert.equal(tamperedResult.digestOk, false);
+    assert.equal(tamperedResult.valid, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

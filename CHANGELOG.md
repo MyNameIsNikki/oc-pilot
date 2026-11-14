@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.120.0
+
+- `flight export --key <файл>` подписывает дайджест бандла через HMAC-SHA256; `flight verify-bundle <файл> [--key <файл>]` проверяет дайджест, хеш-цепочку и подпись.
+- MCP `flight_export` принимает `key`, новый read-only `flight_verify_bundle`; документация; 884 теста; версия 0.120.0.
+
 ## 0.119.0
 
 - `flight prune [--keep <n>] [--older-than <дней>] [--dry-run]` удаляет старые завершённые полёты, сохраняя активный и N последних; `--dry-run` показывает план.

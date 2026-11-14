@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
@@ -781,7 +781,13 @@ function redactValue(value) {
     }
     return value;
 }
-export function exportFlight(cwd, id) {
+function flightBundleDigest(manifest) {
+    return `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
+}
+function hmacFlightDigest(key, digest) {
+    return createHmac("sha256", key).update(digest).digest("hex");
+}
+export function exportFlight(cwd, id, keyPath) {
     const show = showFlight(cwd, resolveFlightId(cwd, id));
     const base = show.meta.baseCommit ?? "HEAD";
     const checkpoints = flightCheckpoints(show).map((checkpoint) => {
@@ -799,8 +805,80 @@ export function exportFlight(cwd, id) {
         events: show.events.map((event) => redactValue(event)),
         checkpoints,
     };
-    const digest = `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
-    return { ...manifest, digest };
+    const digest = flightBundleDigest(manifest);
+    const result = { ...manifest, digest };
+    if (keyPath) {
+        result.signature = {
+            type: "hmac-sha256",
+            value: hmacFlightDigest(readFileSync(keyPath), digest),
+        };
+    }
+    return result;
+}
+export function verifyFlightBundle(file, keyPath) {
+    let parsed;
+    try {
+        parsed = JSON.parse(readFileSync(file, "utf8"));
+    }
+    catch (error) {
+        throw new PilotError(`Не удалось прочитать flight bundle: ${error instanceof Error ? error.message : String(error)}`, {
+            hint: "Передайте JSON-файл, созданный oc-pilot flight export.",
+        });
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new PilotError("Flight bundle должен быть JSON-объектом.", {
+            hint: "Передайте файл, созданный oc-pilot flight export.",
+        });
+    }
+    const bundle = parsed;
+    if (typeof bundle.format !== "string" ||
+        typeof bundle.digest !== "string" ||
+        !bundle.meta ||
+        typeof bundle.meta !== "object" ||
+        !Array.isArray(bundle.events)) {
+        throw new PilotError("Flight bundle повреждён: нет обязательных полей.", {
+            hint: "Передайте файл, созданный oc-pilot flight export.",
+        });
+    }
+    const { digest, signature, ...base } = bundle;
+    const digestOk = flightBundleDigest(base) === digest;
+    const chain = verifyFlightEvents(bundle.events);
+    const errors = [];
+    if (!digestOk)
+        errors.push("digest не совпадает");
+    if (!chain.valid)
+        errors.push(...chain.errors);
+    let signatureStatus = "missing";
+    if (signature !== undefined) {
+        if (typeof signature !== "object" ||
+            signature === null ||
+            signature.type !== "hmac-sha256" ||
+            typeof signature.value !== "string") {
+            signatureStatus = "invalid";
+            errors.push("неизвестный формат подписи");
+        }
+        else if (!keyPath) {
+            signatureStatus = "unchecked";
+            errors.push("подпись есть, но ключ не указан");
+        }
+        else {
+            const expected = Buffer.from(hmacFlightDigest(readFileSync(keyPath), digest), "hex");
+            const actual = Buffer.from(signature.value, "hex");
+            signatureStatus =
+                expected.length === actual.length && timingSafeEqual(expected, actual) ? "valid" : "invalid";
+            if (signatureStatus === "invalid")
+                errors.push("подпись не совпадает");
+        }
+    }
+    return {
+        format: bundle.format,
+        id: typeof bundle.meta.id === "string" ? bundle.meta.id : undefined,
+        digestOk,
+        chainOk: chain.valid,
+        signature: signatureStatus,
+        valid: digestOk && chain.valid && signatureStatus !== "invalid" && signatureStatus !== "unchecked",
+        errors,
+    };
 }
 export function renderFlightReplay(result) {
     return `[FLIGHT REPLAY] ${result.label} (${result.commit.slice(0, 12)}) → ${result.path}`;
@@ -826,6 +904,19 @@ export function renderFlightDiff(result) {
 }
 export function renderFlightExport(result) {
     return `[FLIGHT EXPORT] ${result.meta.id}: ${result.events.length} событий, ${result.checkpoints.length} чекпоинтов, ${result.digest.slice(0, 19)}.`;
+}
+export function renderFlightBundleVerify(result) {
+    const lines = [
+        `[FLIGHT BUNDLE] ${result.format}`,
+        `ID: ${result.id ?? "?"}`,
+        `Digest: ${result.digestOk ? "ok" : "mismatch"}`,
+        `Chain: ${result.chainOk ? "ok" : "broken"}`,
+        `Signature: ${result.signature}`,
+    ];
+    if (result.errors.length > 0) {
+        lines.push("", ...result.errors.map((error) => `! ${error}`));
+    }
+    return lines.join("\n");
 }
 function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, (character) => {

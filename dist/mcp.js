@@ -1678,6 +1678,22 @@ const TOOLS = [
             properties: {
                 id: { type: "string", description: "Flight session id; defaults to the active flight" },
                 output: { type: "string", description: "Optional bundle file path" },
+                key: { type: "string", description: "Optional HMAC key file; signs the bundle digest" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_verify_bundle",
+        description: "Verify a flight export bundle: digest, hash-chained event journal and optional HMAC signature.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["file"],
+            properties: {
+                file: { type: "string", description: "Path to a bundle created by flight export" },
+                key: { type: "string", description: "Optional HMAC key file for signature verification" },
                 ...RESULT_PROPERTIES,
             },
         },
@@ -4511,6 +4527,17 @@ async function callFlightExport(input, cwd) {
     const output = stringArg(input, "output");
     if (output)
         args.push("--output", output);
+    const key = stringArg(input, "key");
+    if (key)
+        args.push("--key", key);
+    return toToolResult(await runCli(args, cwd));
+}
+async function callFlightVerifyBundle(input, cwd) {
+    const file = stringArg(input, "file", true);
+    const args = ["flight", "verify-bundle", file, "--json"];
+    const key = stringArg(input, "key");
+    if (key)
+        args.push("--key", key);
     return toToolResult(await runCli(args, cwd));
 }
 async function callBeacon(input, cwd) {
@@ -5066,6 +5093,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightPrune(input, cwd);
         case "flight_export":
             return callFlightExport(input, cwd);
+        case "flight_verify_bundle":
+            return callFlightVerifyBundle(input, cwd);
         case "beacon":
             return callBeacon(input, cwd);
         case "quarantine":
@@ -5209,6 +5238,12 @@ function summarizeResult(value) {
     }
     if (typeof value.id === "string" && typeof value.html === "string") {
         return `oc-pilot: flight html ${value.id} (${String(value.html.length)} chars)`;
+    }
+    if (typeof value.format === "string" &&
+        typeof value.digestOk === "boolean" &&
+        typeof value.chainOk === "boolean" &&
+        typeof value.signature === "string") {
+        return `oc-pilot: flight bundle digest ${value.digestOk ? "ok" : "bad"}, chain ${value.chainOk ? "ok" : "bad"}, signature ${value.signature}`;
     }
     if (typeof value.format === "string" && value.format.startsWith("oc-pilot-flight-export/") && typeof value.digest === "string") {
         const checkpoints = Array.isArray(value.checkpoints) ? value.checkpoints.length : 0;

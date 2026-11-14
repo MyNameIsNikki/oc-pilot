@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
@@ -742,6 +742,11 @@ export interface FlightCompareResult {
   sameFinalTree: boolean | null;
 }
 
+export interface FlightBundleSignature {
+  type: "hmac-sha256";
+  value: string;
+}
+
 export interface FlightExportResult {
   format: string;
   exportedAt: string;
@@ -750,6 +755,17 @@ export interface FlightExportResult {
   events: FlightEvent[];
   checkpoints: Array<FlightCheckpoint & { patch: string }>;
   digest: string;
+  signature?: FlightBundleSignature;
+}
+
+export interface FlightBundleVerifyResult {
+  format: string;
+  id?: string;
+  digestOk: boolean;
+  chainOk: boolean;
+  signature: "valid" | "invalid" | "missing" | "unchecked";
+  valid: boolean;
+  errors: string[];
 }
 
 function resolveFlightId(cwd: string, id?: string): string {
@@ -1030,7 +1046,17 @@ function redactValue(value: unknown): unknown {
   return value;
 }
 
-export function exportFlight(cwd: string, id?: string): FlightExportResult {
+type FlightBundleBase = Omit<FlightExportResult, "digest" | "signature">;
+
+function flightBundleDigest(manifest: FlightBundleBase): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
+}
+
+function hmacFlightDigest(key: Buffer, digest: string): string {
+  return createHmac("sha256", key).update(digest).digest("hex");
+}
+
+export function exportFlight(cwd: string, id?: string, keyPath?: string): FlightExportResult {
   const show = showFlight(cwd, resolveFlightId(cwd, id));
   const base = show.meta.baseCommit ?? "HEAD";
   const checkpoints = flightCheckpoints(show).map((checkpoint) => {
@@ -1040,7 +1066,7 @@ export function exportFlight(cwd: string, id?: string): FlightExportResult {
       patch: patch.status === 0 ? redactText(patch.stdout) : "",
     };
   });
-  const manifest = {
+  const manifest: FlightBundleBase = {
     format: "oc-pilot-flight-export/v1",
     exportedAt: new Date().toISOString(),
     meta: { ...show.meta, cwd: "." },
@@ -1048,8 +1074,79 @@ export function exportFlight(cwd: string, id?: string): FlightExportResult {
     events: show.events.map((event) => redactValue(event) as FlightEvent),
     checkpoints,
   };
-  const digest = `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
-  return { ...manifest, digest };
+  const digest = flightBundleDigest(manifest);
+  const result: FlightExportResult = { ...manifest, digest };
+  if (keyPath) {
+    result.signature = {
+      type: "hmac-sha256",
+      value: hmacFlightDigest(readFileSync(keyPath), digest),
+    };
+  }
+  return result;
+}
+
+export function verifyFlightBundle(file: string, keyPath?: string): FlightBundleVerifyResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new PilotError(`Не удалось прочитать flight bundle: ${error instanceof Error ? error.message : String(error)}`, {
+      hint: "Передайте JSON-файл, созданный oc-pilot flight export.",
+    });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new PilotError("Flight bundle должен быть JSON-объектом.", {
+      hint: "Передайте файл, созданный oc-pilot flight export.",
+    });
+  }
+  const bundle = parsed as FlightExportResult;
+  if (
+    typeof bundle.format !== "string" ||
+    typeof bundle.digest !== "string" ||
+    !bundle.meta ||
+    typeof bundle.meta !== "object" ||
+    !Array.isArray(bundle.events)
+  ) {
+    throw new PilotError("Flight bundle повреждён: нет обязательных полей.", {
+      hint: "Передайте файл, созданный oc-pilot flight export.",
+    });
+  }
+  const { digest, signature, ...base } = bundle;
+  const digestOk = flightBundleDigest(base) === digest;
+  const chain = verifyFlightEvents(bundle.events);
+  const errors: string[] = [];
+  if (!digestOk) errors.push("digest не совпадает");
+  if (!chain.valid) errors.push(...chain.errors);
+  let signatureStatus: FlightBundleVerifyResult["signature"] = "missing";
+  if (signature !== undefined) {
+    if (
+      typeof signature !== "object" ||
+      signature === null ||
+      signature.type !== "hmac-sha256" ||
+      typeof signature.value !== "string"
+    ) {
+      signatureStatus = "invalid";
+      errors.push("неизвестный формат подписи");
+    } else if (!keyPath) {
+      signatureStatus = "unchecked";
+      errors.push("подпись есть, но ключ не указан");
+    } else {
+      const expected = Buffer.from(hmacFlightDigest(readFileSync(keyPath), digest), "hex");
+      const actual = Buffer.from(signature.value, "hex");
+      signatureStatus =
+        expected.length === actual.length && timingSafeEqual(expected, actual) ? "valid" : "invalid";
+      if (signatureStatus === "invalid") errors.push("подпись не совпадает");
+    }
+  }
+  return {
+    format: bundle.format,
+    id: typeof bundle.meta.id === "string" ? bundle.meta.id : undefined,
+    digestOk,
+    chainOk: chain.valid,
+    signature: signatureStatus,
+    valid: digestOk && chain.valid && signatureStatus !== "invalid" && signatureStatus !== "unchecked",
+    errors,
+  };
 }
 
 export function renderFlightReplay(result: FlightReplayResult): string {
@@ -1080,6 +1177,20 @@ export function renderFlightDiff(result: FlightDiffResult): string {
 
 export function renderFlightExport(result: FlightExportResult): string {
   return `[FLIGHT EXPORT] ${result.meta.id}: ${result.events.length} событий, ${result.checkpoints.length} чекпоинтов, ${result.digest.slice(0, 19)}.`;
+}
+
+export function renderFlightBundleVerify(result: FlightBundleVerifyResult): string {
+  const lines = [
+    `[FLIGHT BUNDLE] ${result.format}`,
+    `ID: ${result.id ?? "?"}`,
+    `Digest: ${result.digestOk ? "ok" : "mismatch"}`,
+    `Chain: ${result.chainOk ? "ok" : "broken"}`,
+    `Signature: ${result.signature}`,
+  ];
+  if (result.errors.length > 0) {
+    lines.push("", ...result.errors.map((error) => `! ${error}`));
+  }
+  return lines.join("\n");
 }
 
 function escapeHtml(value: unknown): string {
