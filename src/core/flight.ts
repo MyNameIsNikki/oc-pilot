@@ -754,6 +754,13 @@ export interface FlightReplayResult {
   path: string;
 }
 
+export interface FlightRestoreResult {
+  id: string;
+  label: string;
+  commit: string;
+  mode: "restore";
+}
+
 export interface FlightBisectStep {
   label: string;
   commit: string;
@@ -896,6 +903,35 @@ export function replayFlight(
     throw new PilotError(`Не удалось создать worktree: ${result.stderr.trim() || "git worktree failed"}.`);
   }
   return { id: show.meta.id, label: checkpoint.label, commit: checkpoint.commit, path: target };
+}
+
+export function restoreFlight(
+  cwd: string,
+  ref?: string,
+  id?: string,
+  force = false,
+): FlightRestoreResult {
+  const show = showFlight(cwd, resolveFlightId(cwd, id));
+  const checkpoint = resolveCheckpoint(flightCheckpoints(show), ref);
+  const status = runGit(["status", "--porcelain"], cwd);
+  if (status.status !== 0) {
+    throw new PilotError(`Не удалось проверить рабочее дерево: ${status.stderr.trim() || "git status failed"}.`);
+  }
+  if (!force && status.stdout.trim().length > 0) {
+    throw new PilotError("Рабочее дерево содержит изменения.", {
+      hint: "Сделайте коммит, stash или используйте --force.",
+    });
+  }
+  const restore = runGit(["restore", "--source", checkpoint.commit, "--worktree", "--", "."], cwd);
+  if (restore.status !== 0) {
+    throw new PilotError(`Не удалось восстановить чекпоинт: ${restore.stderr.trim() || "git restore failed"}.`);
+  }
+  return {
+    id: show.meta.id,
+    label: checkpoint.label,
+    commit: checkpoint.commit,
+    mode: "restore",
+  };
 }
 
 export function bisectFlight(
@@ -1217,6 +1253,10 @@ export function verifyFlightBundle(file: string, keyPath?: string): FlightBundle
 
 export function renderFlightReplay(result: FlightReplayResult): string {
   return `[FLIGHT REPLAY] ${result.label} (${result.commit.slice(0, 12)}) → ${result.path}`;
+}
+
+export function renderFlightRestore(result: FlightRestoreResult): string {
+  return `[FLIGHT RESTORE] ${result.label} (${result.commit.slice(0, 12)}) → worktree`;
 }
 
 export function renderFlightBisect(result: FlightBisectResult): string {

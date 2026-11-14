@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, pruneFlights, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightStatus, renderFlightVerify, replayFlight, showFlight, startFlight, verifyFlightBundle, } from "../core/flight.js";
+import { bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, pruneFlights, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, } from "../core/flight.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -13,6 +13,7 @@ const OPTIONS = withCommon({
     keep: { type: "string" },
     "older-than": { type: "string" },
     "dry-run": { type: "boolean" },
+    force: { type: "boolean" },
     key: { type: "string" },
     html: { type: "boolean" },
     to: { type: "string" },
@@ -29,6 +30,7 @@ const HELP = `Использование:
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
   oc-pilot flight list
   oc-pilot flight show <id>
+  oc-pilot flight restore <метка|commit> [--id <id>] [--force]
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
@@ -53,6 +55,7 @@ const HELP = `Использование:
       --dry-run             показать, что будет удалено, без удаления
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
+      --force               восстановить поверх изменённого рабочего дерева
       --to <ref>            чекпоинт для replay/diff: метка или commit
       --from <ref>          начальный чекпоинт для diff
       --path <путь>         каталог для replay-worktree
@@ -69,6 +72,7 @@ ${COMMON_HELP}
   oc-pilot flight prune --keep 20 --dry-run
   oc-pilot flight exec -- npm test
   oc-pilot flight checkpoint --label "tests green"
+  oc-pilot flight restore "tests green"
   oc-pilot flight replay --to "tests green"
   oc-pilot flight bisect -- node --test
   oc-pilot flight diff --from base --to "tests green"
@@ -190,6 +194,18 @@ export function runFlight(argv) {
             ? JSON.stringify({ id: show.meta.id, ...show.verification }, null, 2)
             : renderFlightVerify(show.verification), ctx.flags.output);
         return show.verification.valid ? 0 : 2;
+    }
+    if (action === "restore") {
+        const ref = positionals[1];
+        if (!ref) {
+            throw new PilotError("Не указан чекпоинт для restore.", {
+                hint: "Используйте: oc-pilot flight restore <метка|commit> [--force].",
+            });
+        }
+        const result = restoreFlight(ctx.cwd, ref, asString(values, "id"), asBoolean(values, "force"));
+        writeOutput(json ? JSON.stringify(result, null, 2) : renderFlightRestore(result), ctx.flags.output);
+        log.success(`Восстановлено: ${result.label}.`);
+        return 0;
     }
     if (action === "replay") {
         const result = replayFlight(ctx.cwd, asString(values, "id"), asString(values, "to"), asString(values, "path"));

@@ -24,6 +24,7 @@ import {
   renderFlightHtml,
   renderFlightStatsHtml,
   replayFlight,
+  restoreFlight,
   type FlightStats,
   showFlight,
   startFlight,
@@ -207,6 +208,28 @@ test("replayFlight materializes a checkpoint in a shadow worktree", () => {
     } finally {
       git(["worktree", "remove", "--force", result.path], dir);
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("restoreFlight restores a checkpoint and refuses a dirty tree", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "restore");
+    writeFileSync(join(dir, "b.txt"), "two\n", "utf8");
+    createCheckpoint(dir, "after-b");
+    endFlight(dir);
+
+    writeFileSync(join(dir, "a.txt"), "changed\n", "utf8");
+    writeFileSync(join(dir, "c.txt"), "keep\n", "utf8");
+    assert.throws(() => restoreFlight(dir, "after-b"), /Рабочее дерево содержит изменения/);
+
+    const result = restoreFlight(dir, "after-b", undefined, true);
+    assert.equal(result.label, "after-b");
+    assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "one\n");
+    assert.equal(readFileSync(join(dir, "b.txt"), "utf8"), "two\n");
+    assert.equal(readFileSync(join(dir, "c.txt"), "utf8"), "keep\n");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

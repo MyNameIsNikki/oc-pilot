@@ -1669,6 +1669,22 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_restore",
+        description: "Restore the working tree from a flight checkpoint without moving HEAD. Refuses a dirty worktree unless force is true. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["ref"],
+            properties: {
+                ref: { type: "string", description: "Checkpoint label or commit" },
+                id: { type: "string", description: "Flight session id; defaults to the latest flight" },
+                force: { type: "boolean", description: "Restore over a dirty worktree" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "flight_export",
         description: "Export a redacted flight bundle with journal, checkpoint patches and a sha256 digest. Needs --allow-write when output is set.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -4519,6 +4535,16 @@ async function callFlightPrune(input, cwd) {
         args.push("--dry-run");
     return toToolResult(await runCli(args, cwd));
 }
+async function callFlightRestore(input, cwd) {
+    const ref = stringArg(input, "ref", true);
+    const args = ["flight", "restore", ref, "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    if (booleanArg(input, "force"))
+        args.push("--force");
+    return toToolResult(await runCli(args, cwd));
+}
 async function callFlightExport(input, cwd) {
     const args = ["flight", "export", "--json"];
     const id = stringArg(input, "id");
@@ -4932,7 +4958,7 @@ async function dispatchTool(name, input, cwd, readOnly) {
             throw new ToolInputError("scan_injection fix writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
         if (name.startsWith("flight_") &&
-            ["flight_start", "flight_exec", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_prune", "flight_export"].includes(name)) {
+            ["flight_start", "flight_exec", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_prune", "flight_restore", "flight_export"].includes(name)) {
             throw new ToolInputError("flight write actions are disabled in read-only mode; start the MCP server with --allow-write");
         }
     }
@@ -5091,6 +5117,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightStats(input, cwd);
         case "flight_prune":
             return callFlightPrune(input, cwd);
+        case "flight_restore":
+            return callFlightRestore(input, cwd);
         case "flight_export":
             return callFlightExport(input, cwd);
         case "flight_verify_bundle":
@@ -5248,6 +5276,9 @@ function summarizeResult(value) {
     if (typeof value.format === "string" && value.format.startsWith("oc-pilot-flight-export/") && typeof value.digest === "string") {
         const checkpoints = Array.isArray(value.checkpoints) ? value.checkpoints.length : 0;
         return `oc-pilot: flight export ${String(checkpoints)} checkpoint(s), ${value.digest.slice(0, 15)}`;
+    }
+    if (value.mode === "restore" && typeof value.id === "string" && typeof value.label === "string" && typeof value.commit === "string") {
+        return `oc-pilot: flight restore ${value.label} ${value.commit.slice(0, 8)}`;
     }
     if (value.a && typeof value.a === "object" && value.b && typeof value.b === "object" && Array.isArray(value.common)) {
         const left = value.a;

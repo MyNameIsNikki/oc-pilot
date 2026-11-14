@@ -652,6 +652,29 @@ export function replayFlight(cwd, id, to, path) {
     }
     return { id: show.meta.id, label: checkpoint.label, commit: checkpoint.commit, path: target };
 }
+export function restoreFlight(cwd, ref, id, force = false) {
+    const show = showFlight(cwd, resolveFlightId(cwd, id));
+    const checkpoint = resolveCheckpoint(flightCheckpoints(show), ref);
+    const status = runGit(["status", "--porcelain"], cwd);
+    if (status.status !== 0) {
+        throw new PilotError(`Не удалось проверить рабочее дерево: ${status.stderr.trim() || "git status failed"}.`);
+    }
+    if (!force && status.stdout.trim().length > 0) {
+        throw new PilotError("Рабочее дерево содержит изменения.", {
+            hint: "Сделайте коммит, stash или используйте --force.",
+        });
+    }
+    const restore = runGit(["restore", "--source", checkpoint.commit, "--worktree", "--", "."], cwd);
+    if (restore.status !== 0) {
+        throw new PilotError(`Не удалось восстановить чекпоинт: ${restore.stderr.trim() || "git restore failed"}.`);
+    }
+    return {
+        id: show.meta.id,
+        label: checkpoint.label,
+        commit: checkpoint.commit,
+        mode: "restore",
+    };
+}
 export function bisectFlight(cwd, id, command, timeoutMs = 600_000) {
     if (command.length === 0) {
         throw new PilotError("Не указана команда для bisect.", {
@@ -941,6 +964,9 @@ export function verifyFlightBundle(file, keyPath) {
 }
 export function renderFlightReplay(result) {
     return `[FLIGHT REPLAY] ${result.label} (${result.commit.slice(0, 12)}) → ${result.path}`;
+}
+export function renderFlightRestore(result) {
+    return `[FLIGHT RESTORE] ${result.label} (${result.commit.slice(0, 12)}) → worktree`;
 }
 export function renderFlightBisect(result) {
     const lines = [`[FLIGHT BISECT] ${result.id}: ${result.steps.length} чекпоинтов.`];
