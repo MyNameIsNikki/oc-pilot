@@ -1380,6 +1380,21 @@ test("flight records checkpoints, status, verify and end", () => {
         assert.equal(end.status, 0, end.stderr);
         const ended = JSON.parse(end.stdout);
         assert.notEqual(ended.active, true);
+        const secondStart = runCli(["flight", "start", "--name", "second", "--json"], dir);
+        assert.equal(secondStart.status, 0, secondStart.stderr);
+        const second = JSON.parse(secondStart.stdout);
+        const secondCheckpoint = runCli(["flight", "checkpoint", "--label", "same-tree", "--json"], dir);
+        assert.equal(secondCheckpoint.status, 0, secondCheckpoint.stderr);
+        const secondEnd = runCli(["flight", "end", "--json"], dir);
+        assert.equal(secondEnd.status, 0, secondEnd.stderr);
+        const compare = runCli(["flight", "compare", started.session.meta.id, second.session.meta.id, "--json"], dir);
+        assert.equal(compare.status, 0, compare.stderr);
+        const compared = JSON.parse(compare.stdout);
+        assert.equal(compared.a.id, started.session.meta.id);
+        assert.equal(compared.b.id, second.session.meta.id);
+        assert.equal(compared.a.checkpoints, 1);
+        assert.equal(compared.b.checkpoints, 1);
+        assert.equal(compared.sameFinalTree, true);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

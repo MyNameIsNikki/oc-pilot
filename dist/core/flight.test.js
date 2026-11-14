@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, bisectFlight, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStatus, listFlights, readFlightEvents, replayFlight, showFlight, startFlight, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStatus, listFlights, readFlightEvents, replayFlight, showFlight, startFlight, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -205,6 +205,44 @@ test("bisectFlight finds the first failing checkpoint", () => {
         assert.equal(result.steps.length, 2);
         assert.equal(result.firstBad?.label, "bad");
         assert.equal(result.firstBad?.exitCode, 1);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("compareFlights reports command differences and final tree equality", () => {
+    const dir = makeRepo();
+    try {
+        const command = [
+            process.execPath,
+            "-e",
+            "process.exit(require('fs').readFileSync('a.txt','utf8').includes('bad')?1:0)",
+        ];
+        const first = startFlight(dir, "first");
+        execInFlight(dir, command, { quiet: true });
+        createCheckpoint(dir, "first-green");
+        endFlight(dir);
+        writeFileSync(join(dir, "a.txt"), "bad\n", "utf8");
+        const second = startFlight(dir, "second");
+        execInFlight(dir, command, { quiet: true });
+        createCheckpoint(dir, "second-red");
+        endFlight(dir);
+        const result = compareFlights(dir, first.meta.id, second.meta.id);
+        assert.equal(result.a.commands, 1);
+        assert.equal(result.b.commands, 1);
+        assert.equal(result.a.checkpoints, 1);
+        assert.equal(result.b.checkpoints, 1);
+        assert.equal(result.a.failedCommands, 0);
+        assert.equal(result.b.failedCommands, 1);
+        assert.equal(result.common.length, 1);
+        assert.deepEqual(result.onlyA, []);
+        assert.deepEqual(result.onlyB, []);
+        assert.equal(result.exitCodeDifferences.length, 1);
+        assert.equal(result.exitCodeDifferences[0]?.a, 0);
+        assert.equal(result.exitCodeDifferences[0]?.b, 1);
+        assert.equal(result.sameFinalTree, false);
+        assert.equal(result.a.valid, true);
+        assert.equal(result.b.valid, true);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

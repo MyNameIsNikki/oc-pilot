@@ -1,6 +1,7 @@
 import { PilotError } from "../core/errors.js";
 import {
   bisectFlight,
+  compareFlights,
   createCheckpoint,
   diffFlight,
   endFlight,
@@ -10,6 +11,7 @@ import {
   listFlights,
   renderFlightBisect,
   renderFlightCheckpoint,
+  renderFlightCompare,
   renderFlightDiff,
   renderFlightEnd,
   renderFlightExec,
@@ -40,6 +42,7 @@ const OPTIONS: OptionSpec = withCommon({
   label: { type: "string" },
   timeout: { type: "string" },
   id: { type: "string" },
+  with: { type: "string" },
   to: { type: "string" },
   from: { type: "string" },
   path: { type: "string" },
@@ -55,6 +58,7 @@ const HELP = `Использование:
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
+  oc-pilot flight compare <id-a> <id-b>
   oc-pilot flight export [--id <id>] [--output <файл>]
   oc-pilot flight end
   oc-pilot flight verify <id>
@@ -67,6 +71,7 @@ const HELP = `Использование:
       --label <метка>       метка чекпоинта
       --timeout <мс>        таймаут команды для exec/bisect (по умолчанию 600000)
       --id <id>             идентификатор полёта
+      --with <id>           второй полёт для compare
       --to <ref>            чекпоинт для replay/diff: метка или commit
       --from <ref>          начальный чекпоинт для diff
       --path <путь>         каталог для replay-worktree
@@ -83,6 +88,7 @@ ${COMMON_HELP}
   oc-pilot flight replay --to "tests green"
   oc-pilot flight bisect -- node --test
   oc-pilot flight diff --from base --to "tests green"
+  oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef
   oc-pilot flight export --output flight.json
   oc-pilot flight verify 20261114T120000-ab12cd`;
 
@@ -245,6 +251,22 @@ export function runFlight(argv: string[]): number {
       ctx.flags.output,
     );
     return 0;
+  }
+
+  if (action === "compare") {
+    const first = positionals[1] ?? asString(values, "id");
+    const second = positionals[2] ?? asString(values, "with");
+    if (!first || !second) {
+      throw new PilotError("Для compare нужны два идентификатора полётов.", {
+        hint: "Используйте: oc-pilot flight compare <id-a> <id-b>.",
+      });
+    }
+    const result = compareFlights(ctx.cwd, first, second);
+    writeOutput(
+      json ? JSON.stringify(result, null, 2) : renderFlightCompare(result),
+      ctx.flags.output,
+    );
+    return result.a.valid && result.b.valid ? 0 : 2;
   }
 
   if (action === "export") {

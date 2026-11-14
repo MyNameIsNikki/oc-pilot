@@ -1704,6 +1704,22 @@ const TOOLS = [
     },
   },
   {
+    name: "flight_compare",
+    description:
+      "Compare two flight sessions: event and checkpoint counts, durations, command sequences, exit-code differences and final tree equality.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id", "with"],
+      properties: {
+        id: { type: "string", description: "First flight session id" },
+        with: { type: "string", description: "Second flight session id" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "flight_export",
     description:
       "Export a redacted flight bundle with journal, checkpoint patches and a sha256 digest. Needs --allow-write when output is set.",
@@ -4202,6 +4218,12 @@ async function callFlightDiff(input: JsonObject, cwd: string): Promise<ToolResul
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callFlightCompare(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const id = stringArg(input, "id", true)!;
+  const other = stringArg(input, "with", true)!;
+  return toToolResult(await runCli(["flight", "compare", id, other, "--json"], cwd));
+}
+
 async function callFlightExport(input: JsonObject, cwd: string): Promise<ToolResult> {
   const args = ["flight", "export", "--json"];
   const id = stringArg(input, "id");
@@ -4683,6 +4705,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callFlightBisect(input, cwd);
     case "flight_diff":
       return callFlightDiff(input, cwd);
+    case "flight_compare":
+      return callFlightCompare(input, cwd);
     case "flight_export":
       return callFlightExport(input, cwd);
     case "beacon":
@@ -4835,6 +4859,17 @@ function summarizeResult(value: JsonObject): string {
   if (typeof value.format === "string" && value.format.startsWith("oc-pilot-flight-export/") && typeof value.digest === "string") {
     const checkpoints = Array.isArray(value.checkpoints) ? value.checkpoints.length : 0;
     return `oc-pilot: flight export ${String(checkpoints)} checkpoint(s), ${value.digest.slice(0, 15)}`;
+  }
+  if (value.a && typeof value.a === "object" && value.b && typeof value.b === "object" && Array.isArray(value.common)) {
+    const left = value.a as { id?: unknown };
+    const right = value.b as { id?: unknown };
+    const leftId = typeof left.id === "string" ? left.id : "unknown";
+    const rightId = typeof right.id === "string" ? right.id : "unknown";
+    const onlyA = Array.isArray(value.onlyA) ? value.onlyA.length : 0;
+    const onlyB = Array.isArray(value.onlyB) ? value.onlyB.length : 0;
+    const tree =
+      value.sameFinalTree === true ? "same tree" : value.sameFinalTree === false ? "different tree" : "no tree";
+    return `oc-pilot: flight compare ${leftId} vs ${rightId}, only A ${String(onlyA)}, only B ${String(onlyB)}, ${tree}`;
   }
   if (typeof value.active === "boolean") {
     if (value.session && typeof value.session === "object") {

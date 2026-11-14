@@ -572,6 +572,31 @@ export interface FlightDiffResult {
   patch: string;
 }
 
+export interface FlightCompareSide {
+  id: string;
+  name: string;
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+  events: number;
+  commands: number;
+  checkpoints: number;
+  failedCommands: number;
+  valid: boolean;
+  baseCommit: string | null;
+  finalCheckpoint?: { label: string; commit: string; tree: string };
+}
+
+export interface FlightCompareResult {
+  a: FlightCompareSide;
+  b: FlightCompareSide;
+  common: string[][];
+  onlyA: string[][];
+  onlyB: string[][];
+  exitCodeDifferences: Array<{ command: string[]; a: number | null; b: number | null }>;
+  sameFinalTree: boolean | null;
+}
+
 export interface FlightExportResult {
   format: string;
   exportedAt: string;
@@ -732,6 +757,105 @@ export function diffFlight(
   };
 }
 
+interface FlightCommandRun {
+  command: string[];
+  exitCode: number | null;
+  timedOut: boolean;
+  durationMs: number;
+}
+
+function commandKey(command: string[]): string {
+  return JSON.stringify(command);
+}
+
+function commandLabel(command: string[]): string {
+  const text = command.join(" ");
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+function compareSide(show: FlightShow): { side: FlightCompareSide; runs: Map<string, FlightCommandRun> } {
+  const events = show.events;
+  const startedAt = show.meta.startedAt;
+  const endedAt = events.at(-1)?.ts ?? startedAt;
+  const durationMs = Math.max(0, Date.parse(endedAt) - Date.parse(startedAt));
+  const checkpoints = flightCheckpoints(show);
+  const last = checkpoints.at(-1);
+  const runs = new Map<string, FlightCommandRun>();
+  for (const event of events) {
+    if (event.kind !== "command.end") continue;
+    const payload = event.payload as Record<string, unknown>;
+    const command = Array.isArray(payload.command)
+      ? payload.command.filter((part): part is string => typeof part === "string")
+      : [];
+    if (command.length === 0) continue;
+    const run: FlightCommandRun = {
+      command,
+      exitCode: typeof payload.exitCode === "number" ? payload.exitCode : null,
+      timedOut: payload.timedOut === true,
+      durationMs: typeof payload.durationMs === "number" ? payload.durationMs : 0,
+    };
+    runs.set(commandKey(command), run);
+  }
+  const failedCommands = [...runs.values()].filter(
+    (run) => run.timedOut || (run.exitCode !== null && run.exitCode !== 0),
+  ).length;
+  const side: FlightCompareSide = {
+    id: show.meta.id,
+    name: show.meta.name,
+    startedAt,
+    endedAt,
+    durationMs,
+    events: events.length,
+    commands: events.filter((event) => event.kind === "command.start").length,
+    checkpoints: checkpoints.length,
+    failedCommands,
+    valid: show.verification.valid,
+    baseCommit: show.meta.baseCommit,
+    finalCheckpoint: last ? { label: last.label, commit: last.commit, tree: last.tree } : undefined,
+  };
+  return { side, runs };
+}
+
+export function compareFlights(cwd: string, idA: string, idB: string): FlightCompareResult {
+  const left = compareSide(showFlight(cwd, idA));
+  const right = compareSide(showFlight(cwd, idB));
+  const common: string[][] = [];
+  const onlyA: string[][] = [];
+  const onlyB: string[][] = [];
+  for (const [key, run] of left.runs) {
+    if (right.runs.has(key)) common.push(run.command);
+    else onlyA.push(run.command);
+  }
+  for (const [key, run] of right.runs) {
+    if (!left.runs.has(key)) onlyB.push(run.command);
+  }
+  const exitCodeDifferences: FlightCompareResult["exitCodeDifferences"] = [];
+  for (const [key, leftRun] of left.runs) {
+    const rightRun = right.runs.get(key);
+    if (!rightRun) continue;
+    if (leftRun.exitCode !== rightRun.exitCode || leftRun.timedOut !== rightRun.timedOut) {
+      exitCodeDifferences.push({
+        command: leftRun.command,
+        a: leftRun.timedOut ? null : leftRun.exitCode,
+        b: rightRun.timedOut ? null : rightRun.exitCode,
+      });
+    }
+  }
+  const sameFinalTree =
+    left.side.finalCheckpoint && right.side.finalCheckpoint
+      ? left.side.finalCheckpoint.tree === right.side.finalCheckpoint.tree
+      : null;
+  return {
+    a: left.side,
+    b: right.side,
+    common,
+    onlyA,
+    onlyB,
+    exitCodeDifferences,
+    sameFinalTree,
+  };
+}
+
 const SECRET_PATTERNS: RegExp[] = [
   /sk-[A-Za-z0-9]{20,}/g,
   /gh[pousr]_[A-Za-z0-9]{20,}/g,
@@ -811,4 +935,43 @@ export function renderFlightDiff(result: FlightDiffResult): string {
 
 export function renderFlightExport(result: FlightExportResult): string {
   return `[FLIGHT EXPORT] ${result.meta.id}: ${result.events.length} событий, ${result.checkpoints.length} чекпоинтов, ${result.digest.slice(0, 19)}.`;
+}
+
+export function renderFlightCompare(result: FlightCompareResult): string {
+  const side = (label: string, value: FlightCompareSide): string =>
+    `${label}: ${value.name} (${value.id}) — событий ${value.events}, команд ${value.commands}, ` +
+    `чекпоинтов ${value.checkpoints}, ошибок ${value.failedCommands}, ${value.durationMs} мс, ` +
+    `цепочка ${value.valid ? "валидна" : "повреждена"}`;
+  const lines = [
+    `[FLIGHT COMPARE] ${result.a.id} ↔ ${result.b.id}`,
+    side("A", result.a),
+    side("B", result.b),
+  ];
+  if (result.onlyA.length > 0) {
+    lines.push(`Только в A: ${result.onlyA.map(commandLabel).join("; ")}`);
+  }
+  if (result.onlyB.length > 0) {
+    lines.push(`Только в B: ${result.onlyB.map(commandLabel).join("; ")}`);
+  }
+  if (result.common.length > 0) {
+    lines.push(`Общие команды: ${result.common.length}.`);
+  }
+  if (result.exitCodeDifferences.length > 0) {
+    lines.push("Расхождения exit code:");
+    for (const difference of result.exitCodeDifferences) {
+      lines.push(
+        `  ${commandLabel(difference.command)}: A ${difference.a ?? "?"}, B ${difference.b ?? "?"}`,
+      );
+    }
+  }
+  lines.push(
+    `Итоговое дерево: ${
+      result.sameFinalTree === null
+        ? "нет чекпоинтов у одного из полётов"
+        : result.sameFinalTree
+          ? "совпадает"
+          : "различается"
+    }.`,
+  );
+  return lines.join("\n");
 }
