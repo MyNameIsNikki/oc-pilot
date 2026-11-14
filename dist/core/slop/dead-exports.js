@@ -51,19 +51,21 @@ function declarationsOf(file) {
     });
     return found;
 }
-function identifierSet(text) {
-    const set = new Set();
-    for (const match of text.matchAll(/[A-Za-z_$][\w$]*/g))
-        set.add(match[0]);
-    return set;
+function identifierCounts(text) {
+    const counts = new Map();
+    for (const match of text.matchAll(/[A-Za-z_$][\w$]*/g)) {
+        counts.set(match[0], (counts.get(match[0]) ?? 0) + 1);
+    }
+    return counts;
 }
 function ignoredFile(path) {
     return isTestFile(path) || isGeneratedPath(path) || ENTRY_FILE.test(path) || !isCodeFile(path);
 }
 /**
- * An export is dead when no other file in the repository mentions its name.
- * The check is intentionally textual: dynamic access through strings counts as
- * a reference only when the name appears somewhere else.
+ * An export is dead when its name appears only in its own declaration: no
+ * other file mentions it and its own module never uses it. The check is
+ * intentionally textual: dynamic access through strings counts as a reference
+ * when the name appears somewhere else.
  */
 export function findDeadExports(allFiles, maxDead = 500) {
     if (allFiles.length < 2)
@@ -71,7 +73,7 @@ export function findDeadExports(allFiles, maxDead = 500) {
     const corpus = allFiles.map((file) => ({
         path: file.path.replace(/\\/g, "/"),
         text: file.text,
-        names: identifierSet(file.text),
+        counts: identifierCounts(file.text),
     }));
     const dead = [];
     for (const entry of corpus) {
@@ -80,7 +82,8 @@ export function findDeadExports(allFiles, maxDead = 500) {
         for (const declaration of declarationsOf({ path: entry.path, text: entry.text })) {
             if (declaration.name.length <= 2 || declaration.name.startsWith("_"))
                 continue;
-            const referenced = corpus.some((other) => other.path !== entry.path && other.names.has(declaration.name));
+            const referenced = (entry.counts.get(declaration.name) ?? 0) > 1 ||
+                corpus.some((other) => other.path !== entry.path && other.counts.has(declaration.name));
             if (referenced)
                 continue;
             dead.push({
