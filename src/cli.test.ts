@@ -1638,6 +1638,50 @@ test("chronos help documents the hotspot score", () => {
   }
 });
 
+test("flight records checkpoints, status, verify and end", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-flight-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: dir });
+    writeFileSync(join(dir, "a.txt"), "one\n", "utf8");
+    spawnSync("git", ["add", "."], { cwd: dir });
+    spawnSync("git", ["commit", "-qm", "init"], { cwd: dir });
+
+    const start = runCli(["flight", "start", "--name", "cli", "--json"], dir);
+    assert.equal(start.status, 0, start.stderr);
+    const started = JSON.parse(start.stdout) as { active: boolean; session: { meta: { id: string } } };
+    assert.equal(started.active, true);
+    assert.match(started.session.meta.id, /^[A-Za-z0-9._-]+$/);
+
+    writeFileSync(join(dir, "b.txt"), "two\n", "utf8");
+    const checkpoint = runCli(["flight", "checkpoint", "--label", "after-b", "--json"], dir);
+    assert.equal(checkpoint.status, 0, checkpoint.stderr);
+    const saved = JSON.parse(checkpoint.stdout) as { label: string; commit: string };
+    assert.equal(saved.label, "after-b");
+    assert.match(saved.commit, /^[0-9a-f]{40}$/);
+
+    const status = runCli(["flight", "status", "--json"], dir);
+    assert.equal(status.status, 0, status.stderr);
+    const active = JSON.parse(status.stdout) as { active: boolean; session: { meta: { id: string } } };
+    assert.equal(active.active, true);
+    assert.equal(active.session.meta.id, started.session.meta.id);
+
+    const verify = runCli(["flight", "verify", "--id", started.session.meta.id, "--json"], dir);
+    assert.equal(verify.status, 0, verify.stderr);
+    const verified = JSON.parse(verify.stdout) as { valid: boolean; errors: string[] };
+    assert.equal(verified.valid, true);
+    assert.deepEqual(verified.errors, []);
+
+    const end = runCli(["flight", "end", "--json"], dir);
+    assert.equal(end.status, 0, end.stderr);
+    const ended = JSON.parse(end.stdout) as { active?: boolean };
+    assert.notEqual(ended.active, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("beacon help documents stamp and verify", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-beacon-"));
   try {

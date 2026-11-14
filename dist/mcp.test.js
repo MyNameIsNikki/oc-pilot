@@ -395,6 +395,21 @@ test("MCP advertises slop and result caps in tools/list", () => {
         assert.ok(chronos.inputSchema.properties.file, "file missing on chronos");
         assert.ok(chronos.inputSchema.properties.limit, "limit missing on chronos");
         assert.ok(chronos.inputSchema.properties.since, "since missing on chronos");
+        for (const name of [
+            "flight_start",
+            "flight_exec",
+            "flight_checkpoint",
+            "flight_status",
+            "flight_show",
+            "flight_verify",
+            "flight_end",
+        ]) {
+            assert.ok(tools.some((tool) => tool.name === name), `${name} tool missing`);
+        }
+        const flightExec = tools.find((tool) => tool.name === "flight_exec");
+        assert.ok(flightExec, "flight_exec tool missing");
+        assert.ok(flightExec.inputSchema.properties.command, "command missing on flight_exec");
+        assert.ok(flightExec.inputSchema.properties.timeout, "timeout missing on flight_exec");
         const beacon = tools.find((tool) => tool.name === "beacon");
         assert.ok(beacon, "beacon tool missing");
         assert.ok(beacon.inputSchema.properties.action, "action missing on beacon");

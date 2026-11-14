@@ -1476,6 +1476,98 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_start",
+        description: "Start a black-box flight recorder for the current agent session. Writes a hash-chained event log and checkpoints under .git/oc-pilot/flights. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["name"],
+            properties: {
+                name: { type: "string", description: "Human-readable session name" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_exec",
+        description: "Run a command inside the active flight, record its output and exit code, and append command.start/command.end events. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["command"],
+            properties: {
+                command: { type: "array", description: "Command argv, e.g. [\"npm\",\"test\"]", items: { type: "string" } },
+                timeout: { type: "integer", minimum: 100, maximum: 600000 },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_checkpoint",
+        description: "Create a dangling git commit checkpoint of the current worktree and append it to the active flight journal. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                label: { type: "string", description: "Optional checkpoint label" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_status",
+        description: "Read the active flight status: session id, name, event count and checkpoints.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_show",
+        description: "Read a flight journal and verify its hash chain. Defaults to the active flight.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                id: { type: "string", description: "Flight session id; defaults to the active flight" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_verify",
+        description: "Verify the hash chain of a flight journal without rendering the full journal.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                id: { type: "string", description: "Flight session id; defaults to the active flight" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
+        name: "flight_end",
+        description: "Close the active flight, append session.end and clear the current pointer. The journal remains on disk. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "beacon",
         description: "Create, verify and render a signed verification beacon for HEAD: commit, tree, tool version, agent, model, checks, commands and digest. Supports HMAC and ssh-keygen signatures; verify detects tampering and unattributed manifests. Actions: stamp, verify, render, clear. stamp/clear write and need --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -4191,6 +4283,46 @@ async function callChronos(input, cwd) {
         args.push("--fail-on-hotspot");
     return toToolResult(await runCli(args, cwd));
 }
+async function callFlightStart(input, cwd) {
+    const name = stringArg(input, "name", true);
+    return toToolResult(await runCli(["flight", "start", "--json", "--name", name], cwd));
+}
+async function callFlightExec(input, cwd) {
+    const command = stringArrayArg(input, "command", true);
+    const args = ["flight", "exec", "--json"];
+    const timeout = integerArg(input, "timeout");
+    if (timeout !== undefined)
+        args.push("--timeout", String(timeout));
+    args.push("--", ...command);
+    return toToolResult(await runCli(args, cwd));
+}
+async function callFlightCheckpoint(input, cwd) {
+    const args = ["flight", "checkpoint", "--json"];
+    const label = stringArg(input, "label");
+    if (label)
+        args.push("--label", label);
+    return toToolResult(await runCli(args, cwd));
+}
+async function callFlightStatus(_input, cwd) {
+    return toToolResult(await runCli(["flight", "status", "--json"], cwd));
+}
+async function callFlightShow(input, cwd) {
+    const args = ["flight", "show", "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    return toToolResult(await runCli(args, cwd));
+}
+async function callFlightVerify(input, cwd) {
+    const args = ["flight", "verify", "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    return toToolResult(await runCli(args, cwd));
+}
+async function callFlightEnd(_input, cwd) {
+    return toToolResult(await runCli(["flight", "end", "--json"], cwd));
+}
 async function callBeacon(input, cwd) {
     const action = stringArg(input, "action", true);
     const args = ["beacon", action, "--json"];
@@ -4582,6 +4714,9 @@ async function dispatchTool(name, input, cwd, readOnly) {
         if (name === "scan_injection" && booleanArg(input, "fix")) {
             throw new ToolInputError("scan_injection fix writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
+        if (name.startsWith("flight_") && ["flight_start", "flight_exec", "flight_checkpoint", "flight_end"].includes(name)) {
+            throw new ToolInputError("flight write actions are disabled in read-only mode; start the MCP server with --allow-write");
+        }
     }
     switch (name) {
         case "review":
@@ -4710,6 +4845,20 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callCuckoo(input, cwd);
         case "chronos":
             return callChronos(input, cwd);
+        case "flight_start":
+            return callFlightStart(input, cwd);
+        case "flight_exec":
+            return callFlightExec(input, cwd);
+        case "flight_checkpoint":
+            return callFlightCheckpoint(input, cwd);
+        case "flight_status":
+            return callFlightStatus(input, cwd);
+        case "flight_show":
+            return callFlightShow(input, cwd);
+        case "flight_verify":
+            return callFlightVerify(input, cwd);
+        case "flight_end":
+            return callFlightEnd(input, cwd);
         case "beacon":
             return callBeacon(input, cwd);
         case "quarantine":
@@ -4830,6 +4979,35 @@ function summarizeResult(value) {
     }
     if (typeof value.score === "number" && typeof value.hotspot === "boolean" && value.totals && typeof value.totals === "object") {
         return `oc-pilot: chronos ${String(value.score)}, ${value.hotspot ? "hotspot" : "stable"}`;
+    }
+    if (typeof value.active === "boolean") {
+        if (value.session && typeof value.session === "object") {
+            const session = value.session;
+            const id = typeof session.meta?.id === "string" ? session.meta.id : "unknown";
+            return `oc-pilot: flight active ${id}`;
+        }
+        return "oc-pilot: flight inactive";
+    }
+    if (Array.isArray(value.flights)) {
+        return `oc-pilot: flight ${String(value.flights.length)} session(s)`;
+    }
+    if (typeof value.label === "string" && typeof value.commit === "string" && typeof value.tree === "string") {
+        return `oc-pilot: flight checkpoint ${value.label} ${value.commit.slice(0, 8)}`;
+    }
+    if (Array.isArray(value.command) && typeof value.exitCode === "number" && typeof value.timedOut === "boolean") {
+        return `oc-pilot: flight exec exit ${String(value.exitCode)}${value.timedOut ? ", timeout" : ""}`;
+    }
+    if (typeof value.id === "string" && typeof value.valid === "boolean" && Array.isArray(value.errors)) {
+        return `oc-pilot: flight ${value.id} ${value.valid ? "valid" : "tampered"}`;
+    }
+    if (value.meta && typeof value.meta === "object" && Array.isArray(value.events) && value.verification) {
+        const meta = value.meta;
+        const verification = value.verification;
+        const id = typeof meta.id === "string" ? meta.id : "unknown";
+        return `oc-pilot: flight ${id}, ${String(value.events.length)} event(s), ${verification.valid === true ? "valid" : "tampered"}`;
+    }
+    if (value.meta && typeof value.meta === "object" && value.summary && typeof value.summary === "object") {
+        return "oc-pilot: flight ended";
     }
     if (typeof value.status === "string" && Array.isArray(value.capabilities) && typeof value.file === "string") {
         return `oc-pilot: cuckoo ${value.status}, ${String(value.capabilities.length)} capability(ies)`;

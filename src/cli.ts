@@ -72,6 +72,7 @@ import { runClairvoyant } from "./commands/clairvoyant.js";
 import { runHemorrhageCommand } from "./commands/hemorrhage.js";
 import { runCuckooCommand } from "./commands/cuckoo.js";
 import { runChronos } from "./commands/chronos.js";
+import { runFlight } from "./commands/flight.js";
 import { runBeacon } from "./commands/beacon.js";
 import { runQuarantine } from "./commands/quarantine.js";
 import { runMirageCommand } from "./commands/mirage.js";
@@ -121,6 +122,7 @@ const HANDLERS: Record<string, Handler> = {
   hemorrhage: runHemorrhageCommand,
   cuckoo: runCuckooCommand,
   chronos: runChronos,
+  flight: runFlight,
   beacon: runBeacon,
   quarantine: runQuarantine,
   mirage: runMirageCommand,
@@ -240,6 +242,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
   hemorrhage   Доказать регрессию производительности на бенчмарке
   cuckoo       Аудит возможностей недоверенного JS/ESM в песочнице
   chronos      История файла: fixes, reverts, инциденты и hotspot score
+  flight       Чёрный ящик агентской сессии: журнал, чекпоинты и проверка цепочки
   beacon       Подписанный манифест проверки коммита для PR и CI
   quarantine   Флейки с владельцем и сроком, чтобы подавление не стало вечным
   mirage       Записать и воспроизвести fetch и время без сети
@@ -334,6 +337,7 @@ ${COMMON_HELP}
   oc-pilot hemorrhage --command "node bench.mjs" --runs 10
   oc-pilot cuckoo dist/tool.mjs
   oc-pilot chronos src/auth.ts
+  oc-pilot flight start --name "fix auth"
   oc-pilot beacon stamp --check tests=pass --key beacon.key
   oc-pilot quarantine add --test "auth flow" --owner alice --reason "race"
   oc-pilot mirage record --command "node test.mjs" --cassette cassettes/login.json
@@ -387,7 +391,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     throw new PilotError(`Неизвестная команда: ${command}`, {
-      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, polygraph, passport, oracle, vaccine, mitosis, intent, scalpel, mayday, clairvoyant, hemorrhage, cuckoo, chronos, beacon, quarantine, mirage, warden, tribunal, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
+      hint: "Доступные команды: review, test-fix, test-gen, test-guard, flaky, mutate, fuzz, bankruptcy, query, sandbox, hivemind, sast, authz, fix, docgen, custom, scan, deps, ecosystem-verify, env-sync, mock-leak, coverage, pack, zoom-symbol, contract-drift, anti-regression, boundaries, test-plan, compliance, brag, battle, cleanup, arch-diff, roast, cinema, bounty, autopsy, echo, invariants, preflight, honeypot, alien-dna, hyper-chamber, butterfly, blindfold, skeptic, antibody, polygraph, passport, oracle, vaccine, mitosis, intent, scalpel, mayday, clairvoyant, hemorrhage, cuckoo, chronos, flight, beacon, quarantine, mirage, warden, tribunal, apoptosis, injection, receipt, ready, commit, install-hook, restore, cache, stats, day, impact, explain, reviewers, replay, slop, setup, init.",
       exitCode: 2,
     });
   }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.115.0
+
+- Добавлена команда `flight` — чёрный ящик агентской сессии: хеш-цепочка событий, чекпоинты всего worktree через висячие git-коммиты, запись команд и хвостов вывода, проверка целостности.
+- `flight start|exec|checkpoint|status|list|show|verify|end`; журнал в `.git/oc-pilot/flights/<id>/events.jsonl`, локально, NDJSON и без зависимостей.
+- MCP-инструменты `flight_start`, `flight_exec`, `flight_checkpoint`, `flight_status`, `flight_show`, `flight_verify`, `flight_end`; write-действия требуют `--allow-write`.
+- README, README.ru и docs/integrations описывают новую команду; 875 тестов; версия 0.115.0.
+
 ## 0.114.11
 
 - Добавлены `AGENTS.md` и `.oc-pilot.json`: `ready` теперь проходит проверки docs и config, а агент получает команды и релизный чек-лист проекта.
