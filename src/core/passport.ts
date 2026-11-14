@@ -82,7 +82,7 @@ export function canonicalJson(value: unknown): string {
 }
 
 export function passportPath(cwd: string): string {
-  return join(cwd, ".oc-pilot", "passport.json");
+  return join(cwd, PASSPORT_PATH);
 }
 
 function passportDigest(manifest: Omit<PassportManifest, "digest">): string {

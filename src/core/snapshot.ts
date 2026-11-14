@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { PilotError } from "./errors.js";
 import { getRepoRoot, runGit } from "./git.js";
@@ -238,12 +238,3 @@ export function restoreSnapshot(cwd: string, id?: string): SnapshotInfo {
   };
 }
 
-/** Removes snapshots older than keepLatest. Returns the number removed. */
-export function pruneSnapshots(cwd: string, keepLatest: number): number {
-  const snapshots = listSnapshots(cwd);
-  const removable = snapshots.slice(0, Math.max(0, snapshots.length - keepLatest));
-  for (const snapshot of removable) {
-    rmSync(snapshot.path, { recursive: true, force: true });
-  }
-  return removable.length;
-}

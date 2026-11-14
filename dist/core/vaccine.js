@@ -144,7 +144,7 @@ function emptyStore() {
     return { version: STORE_VERSION, vaccines: [] };
 }
 export function vaccineStorePath(cwd) {
-    return join(cwd, ".oc-pilot", "vaccines.json");
+    return join(cwd, VACCINE_STORE);
 }
 export function readVaccineStore(cwd) {
     const path = vaccineStorePath(cwd);

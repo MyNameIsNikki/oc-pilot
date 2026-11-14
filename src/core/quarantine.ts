@@ -46,7 +46,7 @@ export interface AddQuarantineOptions {
 }
 
 export function quarantinePath(cwd: string): string {
-  return join(cwd, ".oc-pilot", "quarantine.json");
+  return join(cwd, QUARANTINE_STORE);
 }
 
 function emptyStore(): QuarantineStore {

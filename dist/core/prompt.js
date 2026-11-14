@@ -226,7 +226,6 @@ func DeductBalance(u *User, amount int) error {
     return nil
 }
 \`\`\``;
-export const SYSTEM_PROMPT = SYSTEM_PROMPT_EN;
 /**
  * System prompt for the two-phase router (engine=openai, recipe=review).
  * The triage model must answer with a single machine-readable line.

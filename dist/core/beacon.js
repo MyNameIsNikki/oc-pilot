@@ -30,7 +30,7 @@ function readKey(path) {
     }
 }
 export function beaconPath(cwd) {
-    return join(cwd, ".oc-pilot", "beacon.json");
+    return join(cwd, BEACON_PATH);
 }
 function verdictOf(checks) {
     if (checks.some((check) => check.status === "fail"))

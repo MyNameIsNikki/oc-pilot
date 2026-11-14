@@ -5,12 +5,14 @@ export function isPromptLang(value) {
 }
 export function parsePromptLang(value, source = "--lang") {
     const normalized = value.trim().toLowerCase();
-    if (normalized === "en" || normalized === "english")
+    if (isPromptLang(normalized))
+        return normalized;
+    if (normalized === "english")
         return "en";
-    if (normalized === "ru" || normalized === "russian" || normalized === "рус")
+    if (normalized === "russian" || normalized === "рус")
         return "ru";
     throw new PilotError(`Некорректное значение ${source}: ${value}`, {
-        hint: "Допустимо: en, ru.",
+        hint: `Допустимо: ${PROMPT_LANGS.join(", ")}.`,
         exitCode: 2,
     });
 }

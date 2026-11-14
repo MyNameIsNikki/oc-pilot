@@ -25,7 +25,7 @@ export function canonicalJson(value) {
     return JSON.stringify(canonical(value));
 }
 export function passportPath(cwd) {
-    return join(cwd, ".oc-pilot", "passport.json");
+    return join(cwd, PASSPORT_PATH);
 }
 function passportDigest(manifest) {
     return `sha256:${sha256(canonicalJson(manifest))}`;

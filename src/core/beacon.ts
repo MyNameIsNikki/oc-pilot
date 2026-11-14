@@ -90,7 +90,7 @@ function readKey(path: string): Buffer {
 }
 
 export function beaconPath(cwd: string): string {
-  return join(cwd, ".oc-pilot", "beacon.json");
+  return join(cwd, BEACON_PATH);
 }
 
 function verdictOf(checks: BeaconCheck[]): BeaconVerdict {

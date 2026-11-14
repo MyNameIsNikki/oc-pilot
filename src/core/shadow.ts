@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PilotError } from "./errors.js";
@@ -90,10 +90,6 @@ export function writeShadowDiff(diff: string): { path: string; cleanup: () => vo
   const path = join(dir, "input.diff");
   writeFileSync(path, diff, "utf8");
   return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
-}
-
-export function readPatch(path: string): string {
-  return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
 
 /** Removes flags that describe the real tree so the inner command reads one diff. */

@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { PilotError } from "./errors.js";
 export async function readStdin() {
     if (process.stdin.isTTY) {
@@ -30,18 +30,6 @@ export function readTextFile(file, label = "файл") {
             exitCode: 2,
         });
     }
-}
-/**
- * Accepts a literal string, "-" for stdin, or "@path" for a file.
- */
-export async function resolveTextInput(value, cwd) {
-    if (value === "-")
-        return readStdin();
-    if (value.startsWith("@")) {
-        const path = value.slice(1);
-        return readTextFile(isAbsolute(path) ? path : resolve(cwd, path), "файл контекста");
-    }
-    return value;
 }
 export function writeOutput(text, outputPath) {
     const normalized = text.endsWith("\n") ? text : `${text}\n`;

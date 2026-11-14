@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { collectAddedLines } from "./alien-dna.js";
 import { collectChangedFiles, splitDiffBlocks } from "./diff.js";
@@ -56,7 +56,7 @@ const RULE_KINDS = new Set<WardenRuleKind>([
 ]);
 
 export function wardenPolicyPath(cwd: string): string {
-  return join(cwd, ".oc-pilot", "policy.json");
+  return join(cwd, WARDEN_POLICY);
 }
 
 /** Converts a glob with * and ** into a regular expression. */
@@ -151,13 +151,6 @@ export function initWardenPolicy(cwd: string, force: boolean): { written: string
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(SAMPLE_POLICY, null, 2)}\n`, "utf8");
   return { written: WARDEN_POLICY, existed: false };
-}
-
-export function clearWardenPolicy(cwd: string): { removed: boolean } {
-  const path = wardenPolicyPath(cwd);
-  if (!existsSync(path)) return { removed: false };
-  rmSync(path, { force: true });
-  return { removed: true };
 }
 
 const DEP_LINE = /"(@?[A-Za-z0-9._/-]+)"\s*:\s*"[~^<>=0-9]/;

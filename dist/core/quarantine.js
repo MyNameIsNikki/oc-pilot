@@ -5,7 +5,7 @@ export const QUARANTINE_STORE = ".oc-pilot/quarantine.json";
 const STORE_VERSION = 1;
 const DAY_MS = 24 * 60 * 60 * 1000;
 export function quarantinePath(cwd) {
-    return join(cwd, ".oc-pilot", "quarantine.json");
+    return join(cwd, QUARANTINE_STORE);
 }
 function emptyStore() {
     return { version: STORE_VERSION, entries: [] };

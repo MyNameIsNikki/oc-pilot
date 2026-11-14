@@ -219,7 +219,7 @@ function emptyStore(): VaccineStore {
 }
 
 export function vaccineStorePath(cwd: string): string {
-  return join(cwd, ".oc-pilot", "vaccines.json");
+  return join(cwd, VACCINE_STORE);
 }
 
 export function readVaccineStore(cwd: string): VaccineStore {

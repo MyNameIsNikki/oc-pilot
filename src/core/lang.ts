@@ -9,10 +9,11 @@ export function isPromptLang(value: string): value is PromptLang {
 
 export function parsePromptLang(value: string, source = "--lang"): PromptLang {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "en" || normalized === "english") return "en";
-  if (normalized === "ru" || normalized === "russian" || normalized === "рус") return "ru";
+  if (isPromptLang(normalized)) return normalized;
+  if (normalized === "english") return "en";
+  if (normalized === "russian" || normalized === "рус") return "ru";
   throw new PilotError(`Некорректное значение ${source}: ${value}`, {
-    hint: "Допустимо: en, ru.",
+    hint: `Допустимо: ${PROMPT_LANGS.join(", ")}.`,
     exitCode: 2,
   });
 }
