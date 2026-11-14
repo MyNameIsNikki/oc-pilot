@@ -541,12 +541,14 @@ function resolveFlightId(cwd, id) {
     if (id && id.trim().length > 0)
         return id.trim();
     const active = activeFlight(cwd);
-    if (!active) {
-        throw new PilotError("Полёт не запущен.", {
-            hint: "Запустите oc-pilot flight start или укажите --id.",
-        });
-    }
-    return active.meta.id;
+    if (active)
+        return active.meta.id;
+    const latest = listFlights(cwd)[0];
+    if (latest)
+        return latest.id;
+    throw new PilotError("Полёт не запущен.", {
+        hint: "Запустите oc-pilot flight start или укажите --id.",
+    });
 }
 function flightCheckpoints(show) {
     return show.events

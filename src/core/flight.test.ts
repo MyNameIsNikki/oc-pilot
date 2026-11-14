@@ -369,6 +369,21 @@ test("renderFlightHtml escapes content and includes checkpoints", () => {
   }
 });
 
+test("exportFlight defaults to the most recent flight after end", () => {
+  const dir = makeRepo();
+  try {
+    const session = startFlight(dir, "ended");
+    createCheckpoint(dir, "ended-cp");
+    endFlight(dir);
+    assert.equal(activeFlight(dir), undefined);
+
+    const result = exportFlight(dir);
+    assert.equal(result.meta.id, session.meta.id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("exportFlight signs a bundle and verifyFlightBundle checks it", () => {
   const dir = makeRepo();
   try {
