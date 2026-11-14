@@ -713,6 +713,161 @@ export function renderFlightDiff(result) {
 export function renderFlightExport(result) {
     return `[FLIGHT EXPORT] ${result.meta.id}: ${result.events.length} событий, ${result.checkpoints.length} чекпоинтов, ${result.digest.slice(0, 19)}.`;
 }
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => {
+        if (character === "&")
+            return "&amp;";
+        if (character === "<")
+            return "&lt;";
+        if (character === ">")
+            return "&gt;";
+        if (character === '"')
+            return "&quot;";
+        return "&#39;";
+    });
+}
+function htmlEventDetail(event) {
+    const payload = event.payload;
+    if (event.kind === "command.end") {
+        const parts = [`exit ${String(payload.exitCode ?? "?")}`];
+        if (payload.timedOut === true)
+            parts.push("timeout");
+        if (typeof payload.durationMs === "number")
+            parts.push(`${payload.durationMs} ms`);
+        return parts.join(" · ");
+    }
+    if (event.kind === "file.checkpoint") {
+        return `commit ${String(payload.commit ?? "").slice(0, 12)}`;
+    }
+    if (event.kind === "session.end") {
+        return `${String(payload.checkpoints ?? 0)} checkpoints · ${String(payload.commands ?? 0)} commands`;
+    }
+    return "";
+}
+function htmlEventOutput(event) {
+    const payload = event.payload;
+    const blocks = [];
+    for (const [label, key] of [
+        ["stdout", "stdoutTail"],
+        ["stderr", "stderrTail"],
+    ]) {
+        const value = payload[key];
+        if (typeof value === "string" && value.trim().length > 0) {
+            blocks.push(`<details><summary>${label}</summary><pre>${escapeHtml(value)}</pre></details>`);
+        }
+    }
+    return blocks.join("");
+}
+export function renderFlightHtml(result) {
+    const meta = result.meta;
+    const checkpointRows = result.checkpoints.length === 0
+        ? `<tr><td colspan="4" class="muted">No checkpoints.</td></tr>`
+        : result.checkpoints
+            .map((checkpoint) => `<tr>
+<td>${escapeHtml(checkpoint.label)}</td>
+<td><code>${escapeHtml(checkpoint.commit.slice(0, 12))}</code></td>
+<td>${escapeHtml(checkpoint.createdAt)}</td>
+<td>${checkpoint.patch.trim().length > 0
+            ? `<details><summary>patch</summary><pre>${escapeHtml(checkpoint.patch)}</pre></details>`
+            : `<span class="muted">—</span>`}</td>
+</tr>`)
+            .join("\n");
+    const timeline = result.events
+        .map((event) => {
+        const detail = htmlEventDetail(event);
+        const output = htmlEventOutput(event);
+        return `<li>
+<div class="event-head"><span class="seq">#${event.seq}</span><span class="kind">${escapeHtml(event.kind)}</span><time>${escapeHtml(event.ts)}</time></div>
+<div class="event-title">${escapeHtml(eventSummary(event))}</div>
+${detail ? `<div class="event-detail">${escapeHtml(detail)}</div>` : ""}
+${output}
+</li>`;
+    })
+        .join("\n");
+    const errors = result.verification.valid
+        ? ""
+        : `<section class="errors"><h2>Chain errors</h2><ul>${result.verification.errors
+            .map((error) => `<li>${escapeHtml(error)}</li>`)
+            .join("")}</ul></section>`;
+    return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>oc-pilot flight ${escapeHtml(meta.id)}</title>
+<style>
+:root { color-scheme: light dark; --bg: #f6f7f9; --card: #ffffff; --ink: #17191d; --muted: #68707d; --line: #d9dde4; --accent: #2457d6; --ok: #177245; --bad: #b42318; }
+@media (prefers-color-scheme: dark) { :root { --bg: #111318; --card: #181b22; --ink: #e8ebf0; --muted: #9aa3b1; --line: #2b303a; --accent: #8ab4ff; --ok: #63d391; --bad: #ff8a80; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 40px 20px 64px; }
+header { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 24px; }
+.eyebrow { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+h1 { margin: 6px 0 4px; font-size: clamp(28px, 5vw, 44px); line-height: 1.1; }
+.id { margin: 0; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.badge { display: inline-block; margin-top: 12px; padding: 3px 10px; border: 1px solid currentColor; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.badge.ok { color: var(--ok); } .badge.bad { color: var(--bad); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 24px 0; }
+.grid > div, section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.grid > div { padding: 12px 14px; }
+.grid span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.grid strong { display: block; margin-top: 4px; overflow-wrap: anywhere; }
+section { padding: 18px; margin: 18px 0; }
+h2 { margin: 0 0 12px; font-size: 18px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 9px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+pre { margin: 8px 0 0; padding: 12px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+details summary { cursor: pointer; color: var(--accent); }
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline li { padding: 12px 0; border-top: 1px solid var(--line); }
+.timeline li:first-child { border-top: 0; }
+.event-head { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 12px; }
+.seq { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.kind { color: var(--accent); font-weight: 700; }
+.event-head time { margin-left: auto; }
+.event-title { margin-top: 3px; font-weight: 600; overflow-wrap: anywhere; }
+.event-detail { color: var(--muted); font-size: 13px; }
+.muted { color: var(--muted); }
+.errors { border-color: var(--bad); }
+.errors h2 { color: var(--bad); }
+footer { color: var(--muted); font-size: 12px; margin-top: 24px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow">oc-pilot flight</div>
+<h1>${escapeHtml(meta.name)}</h1>
+<p class="id">${escapeHtml(meta.id)}</p>
+<span class="badge ${result.verification.valid ? "ok" : "bad"}">${result.verification.valid ? "chain valid" : "chain tampered"}</span>
+</header>
+<div class="grid">
+<div><span>Started</span><strong>${escapeHtml(meta.startedAt)}</strong></div>
+<div><span>Base commit</span><strong>${escapeHtml(meta.baseCommit ?? "none")}</strong></div>
+<div><span>Branch</span><strong>${escapeHtml(meta.branch ?? "none")}</strong></div>
+<div><span>Events</span><strong>${result.events.length}</strong></div>
+<div><span>Checkpoints</span><strong>${result.checkpoints.length}</strong></div>
+<div><span>Digest</span><strong><code>${escapeHtml(result.digest)}</code></strong></div>
+</div>
+${errors}
+<section>
+<h2>Checkpoints</h2>
+<table>
+<thead><tr><th>Label</th><th>Commit</th><th>Created</th><th>Patch</th></tr></thead>
+<tbody>${checkpointRows}</tbody>
+</table>
+</section>
+<section>
+<h2>Timeline</h2>
+<ol class="timeline">${timeline}</ol>
+</section>
+<footer>Exported ${escapeHtml(result.exportedAt)} · ${escapeHtml(result.format)}</footer>
+</main>
+</body>
+</html>`;
+}
 export function renderFlightCompare(result) {
     const side = (label, value) => `${label}: ${value.name} (${value.id}) — событий ${value.events}, команд ${value.commands}, ` +
         `чекпоинтов ${value.checkpoints}, ошибок ${value.failedCommands}, ${value.durationMs} мс, ` +

@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStatus, listFlights, renderFlightBisect, renderFlightCheckpoint, renderFlightCompare, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightList, renderFlightReplay, renderFlightShow, renderFlightStart, renderFlightStatus, renderFlightVerify, replayFlight, showFlight, startFlight, } from "../core/flight.js";
+import { bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStatus, listFlights, renderFlightBisect, renderFlightCheckpoint, renderFlightCompare, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightReplay, renderFlightShow, renderFlightStart, renderFlightStatus, renderFlightVerify, replayFlight, showFlight, startFlight, } from "../core/flight.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -25,6 +25,7 @@ const HELP = `Использование:
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
   oc-pilot flight compare <id-a> <id-b>
+  oc-pilot flight html [--id <id>] [--output <файл>]
   oc-pilot flight export [--id <id>] [--output <файл>]
   oc-pilot flight end
   oc-pilot flight verify <id>
@@ -55,6 +56,7 @@ ${COMMON_HELP}
   oc-pilot flight bisect -- node --test
   oc-pilot flight diff --from base --to "tests green"
   oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef
+  oc-pilot flight html --output flight.html
   oc-pilot flight export --output flight.json
   oc-pilot flight verify 20261114T120000-ab12cd`;
 function requireId(values, positionals) {
@@ -176,6 +178,13 @@ export function runFlight(argv) {
         const result = compareFlights(ctx.cwd, first, second);
         writeOutput(json ? JSON.stringify(result, null, 2) : renderFlightCompare(result), ctx.flags.output);
         return result.a.valid && result.b.valid ? 0 : 2;
+    }
+    if (action === "html") {
+        const result = exportFlight(ctx.cwd, asString(values, "id"));
+        const html = renderFlightHtml(result);
+        writeOutput(json ? JSON.stringify({ id: result.meta.id, html }, null, 2) : html, ctx.flags.output);
+        log.success(`HTML-отчёт ${result.meta.id} записан.`);
+        return 0;
     }
     if (action === "export") {
         const result = exportFlight(ctx.cwd, asString(values, "id"));

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStatus, listFlights, readFlightEvents, replayFlight, showFlight, startFlight, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStatus, listFlights, readFlightEvents, renderFlightHtml, replayFlight, showFlight, startFlight, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -243,6 +243,27 @@ test("compareFlights reports command differences and final tree equality", () =>
         assert.equal(result.sameFinalTree, false);
         assert.equal(result.a.valid, true);
         assert.equal(result.b.valid, true);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("renderFlightHtml escapes content and includes checkpoints", () => {
+    const dir = makeRepo();
+    try {
+        const session = startFlight(dir, "<script>alert(1)</script>");
+        execInFlight(dir, [process.execPath, "-e", "console.log('<img src=x>')"], { quiet: true });
+        writeFileSync(join(dir, "b.txt"), "<b>patch</b>\n", "utf8");
+        createCheckpoint(dir, "<b>after</b>");
+        endFlight(dir);
+        const html = renderFlightHtml(exportFlight(dir, session.meta.id));
+        assert.match(html, /^<!doctype html>/);
+        assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+        assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+        assert.match(html, /&lt;b&gt;after&lt;\/b&gt;/);
+        assert.match(html, /&lt;img src=x&gt;/);
+        assert.match(html, /chain valid/);
+        assert.match(html, /Timeline/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

@@ -1629,6 +1629,19 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_html",
+        description: "Render a self-contained, redacted HTML timeline for a flight session with checkpoints and command output.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                id: { type: "string", description: "Flight session id; defaults to the active flight" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "flight_export",
         description: "Export a redacted flight bundle with journal, checkpoint patches and a sha256 digest. Needs --allow-write when output is set.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -4441,6 +4454,13 @@ async function callFlightCompare(input, cwd) {
     const other = stringArg(input, "with", true);
     return toToolResult(await runCli(["flight", "compare", id, other, "--json"], cwd));
 }
+async function callFlightHtml(input, cwd) {
+    const args = ["flight", "html", "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    return toToolResult(await runCli(args, cwd));
+}
 async function callFlightExport(input, cwd) {
     const args = ["flight", "export", "--json"];
     const id = stringArg(input, "id");
@@ -4996,6 +5016,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightDiff(input, cwd);
         case "flight_compare":
             return callFlightCompare(input, cwd);
+        case "flight_html":
+            return callFlightHtml(input, cwd);
         case "flight_export":
             return callFlightExport(input, cwd);
         case "beacon":
@@ -5132,6 +5154,9 @@ function summarizeResult(value) {
         const from = value.from;
         const to = value.to;
         return `oc-pilot: flight diff ${typeof from.label === "string" ? from.label : "?"}..${typeof to.label === "string" ? to.label : "?"}`;
+    }
+    if (typeof value.id === "string" && typeof value.html === "string") {
+        return `oc-pilot: flight html ${value.id} (${String(value.html.length)} chars)`;
     }
     if (typeof value.format === "string" && value.format.startsWith("oc-pilot-flight-export/") && typeof value.digest === "string") {
         const checkpoints = Array.isArray(value.checkpoints) ? value.checkpoints.length : 0;

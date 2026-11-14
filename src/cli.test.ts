@@ -1697,6 +1697,14 @@ test("flight records checkpoints, status, verify and end", () => {
     const secondEnd = runCli(["flight", "end", "--json"], dir);
     assert.equal(secondEnd.status, 0, secondEnd.stderr);
 
+    const html = runCli(["flight", "html", "--id", started.session.meta.id, "--json"], dir);
+    assert.equal(html.status, 0, html.stderr);
+    const report = JSON.parse(html.stdout) as { id: string; html: string };
+    assert.equal(report.id, started.session.meta.id);
+    assert.match(report.html, /^<!doctype html>/);
+    assert.match(report.html, /after-b/);
+    assert.match(report.html, /Timeline/);
+
     const compare = runCli(
       ["flight", "compare", started.session.meta.id, second.session.meta.id, "--json"],
       dir,
