@@ -1742,6 +1742,19 @@ test("flight records checkpoints, status, verify and end", () => {
   }
 });
 
+test("flight keygen writes a 64-hex key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-keygen-"));
+  try {
+    const result = runCli(["flight", "keygen", "--output", "flight.key", "--cwd", dir], dir);
+    assert.equal(result.status, 0, result.stderr);
+    const key = readFileSync(join(dir, "flight.key"), "utf8").trim();
+    assert.match(key, /^[0-9a-f]{64}$/);
+    assert.doesNotMatch(result.stderr, /[0-9a-f]{64}/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("beacon help documents stamp and verify", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-beacon-"));
   try {

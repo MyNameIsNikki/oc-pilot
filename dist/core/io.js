@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { PilotError } from "./errors.js";
 export async function readStdin() {
@@ -40,6 +40,26 @@ export function writeOutput(text, outputPath) {
     const absolute = resolve(outputPath);
     mkdirSync(dirname(absolute), { recursive: true });
     writeFileSync(absolute, normalized, "utf8");
+    return absolute;
+}
+/** Writes a secret with owner-only permissions when the platform supports them. */
+export function writeSecretOutput(text, outputPath, baseDir = process.cwd()) {
+    const normalized = text.endsWith("\n") ? text : `${text}\n`;
+    if (!outputPath) {
+        process.stdout.write(normalized);
+        return undefined;
+    }
+    const absolute = resolve(baseDir, outputPath);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, normalized, { encoding: "utf8", mode: 0o600 });
+    if (process.platform !== "win32") {
+        try {
+            chmodSync(absolute, 0o600);
+        }
+        catch {
+            // The write already used mode 0600; chmod is a best-effort hardening step.
+        }
+    }
     return absolute;
 }
 //# sourceMappingURL=io.js.map

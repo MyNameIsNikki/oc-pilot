@@ -38,7 +38,7 @@ import {
   startFlight,
   verifyFlightBundle,
 } from "../core/flight.js";
-import { writeOutput } from "../core/io.js";
+import { writeOutput, writeSecretOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import {
   COMMON_HELP,
@@ -190,8 +190,9 @@ export function runFlight(argv: string[]): number {
 
   if (action === "keygen") {
     const key = generateFlightKey();
-    writeOutput(json ? JSON.stringify({ key }, null, 2) : key, ctx.flags.output);
-    log.success(ctx.flags.output ? `Ключ записан в ${ctx.flags.output}.` : "Ключ сгенерирован.");
+    const payload = json ? JSON.stringify({ key }, null, 2) : key;
+    const written = writeSecretOutput(payload, ctx.flags.output, ctx.cwd);
+    log.success(written ? `Ключ записан в ${written}.` : "Ключ сгенерирован.");
     return 0;
   }
 
