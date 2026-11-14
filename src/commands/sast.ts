@@ -120,8 +120,6 @@ export async function runSast(argv: string[]): Promise<number> {
   );
   const report = buildSastReport(files.length, results);
   const findings = report.findings.filter((finding) => !ignore.has(finding.rule));
-  const summary: Record<SastSeverity, number> = { high: 0, medium: 0, low: 0 };
-  for (const finding of findings) summary[finding.severity] += 1;
 
   const baselineFile = asString(values, "baseline") ?? DEFAULT_BASELINE_PATH;
   const updateBaseline = asBoolean(values, "update-baseline");
