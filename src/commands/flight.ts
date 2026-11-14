@@ -10,6 +10,7 @@ import {
   flightStats,
   flightStatus,
   listFlights,
+  pruneFlights,
   renderFlightBisect,
   renderFlightCheckpoint,
   renderFlightCompare,
@@ -19,6 +20,7 @@ import {
   renderFlightExport,
   renderFlightHtml,
   renderFlightList,
+  renderFlightPrune,
   renderFlightReplay,
   renderFlightShow,
   renderFlightStart,
@@ -46,6 +48,9 @@ const OPTIONS: OptionSpec = withCommon({
   timeout: { type: "string" },
   id: { type: "string" },
   with: { type: "string" },
+  keep: { type: "string" },
+  "older-than": { type: "string" },
+  "dry-run": { type: "boolean" },
   to: { type: "string" },
   from: { type: "string" },
   path: { type: "string" },
@@ -57,6 +62,7 @@ const HELP = `Использование:
   oc-pilot flight checkpoint [--label <метка>]
   oc-pilot flight status
   oc-pilot flight stats
+  oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
   oc-pilot flight list
   oc-pilot flight show <id>
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
@@ -77,6 +83,9 @@ const HELP = `Использование:
       --timeout <мс>        таймаут команды для exec/bisect (по умолчанию 600000)
       --id <id>             идентификатор полёта
       --with <id>           второй полёт для compare
+      --keep <n>            сколько последних полётов оставить при prune (по умолчанию 20)
+      --older-than <дней>   удалять только полёты старше указанного возраста
+      --dry-run             показать, что будет удалено, без удаления
       --to <ref>            чекпоинт для replay/diff: метка или commit
       --from <ref>          начальный чекпоинт для diff
       --path <путь>         каталог для replay-worktree
@@ -89,6 +98,7 @@ ${COMMON_HELP}
 Примеры:
   oc-pilot flight start --name "fix auth"
   oc-pilot flight stats
+  oc-pilot flight prune --keep 20 --dry-run
   oc-pilot flight exec -- npm test
   oc-pilot flight checkpoint --label "tests green"
   oc-pilot flight replay --to "tests green"
@@ -116,6 +126,22 @@ function timeoutOf(values: ArgsValues): number {
   if (!Number.isInteger(value) || value <= 0) {
     throw new PilotError(`Некорректный таймаут: ${raw}`, {
       hint: "Укажите положительное целое число миллисекунд.",
+    });
+  }
+  return value;
+}
+
+function optionalNonNegativeInteger(
+  values: ArgsValues,
+  key: string,
+  label: string,
+): number | undefined {
+  const raw = asString(values, key);
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new PilotError(`Некорректный ${label}: ${raw}`, {
+      hint: "Укажите неотрицательное целое число.",
     });
   }
   return value;
@@ -303,6 +329,24 @@ export function runFlight(argv: string[]): number {
       ctx.flags.output,
     );
     log.success(`Экспорт ${result.meta.id}: ${result.digest}.`);
+    return 0;
+  }
+
+  if (action === "prune") {
+    const result = pruneFlights(ctx.cwd, {
+      keep: optionalNonNegativeInteger(values, "keep", "--keep"),
+      olderThanDays: optionalNonNegativeInteger(values, "older-than", "--older-than"),
+      dryRun: asBoolean(values, "dry-run"),
+    });
+    writeOutput(
+      json ? JSON.stringify(result, null, 2) : renderFlightPrune(result),
+      ctx.flags.output,
+    );
+    log.success(
+      result.dryRun
+        ? `Будет удалено ${result.removed.length} полётов.`
+        : `Удалено ${result.removed.length} полётов.`,
+    );
     return 0;
   }
 

@@ -1654,6 +1654,21 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_prune",
+        description: "Delete old ended flight sessions while keeping the active flight and the newest N sessions. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                keep: { type: "integer", minimum: 0, description: "How many newest ended flights to keep; default 20" },
+                older_than_days: { type: "integer", minimum: 0, description: "Only remove flights older than this many days" },
+                dry_run: { type: "boolean", description: "Report what would be removed without deleting" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "flight_export",
         description: "Export a redacted flight bundle with journal, checkpoint patches and a sha256 digest. Needs --allow-write when output is set.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -4476,6 +4491,18 @@ async function callFlightHtml(input, cwd) {
 async function callFlightStats(_input, cwd) {
     return toToolResult(await runCli(["flight", "stats", "--json"], cwd));
 }
+async function callFlightPrune(input, cwd) {
+    const args = ["flight", "prune", "--json"];
+    const keep = integerArg(input, "keep");
+    if (keep !== undefined)
+        args.push("--keep", String(keep));
+    const olderThanDays = integerArg(input, "older_than_days");
+    if (olderThanDays !== undefined)
+        args.push("--older-than", String(olderThanDays));
+    if (booleanArg(input, "dry_run"))
+        args.push("--dry-run");
+    return toToolResult(await runCli(args, cwd));
+}
 async function callFlightExport(input, cwd) {
     const args = ["flight", "export", "--json"];
     const id = stringArg(input, "id");
@@ -4878,7 +4905,7 @@ async function dispatchTool(name, input, cwd, readOnly) {
             throw new ToolInputError("scan_injection fix writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
         if (name.startsWith("flight_") &&
-            ["flight_start", "flight_exec", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_export"].includes(name)) {
+            ["flight_start", "flight_exec", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_prune", "flight_export"].includes(name)) {
             throw new ToolInputError("flight write actions are disabled in read-only mode; start the MCP server with --allow-write");
         }
     }
@@ -5035,6 +5062,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightHtml(input, cwd);
         case "flight_stats":
             return callFlightStats(input, cwd);
+        case "flight_prune":
+            return callFlightPrune(input, cwd);
         case "flight_export":
             return callFlightExport(input, cwd);
         case "beacon":
@@ -5171,6 +5200,9 @@ function summarizeResult(value) {
         const from = value.from;
         const to = value.to;
         return `oc-pilot: flight diff ${typeof from.label === "string" ? from.label : "?"}..${typeof to.label === "string" ? to.label : "?"}`;
+    }
+    if (Array.isArray(value.removed) && typeof value.kept === "number" && typeof value.dryRun === "boolean") {
+        return `oc-pilot: flight prune removed ${String(value.removed.length)}, kept ${String(value.kept)}`;
     }
     if (typeof value.total === "number" && Array.isArray(value.topCommands)) {
         return `oc-pilot: flight stats ${String(value.total)} session(s), ${String(value.commands ?? 0)} command(s), ${String(value.failedCommands ?? 0)} failed`;

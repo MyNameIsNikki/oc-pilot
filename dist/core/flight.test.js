@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, readFlightEvents, renderFlightHtml, replayFlight, showFlight, startFlight, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, readFlightEvents, renderFlightHtml, replayFlight, showFlight, startFlight, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -243,6 +243,29 @@ test("compareFlights reports command differences and final tree equality", () =>
         assert.equal(result.sameFinalTree, false);
         assert.equal(result.a.valid, true);
         assert.equal(result.b.valid, true);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("pruneFlights removes old ended sessions and keeps the active flight", () => {
+    const dir = makeRepo();
+    try {
+        startFlight(dir, "first");
+        endFlight(dir);
+        startFlight(dir, "second");
+        endFlight(dir);
+        const active = startFlight(dir, "active");
+        const dry = pruneFlights(dir, { keep: 0, dryRun: true });
+        assert.equal(dry.removed.length, 2);
+        assert.equal(dry.kept, 1);
+        assert.equal(dry.active, active.meta.id);
+        assert.equal(dry.dryRun, true);
+        assert.equal(listFlights(dir).length, 3);
+        const real = pruneFlights(dir, { keep: 0 });
+        assert.equal(real.removed.length, 2);
+        assert.equal(listFlights(dir).length, 1);
+        assert.equal(activeFlight(dir)?.meta.id, active.meta.id);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

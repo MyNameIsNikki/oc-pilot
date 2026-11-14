@@ -93,6 +93,19 @@ export interface FlightStats {
   topCommands: FlightCommandStat[];
 }
 
+export interface FlightPruneOptions {
+  keep?: number;
+  olderThanDays?: number;
+  dryRun?: boolean;
+}
+
+export interface FlightPruneResult {
+  removed: string[];
+  kept: number;
+  active: string | null;
+  dryRun: boolean;
+}
+
 export interface FlightShow {
   meta: FlightMeta;
   events: FlightEvent[];
@@ -514,6 +527,43 @@ export function flightStats(cwd: string): FlightStats {
   };
 }
 
+export function pruneFlights(cwd: string, options: FlightPruneOptions = {}): FlightPruneResult {
+  const keep = options.keep ?? 20;
+  if (!Number.isInteger(keep) || keep < 0) {
+    throw new PilotError(`Некорректный --keep: ${String(options.keep)}`, {
+      hint: "Укажите неотрицательное целое число полётов, которые нужно оставить.",
+    });
+  }
+  const days = options.olderThanDays;
+  if (days !== undefined && (!Number.isFinite(days) || days < 0)) {
+    throw new PilotError(`Некорректный --older-than: ${String(days)}`, {
+      hint: "Укажите неотрицательное число дней.",
+    });
+  }
+  const active = activeFlight(cwd)?.meta.id ?? null;
+  const cutoff = days === undefined ? undefined : Date.now() - days * 86_400_000;
+  const flights = listFlights(cwd);
+  const ended = flights.filter((flight) => flight.ended && flight.id !== active);
+  const remove = new Set<string>();
+  ended.forEach((flight, index) => {
+    if (index < keep) return;
+    if (cutoff !== undefined && Date.parse(flight.startedAt) >= cutoff) return;
+    remove.add(flight.id);
+  });
+  const removed: string[] = [];
+  const root = flightsRoot(cwd);
+  for (const id of remove) {
+    removed.push(id);
+    if (options.dryRun !== true) rmSync(sessionDir(root, id), { recursive: true, force: true });
+  }
+  return {
+    removed,
+    kept: flights.length - removed.length,
+    active,
+    dryRun: options.dryRun === true,
+  };
+}
+
 export function showFlight(cwd: string, id: string): FlightShow {
   const root = flightsRoot(cwd);
   const dir = sessionDir(root, id);
@@ -579,6 +629,13 @@ export function renderFlightStats(stats: FlightStats): string {
     }
   }
   return lines.join("\n");
+}
+
+export function renderFlightPrune(result: FlightPruneResult): string {
+  const shown = result.removed.slice(0, 5).join(", ");
+  const suffix = result.removed.length > 5 ? ` и ещё ${result.removed.length - 5}` : "";
+  const list = result.removed.length > 0 ? `: ${shown}${suffix}` : "";
+  return `[FLIGHT PRUNE] ${result.dryRun ? "будет удалено" : "удалено"} ${result.removed.length}${list}; осталось ${result.kept}${result.active ? `, активный ${result.active}` : ""}.`;
 }
 
 function eventSummary(event: FlightEvent): string {

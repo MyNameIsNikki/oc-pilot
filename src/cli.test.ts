@@ -1731,6 +1731,12 @@ test("flight records checkpoints, status, verify and end", () => {
     assert.equal(totals.total, 2);
     assert.equal(totals.commands, 0);
     assert.equal(totals.checkpoints, 2);
+
+    const prune = runCli(["flight", "prune", "--keep", "1", "--dry-run", "--json"], dir);
+    assert.equal(prune.status, 0, prune.stderr);
+    const pruned = JSON.parse(prune.stdout) as { removed: string[]; dryRun: boolean };
+    assert.equal(pruned.removed.length, 1);
+    assert.equal(pruned.dryRun, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
