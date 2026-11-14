@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, replayFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightStatsHtml, replayFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -299,6 +299,26 @@ test("pruneFlights removes old ended sessions and keeps the active flight", () =
     finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+test("renderFlightStatsHtml escapes command names", () => {
+    const stats = {
+        total: 2,
+        active: 0,
+        ended: 2,
+        events: 10,
+        commands: 2,
+        checkpoints: 2,
+        failedCommands: 1,
+        durationMs: 1000,
+        averageDurationMs: 500,
+        topCommands: [{ command: "<script>alert(1)</script>", runs: 2, failures: 1 }],
+    };
+    const html = renderFlightStatsHtml(stats);
+    assert.match(html, /^<!doctype html>/);
+    assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+    assert.match(html, /Top commands/);
+    assert.match(html, /Failed commands/);
 });
 test("flightStats aggregates sessions and commands", () => {
     const dir = makeRepo();

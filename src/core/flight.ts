@@ -631,6 +631,68 @@ export function renderFlightStats(stats: FlightStats): string {
   return lines.join("\n");
 }
 
+export function renderFlightStatsHtml(stats: FlightStats): string {
+  const cards = [
+    ["Flights", stats.total],
+    ["Ended", stats.ended],
+    ["Active", stats.active],
+    ["Events", stats.events],
+    ["Commands", stats.commands],
+    ["Checkpoints", stats.checkpoints],
+    ["Failed commands", stats.failedCommands],
+    ["Duration", `${stats.durationMs} ms`],
+    ["Average duration", `${stats.averageDurationMs} ms`],
+  ]
+    .map(
+      ([label, value]) =>
+        `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+    )
+    .join("");
+  const commands =
+    stats.topCommands.length === 0
+      ? `<p class="muted">No commands recorded yet.</p>`
+      : `<table><thead><tr><th>Command</th><th>Runs</th><th>Failures</th></tr></thead><tbody>${stats.topCommands
+          .map(
+            (command) =>
+              `<tr><td><code>${escapeHtml(command.command)}</code></td><td>${command.runs}</td><td>${command.failures}</td></tr>`,
+          )
+          .join("")}</tbody></table>`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>oc-pilot flight stats</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --ink:#17191d; --muted:#68707d; --line:#d9dde4; --accent:#2457d6; }
+@media (prefers-color-scheme: dark) { :root { --bg:#111318; --card:#181b22; --ink:#e8ebf0; --muted:#9aa3b1; --line:#2b303a; --accent:#8ab4ff; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width:1080px; margin:0 auto; padding:40px 20px 64px; }
+h1 { margin:0 0 20px; font-size:clamp(28px,5vw,44px); line-height:1.1; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:20px 0; }
+.grid > div, section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+.grid span { display:block; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+.grid strong { display:block; margin-top:4px; font-size:20px; }
+section { margin:18px 0; }
+h2 { margin:0 0 12px; font-size:18px; }
+table { width:100%; border-collapse:collapse; }
+th, td { padding:8px; border-top:1px solid var(--line); text-align:left; }
+th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+code { font-family:ui-monospace, SFMono-Regular, Consolas, monospace; }
+.muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>oc-pilot flight stats</h1>
+<div class="grid">${cards}</div>
+<section><h2>Top commands</h2>${commands}</section>
+</main>
+</body>
+</html>`;
+}
+
 export function renderFlightPrune(result: FlightPruneResult): string {
   const shown = result.removed.slice(0, 5).join(", ");
   const suffix = result.removed.length > 5 ? ` и ещё ${result.removed.length - 5}` : "";

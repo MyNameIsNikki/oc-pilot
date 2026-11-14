@@ -21,7 +21,9 @@ import {
   readFlightEvents,
   renderFlightCompareHtml,
   renderFlightHtml,
+  renderFlightStatsHtml,
   replayFlight,
+  type FlightStats,
   showFlight,
   startFlight,
   verifyFlightBundle,
@@ -339,6 +341,27 @@ test("pruneFlights removes old ended sessions and keeps the active flight", () =
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("renderFlightStatsHtml escapes command names", () => {
+  const stats: FlightStats = {
+    total: 2,
+    active: 0,
+    ended: 2,
+    events: 10,
+    commands: 2,
+    checkpoints: 2,
+    failedCommands: 1,
+    durationMs: 1000,
+    averageDurationMs: 500,
+    topCommands: [{ command: "<script>alert(1)</script>", runs: 2, failures: 1 }],
+  };
+  const html = renderFlightStatsHtml(stats);
+  assert.match(html, /^<!doctype html>/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  assert.match(html, /Top commands/);
+  assert.match(html, /Failed commands/);
 });
 
 test("flightStats aggregates sessions and commands", () => {

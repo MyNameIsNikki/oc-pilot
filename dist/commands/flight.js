@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatus, renderFlightVerify, replayFlight, showFlight, startFlight, verifyFlightBundle, } from "../core/flight.js";
+import { bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightStatus, renderFlightVerify, replayFlight, showFlight, startFlight, verifyFlightBundle, } from "../core/flight.js";
 import { writeOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -24,7 +24,7 @@ const HELP = `Использование:
   oc-pilot flight exec [--timeout <мс>] -- <команда...>
   oc-pilot flight checkpoint [--label <метка>]
   oc-pilot flight status
-  oc-pilot flight stats
+  oc-pilot flight stats [--html]
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
   oc-pilot flight list
   oc-pilot flight show <id>
@@ -63,7 +63,7 @@ ${COMMON_HELP}
 
 Примеры:
   oc-pilot flight start --name "fix auth"
-  oc-pilot flight stats
+  oc-pilot flight stats --html --output stats.html
   oc-pilot flight prune --keep 20 --dry-run
   oc-pilot flight exec -- npm test
   oc-pilot flight checkpoint --label "tests green"
@@ -159,7 +159,11 @@ export function runFlight(argv) {
     }
     if (action === "stats") {
         const stats = flightStats(ctx.cwd);
-        writeOutput(json ? JSON.stringify(stats, null, 2) : renderFlightStats(stats), ctx.flags.output);
+        writeOutput(asBoolean(values, "html")
+            ? renderFlightStatsHtml(stats)
+            : json
+                ? JSON.stringify(stats, null, 2)
+                : renderFlightStats(stats), ctx.flags.output);
         return 0;
     }
     if (action === "list") {
