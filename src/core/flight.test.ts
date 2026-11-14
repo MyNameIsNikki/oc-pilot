@@ -16,6 +16,7 @@ import {
   exportFlight,
   flightStats,
   flightStatus,
+  generateFlightKey,
   listFlights,
   pruneFlights,
   readFlightEvents,
@@ -341,6 +342,14 @@ test("pruneFlights removes old ended sessions and keeps the active flight", () =
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("generateFlightKey returns unique 64-character hex keys", () => {
+  const first = generateFlightKey();
+  const second = generateFlightKey();
+  assert.match(first, /^[0-9a-f]{64}$/);
+  assert.match(second, /^[0-9a-f]{64}$/);
+  assert.notEqual(first, second);
 });
 
 test("renderFlightStatsHtml escapes command names", () => {

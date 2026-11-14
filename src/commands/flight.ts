@@ -9,6 +9,7 @@ import {
   exportFlight,
   flightStats,
   flightStatus,
+  generateFlightKey,
   listFlights,
   pruneFlights,
   renderFlightBisect,
@@ -63,6 +64,7 @@ const OPTIONS: OptionSpec = withCommon({
 });
 
 const HELP = `Использование:
+  oc-pilot flight keygen [--output <файл>]
   oc-pilot flight start [--name <имя>]
   oc-pilot flight exec [--timeout <мс>] -- <команда...>
   oc-pilot flight checkpoint [--label <метка>]
@@ -105,6 +107,7 @@ ${COMMON_HELP}
   2  полёт не запущен или журнал повреждён
 
 Примеры:
+  oc-pilot flight keygen --output flight.key
   oc-pilot flight start --name "fix auth"
   oc-pilot flight stats --html --output stats.html
   oc-pilot flight prune --keep 20 --dry-run
@@ -178,6 +181,13 @@ export function runFlight(argv: string[]): number {
 
   const ctx = resolveContext(values);
   const json = ctx.flags.json === true;
+
+  if (action === "keygen") {
+    const key = generateFlightKey();
+    writeOutput(json ? JSON.stringify({ key }, null, 2) : key, ctx.flags.output);
+    log.success(ctx.flags.output ? `Ключ записан в ${ctx.flags.output}.` : "Ключ сгенерирован.");
+    return 0;
+  }
 
   if (action === "start") {
     const name = asString(values, "name") ?? "flight";

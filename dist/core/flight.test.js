@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightStatsHtml, replayFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightStatsHtml, replayFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -299,6 +299,13 @@ test("pruneFlights removes old ended sessions and keeps the active flight", () =
     finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+test("generateFlightKey returns unique 64-character hex keys", () => {
+    const first = generateFlightKey();
+    const second = generateFlightKey();
+    assert.match(first, /^[0-9a-f]{64}$/);
+    assert.match(second, /^[0-9a-f]{64}$/);
+    assert.notEqual(first, second);
 });
 test("renderFlightStatsHtml escapes command names", () => {
     const stats = {

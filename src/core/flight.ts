@@ -1118,6 +1118,10 @@ function hmacFlightDigest(key: Buffer, digest: string): string {
   return createHmac("sha256", key).update(digest).digest("hex");
 }
 
+export function generateFlightKey(): string {
+  return randomBytes(32).toString("hex");
+}
+
 export function exportFlight(cwd: string, id?: string, keyPath?: string): FlightExportResult {
   const show = showFlight(cwd, resolveFlightId(cwd, id));
   const base = show.meta.baseCommit ?? "HEAD";

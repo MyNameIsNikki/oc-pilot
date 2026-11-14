@@ -843,6 +843,9 @@ function flightBundleDigest(manifest) {
 function hmacFlightDigest(key, digest) {
     return createHmac("sha256", key).update(digest).digest("hex");
 }
+export function generateFlightKey() {
+    return randomBytes(32).toString("hex");
+}
 export function exportFlight(cwd, id, keyPath) {
     const show = showFlight(cwd, resolveFlightId(cwd, id));
     const base = show.meta.baseCommit ?? "HEAD";
