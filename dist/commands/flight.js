@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, pruneFlights, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, } from "../core/flight.js";
+import { auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, } from "../core/flight.js";
 import { writeOutput, writeSecretOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -15,6 +15,7 @@ const OPTIONS = withCommon({
     "older-than": { type: "string" },
     "dry-run": { type: "boolean" },
     force: { type: "boolean" },
+    all: { type: "boolean" },
     key: { type: "string" },
     html: { type: "boolean" },
     to: { type: "string" },
@@ -40,7 +41,7 @@ const HELP = `Использование:
   oc-pilot flight export [--id <id>] [--output <файл>] [--key <файл>]
   oc-pilot flight verify-bundle <файл> [--key <файл>]
   oc-pilot flight end
-  oc-pilot flight verify <id>
+  oc-pilot flight verify [<id>] [--all]
 
 Чёрный ящик агентской сессии: журнал событий с хеш-цепочкой и
 чекпоинтами рабочего дерева. Журнал лежит в .git/oc-pilot/flights/<id>.
@@ -58,6 +59,7 @@ const HELP = `Использование:
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
       --force               восстановить поверх изменённого рабочего дерева
+      --all                 проверить цепочки всех полётов (verify)
       --to <ref>            чекпоинт для replay/diff: метка или commit
       --from <ref>          начальный чекпоинт для diff
       --path <путь>         каталог для replay-worktree
@@ -194,6 +196,11 @@ export function runFlight(argv) {
         return show.verification.valid ? 0 : 2;
     }
     if (action === "verify") {
+        if (asBoolean(values, "all")) {
+            const audit = auditFlights(ctx.cwd);
+            writeOutput(json ? JSON.stringify(audit, null, 2) : renderFlightAudit(audit), ctx.flags.output);
+            return audit.tampered === 0 ? 0 : 2;
+        }
         const show = showFlight(ctx.cwd, requireId(values, positionals));
         writeOutput(json
             ? JSON.stringify({ id: show.meta.id, ...show.verification }, null, 2)

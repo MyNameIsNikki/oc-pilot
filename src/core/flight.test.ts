@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   activeFlight,
   appendFlightEvent,
+  auditFlights,
   bisectFlight,
   compareFlights,
   createCheckpoint,
@@ -22,6 +23,7 @@ import {
   readFlightEvents,
   renderFlightCompareHtml,
   renderFlightHtml,
+  renderFlightAudit,
   renderFlightStatsHtml,
   replayFlight,
   restoreFlight,
@@ -234,6 +236,38 @@ test("restoreFlight restores a checkpoint and refuses a dirty tree", () => {
     assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "one\n");
     assert.equal(readFileSync(join(dir, "b.txt"), "utf8"), "two\n");
     assert.equal(readFileSync(join(dir, "c.txt"), "utf8"), "keep\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("auditFlights reports tampered sessions", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "clean");
+    endFlight(dir);
+    const broken = startFlight(dir, "broken");
+    endFlight(dir);
+
+    const events = readFlightEvents(broken.dir);
+    const tampered = structuredClone(events);
+    const first = tampered[0];
+    assert.ok(first);
+    first.payload = { ...(first.payload as Record<string, unknown>), injected: true };
+    writeFileSync(
+      join(broken.dir, "events.jsonl"),
+      `${tampered.map((event) => JSON.stringify(event)).join("\n")}\n`,
+      "utf8",
+    );
+
+    const audit = auditFlights(dir);
+    assert.equal(audit.total, 2);
+    assert.equal(audit.valid, 1);
+    assert.equal(audit.tampered, 1);
+    const bad = audit.flights.find((flight) => flight.id === broken.meta.id);
+    assert.equal(bad?.valid, false);
+    assert.ok((bad?.errors.length ?? 0) > 0);
+    assert.match(renderFlightAudit(audit), /FLIGHT AUDIT/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

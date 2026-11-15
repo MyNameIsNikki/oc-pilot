@@ -573,6 +573,40 @@ export function renderFlightShow(show) {
         lines.push("", ...show.verification.errors.map((error) => `! ${error}`));
     return lines.join("\n");
 }
+export function auditFlights(cwd) {
+    const flights = [];
+    for (const entry of listFlights(cwd)) {
+        const show = showFlight(cwd, entry.id);
+        flights.push({
+            id: show.meta.id,
+            name: show.meta.name,
+            valid: show.verification.valid,
+            events: show.verification.events,
+            errors: show.verification.errors,
+        });
+    }
+    const tampered = flights.filter((flight) => !flight.valid).length;
+    return {
+        total: flights.length,
+        valid: flights.length - tampered,
+        tampered,
+        flights,
+    };
+}
+export function renderFlightAudit(result) {
+    if (result.total === 0)
+        return "[FLIGHT AUDIT] полётов нет.";
+    const lines = [
+        `[FLIGHT AUDIT] всего ${result.total}: целых ${result.valid}, повреждённых ${result.tampered}.`,
+    ];
+    for (const flight of result.flights) {
+        const status = flight.valid ? "ok" : "TAMPERED";
+        lines.push(`  ${status} ${flight.id} ${flight.name} (${flight.events} событий)`);
+        for (const error of flight.errors)
+            lines.push(`    ${error}`);
+    }
+    return lines.join("\n");
+}
 export function renderFlightVerify(result) {
     if (result.valid)
         return `[FLIGHT VALID] ${result.events} событий, цепочка цела.`;

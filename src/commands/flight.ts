@@ -1,5 +1,6 @@
 import { PilotError } from "../core/errors.js";
 import {
+  auditFlights,
   bisectFlight,
   compareFlights,
   createCheckpoint,
@@ -12,6 +13,7 @@ import {
   generateFlightKey,
   listFlights,
   pruneFlights,
+  renderFlightAudit,
   renderFlightBisect,
   renderFlightBundleVerify,
   renderFlightCheckpoint,
@@ -60,6 +62,7 @@ const OPTIONS: OptionSpec = withCommon({
   "older-than": { type: "string" },
   "dry-run": { type: "boolean" },
   force: { type: "boolean" },
+  all: { type: "boolean" },
   key: { type: "string" },
   html: { type: "boolean" },
   to: { type: "string" },
@@ -86,7 +89,7 @@ const HELP = `Использование:
   oc-pilot flight export [--id <id>] [--output <файл>] [--key <файл>]
   oc-pilot flight verify-bundle <файл> [--key <файл>]
   oc-pilot flight end
-  oc-pilot flight verify <id>
+  oc-pilot flight verify [<id>] [--all]
 
 Чёрный ящик агентской сессии: журнал событий с хеш-цепочкой и
 чекпоинтами рабочего дерева. Журнал лежит в .git/oc-pilot/flights/<id>.
@@ -104,6 +107,7 @@ const HELP = `Использование:
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
       --force               восстановить поверх изменённого рабочего дерева
+      --all                 проверить цепочки всех полётов (verify)
       --to <ref>            чекпоинт для replay/diff: метка или commit
       --from <ref>          начальный чекпоинт для diff
       --path <путь>         каталог для replay-worktree
@@ -277,6 +281,14 @@ export function runFlight(argv: string[]): number {
   }
 
   if (action === "verify") {
+    if (asBoolean(values, "all")) {
+      const audit = auditFlights(ctx.cwd);
+      writeOutput(
+        json ? JSON.stringify(audit, null, 2) : renderFlightAudit(audit),
+        ctx.flags.output,
+      );
+      return audit.tampered === 0 ? 0 : 2;
+    }
     const show = showFlight(ctx.cwd, requireId(values, positionals));
     writeOutput(
       json

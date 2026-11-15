@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightStatsHtml, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -193,6 +193,32 @@ test("restoreFlight restores a checkpoint and refuses a dirty tree", () => {
         assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "one\n");
         assert.equal(readFileSync(join(dir, "b.txt"), "utf8"), "two\n");
         assert.equal(readFileSync(join(dir, "c.txt"), "utf8"), "keep\n");
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("auditFlights reports tampered sessions", () => {
+    const dir = makeRepo();
+    try {
+        startFlight(dir, "clean");
+        endFlight(dir);
+        const broken = startFlight(dir, "broken");
+        endFlight(dir);
+        const events = readFlightEvents(broken.dir);
+        const tampered = structuredClone(events);
+        const first = tampered[0];
+        assert.ok(first);
+        first.payload = { ...first.payload, injected: true };
+        writeFileSync(join(broken.dir, "events.jsonl"), `${tampered.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
+        const audit = auditFlights(dir);
+        assert.equal(audit.total, 2);
+        assert.equal(audit.valid, 1);
+        assert.equal(audit.tampered, 1);
+        const bad = audit.flights.find((flight) => flight.id === broken.meta.id);
+        assert.equal(bad?.valid, false);
+        assert.ok((bad?.errors.length ?? 0) > 0);
+        assert.match(renderFlightAudit(audit), /FLIGHT AUDIT/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

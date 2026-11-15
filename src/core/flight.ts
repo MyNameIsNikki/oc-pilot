@@ -60,6 +60,21 @@ export interface FlightVerifyResult {
   errors: string[];
 }
 
+export interface FlightAuditEntry {
+  id: string;
+  name: string;
+  valid: boolean;
+  events: number;
+  errors: string[];
+}
+
+export interface FlightAuditResult {
+  total: number;
+  valid: number;
+  tampered: number;
+  flights: FlightAuditEntry[];
+}
+
 export interface FlightStatus {
   active: boolean;
   session?: FlightSession;
@@ -722,6 +737,40 @@ export function renderFlightShow(show: FlightShow): string {
     ...show.events.map((event) => `${String(event.seq).padStart(3, " ")}  ${event.kind}  ${eventSummary(event)}`),
   ];
   if (!show.verification.valid) lines.push("", ...show.verification.errors.map((error) => `! ${error}`));
+  return lines.join("\n");
+}
+
+export function auditFlights(cwd: string): FlightAuditResult {
+  const flights: FlightAuditEntry[] = [];
+  for (const entry of listFlights(cwd)) {
+    const show = showFlight(cwd, entry.id);
+    flights.push({
+      id: show.meta.id,
+      name: show.meta.name,
+      valid: show.verification.valid,
+      events: show.verification.events,
+      errors: show.verification.errors,
+    });
+  }
+  const tampered = flights.filter((flight) => !flight.valid).length;
+  return {
+    total: flights.length,
+    valid: flights.length - tampered,
+    tampered,
+    flights,
+  };
+}
+
+export function renderFlightAudit(result: FlightAuditResult): string {
+  if (result.total === 0) return "[FLIGHT AUDIT] полётов нет.";
+  const lines = [
+    `[FLIGHT AUDIT] всего ${result.total}: целых ${result.valid}, повреждённых ${result.tampered}.`,
+  ];
+  for (const flight of result.flights) {
+    const status = flight.valid ? "ok" : "TAMPERED";
+    lines.push(`  ${status} ${flight.id} ${flight.name} (${flight.events} событий)`);
+    for (const error of flight.errors) lines.push(`    ${error}`);
+  }
   return lines.join("\n");
 }
 

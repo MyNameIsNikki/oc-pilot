@@ -1564,6 +1564,7 @@ const TOOLS = [
             additionalProperties: false,
             properties: {
                 id: { type: "string", description: "Flight session id; defaults to the active flight" },
+                all: { type: "boolean", description: "Verify every recorded flight instead of one session" },
                 ...RESULT_PROPERTIES,
             },
         },
@@ -4486,6 +4487,8 @@ async function callFlightVerify(input, cwd) {
     const id = stringArg(input, "id");
     if (id)
         args.push("--id", id);
+    if (booleanArg(input, "all"))
+        args.push("--all");
     return toToolResult(await runCli(args, cwd));
 }
 async function callFlightEnd(_input, cwd) {
@@ -5268,6 +5271,9 @@ function summarizeResult(value) {
     }
     if (typeof value.score === "number" && typeof value.hotspot === "boolean" && value.totals && typeof value.totals === "object") {
         return `oc-pilot: chronos ${String(value.score)}, ${value.hotspot ? "hotspot" : "stable"}`;
+    }
+    if (Array.isArray(value.flights) && typeof value.tampered === "number") {
+        return `oc-pilot: flight audit ${String(value.valid)}/${String(value.total)} intact, ${String(value.tampered)} tampered`;
     }
     if (Array.isArray(value.flights)) {
         return `oc-pilot: ${String(value.flights.length)} flight session(s)`;

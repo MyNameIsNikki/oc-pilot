@@ -541,6 +541,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(flightVerifyBundle.inputSchema.properties.file, "file missing on flight_verify_bundle");
     assert.ok(flightVerifyBundle.inputSchema.properties.key, "key missing on flight_verify_bundle");
 
+    const flightVerify = tools.find((tool) => tool.name === "flight_verify");
+    assert.ok(flightVerify, "flight_verify tool missing");
+    assert.ok(flightVerify.inputSchema.properties.all, "all missing on flight_verify");
+
     const beacon = tools.find((tool) => tool.name === "beacon");
     assert.ok(beacon, "beacon tool missing");
     assert.ok(beacon.inputSchema.properties.action, "action missing on beacon");

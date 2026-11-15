@@ -1732,6 +1732,12 @@ test("flight records checkpoints, status, verify and end", () => {
     assert.equal(totals.commands, 0);
     assert.equal(totals.checkpoints, 2);
 
+    const audit = runCli(["flight", "verify", "--all", "--json"], dir);
+    assert.equal(audit.status, 0, audit.stderr);
+    const audited = JSON.parse(audit.stdout) as { total: number; tampered: number };
+    assert.equal(audited.total, 2);
+    assert.equal(audited.tampered, 0);
+
     const prune = runCli(["flight", "prune", "--keep", "1", "--dry-run", "--json"], dir);
     assert.equal(prune.status, 0, prune.stderr);
     const pruned = JSON.parse(prune.stdout) as { removed: string[]; dryRun: boolean };
