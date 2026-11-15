@@ -14,6 +14,7 @@ import {
   flightStats,
   flightStatus,
   generateFlightKey,
+  grepFlights,
   listFlights,
   loadFlightBundle,
   pruneFlights,
@@ -28,6 +29,7 @@ import {
   renderFlightExec,
   renderFlightExport,
   renderFlightHtml,
+  renderFlightGrep,
   renderFlightList,
   renderFlightPrune,
   renderFlightReplay,
@@ -88,6 +90,7 @@ const HELP = `Использование:
   oc-pilot flight status
   oc-pilot flight stats [--html]
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
+  oc-pilot flight grep <текст> [--id <id>] [--limit <n>]
   oc-pilot flight list [--limit <n>]
   oc-pilot flight show [<id>] [--bundle <файл>]
   oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
@@ -112,7 +115,7 @@ const HELP = `Использование:
       --id <id>             идентификатор полёта
       --with <id>           второй полёт для compare
       --keep <n>            сколько последних полётов оставить при prune (по умолчанию 20)
-      --limit <n>           сколько последних полётов показать в list
+      --limit <n>           сколько последних полётов показать в list или совпадений в grep
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore)
       --bundle <файл>       прочитать полёт, HTML или сводку из bundle либо переподписать его
@@ -137,6 +140,7 @@ ${COMMON_HELP}
   oc-pilot flight note "почему выбран этот фикс"
   oc-pilot flight stats --html --output stats.html
   oc-pilot flight prune --keep 20 --dry-run
+  oc-pilot flight grep "почему"
   oc-pilot flight exec -- npm test
   oc-pilot flight checkpoint --label "tests green"
   oc-pilot flight restore "tests green"
@@ -275,6 +279,24 @@ export function runFlight(argv: string[]): number {
           ? JSON.stringify(stats, null, 2)
           : renderFlightStats(stats),
     );
+    return 0;
+  }
+
+  if (action === "grep") {
+    const text = positionals.slice(1).join(" ").trim();
+    if (!text) {
+      throw new PilotError("Не указан текст для поиска.", {
+        hint: 'Используйте: oc-pilot flight grep "что искать".',
+      });
+    }
+    const result = grepFlights(
+      ctx.cwd,
+      text,
+      asString(values, "id"),
+      optionalNonNegativeInteger(values, "limit", "--limit"),
+    );
+    flightOutput(json ? JSON.stringify(result, null, 2) : renderFlightGrep(result));
+    log.success(`Найдено совпадений: ${result.matches.length}.`);
     return 0;
   }
 

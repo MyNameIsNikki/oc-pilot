@@ -90,6 +90,21 @@ export interface FlightListEntry extends FlightMeta {
   ended: boolean;
 }
 
+export interface FlightGrepMatch {
+  id: string;
+  name: string;
+  seq: number;
+  kind: string;
+  ts: string;
+  text: string;
+}
+
+export interface FlightGrepResult {
+  query: string;
+  matches: FlightGrepMatch[];
+  total: number;
+}
+
 export interface FlightCommandStat {
   command: string;
   runs: number;
@@ -652,6 +667,84 @@ export function renderFlightList(flights: FlightListEntry[]): string {
         `${flight.id}  ${flight.ended ? "завершён" : "активен"}  ${flight.name}  событий ${flight.events}, чекпоинтов ${flight.checkpoints}`,
     )
     .join("\n");
+}
+
+function grepEventText(event: FlightEvent): string {
+  if (event.kind === "note") return String(event.payload.text ?? "");
+  if (event.kind === "command.start" || event.kind === "command.end") {
+    const parts: string[] = [];
+    if (Array.isArray(event.payload.command)) {
+      parts.push(
+        event.payload.command
+          .filter((part): part is string => typeof part === "string")
+          .join(" "),
+      );
+    }
+    if (event.kind === "command.end") {
+      if (typeof event.payload.stdoutTail === "string") parts.push(event.payload.stdoutTail);
+      if (typeof event.payload.stderrTail === "string") parts.push(event.payload.stderrTail);
+    }
+    return parts.join("\n");
+  }
+  return "";
+}
+
+export function grepFlights(
+  cwd: string,
+  query: string,
+  id?: string,
+  limit = 50,
+): FlightGrepResult {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) {
+    throw new PilotError("Пустой поисковый запрос.", {
+      hint: "Передайте текст: oc-pilot flight grep \"...\".",
+      exitCode: 2,
+    });
+  }
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new PilotError(`Некорректный --limit: ${String(limit)}`, {
+      hint: "Укажите положительное целое число.",
+    });
+  }
+  const flights = id
+    ? [showFlight(cwd, id)]
+    : listFlights(cwd).map((flight) => showFlight(cwd, flight.id));
+  const matches: FlightGrepMatch[] = [];
+  let total = 0;
+  for (const show of flights) {
+    for (const event of show.events) {
+      const text = grepEventText(event);
+      if (!text.toLowerCase().includes(needle)) continue;
+      total += 1;
+      if (matches.length >= limit) continue;
+      matches.push({
+        id: show.meta.id,
+        name: show.meta.name,
+        seq: event.seq,
+        kind: event.kind,
+        ts: event.ts,
+        text,
+      });
+    }
+  }
+  return { query, matches, total };
+}
+
+export function renderFlightGrep(result: FlightGrepResult): string {
+  if (result.total === 0) {
+    return `[FLIGHT GREP] по запросу «${result.query}» ничего не найдено.`;
+  }
+  const lines = [`[FLIGHT GREP] ${result.total} совпадений по запросу «${result.query}».`];
+  for (const match of result.matches) {
+    const flat = match.text.replace(/\s+/g, " ").trim();
+    const short = flat.length > 120 ? `${flat.slice(0, 117)}...` : flat;
+    lines.push(`  ${match.id} #${match.seq} ${match.kind}: ${short}`);
+  }
+  if (result.total > result.matches.length) {
+    lines.push(`  показано ${result.matches.length}; увеличьте --limit, чтобы увидеть больше.`);
+  }
+  return lines.join("\n");
 }
 
 export function renderFlightStats(stats: FlightStats): string {

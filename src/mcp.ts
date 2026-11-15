@@ -1631,6 +1631,23 @@ const TOOLS = [
     },
   },
   {
+    name: "flight_grep",
+    description:
+      "Search flight journals for text in notes, commands and command output. Case-insensitive.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["text"],
+      properties: {
+        text: { type: "string", description: "Text to search for" },
+        id: { type: "string", description: "Limit the search to one flight session" },
+        limit: { type: "integer", minimum: 1, description: "Maximum number of matches; default 50" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "flight_list",
     description: "List recorded flight sessions, newest first, with event and checkpoint counts.",
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -4301,6 +4318,16 @@ async function callFlightStatus(_input: JsonObject, cwd: string): Promise<ToolRe
   return toToolResult(await runCli(["flight", "status", "--json"], cwd));
 }
 
+async function callFlightGrep(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const text = stringArg(input, "text", true)!;
+  const args = ["flight", "grep", text, "--json"];
+  const id = stringArg(input, "id");
+  if (id) args.push("--id", id);
+  const limit = integerArg(input, "limit");
+  if (limit !== undefined) args.push("--limit", String(limit));
+  return toToolResult(await runCli(args, cwd));
+}
+
 async function callFlightList(input: JsonObject, cwd: string): Promise<ToolResult> {
   const args = ["flight", "list", "--json"];
   const limit = integerArg(input, "limit");
@@ -4895,6 +4922,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callFlightCheckpoint(input, cwd);
     case "flight_status":
       return callFlightStatus(input, cwd);
+    case "flight_grep":
+      return callFlightGrep(input, cwd);
     case "flight_list":
       return callFlightList(input, cwd);
     case "flight_show":
@@ -5060,6 +5089,9 @@ function summarizeResult(value: JsonObject): string {
   }
   if (Array.isArray(value.flights) && typeof value.tampered === "number") {
     return `oc-pilot: flight audit ${String(value.valid)}/${String(value.total)} intact, ${String(value.tampered)} tampered`;
+  }
+  if (typeof value.query === "string" && Array.isArray(value.matches)) {
+    return `oc-pilot: flight grep ${String(value.total)} match(es)`;
   }
   if (Array.isArray(value.flights)) {
     return `oc-pilot: ${String(value.flights.length)} flight session(s)`;

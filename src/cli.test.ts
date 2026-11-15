@@ -1843,6 +1843,12 @@ test("flight records checkpoints, status, verify and end", () => {
     const sessions = JSON.parse(listed.stdout) as { flights: Array<{ id: string }> };
     assert.equal(sessions.flights.length, 1);
 
+    const grepped = runCli(["flight", "grep", "почему", "--json"], dir);
+    assert.equal(grepped.status, 0, grepped.stderr);
+    const found = JSON.parse(grepped.stdout) as { total: number; matches: Array<{ kind: string }> };
+    assert.ok(found.total >= 1);
+    assert.equal(found.matches[0]?.kind, "note");
+
     const missingCheckpoint = runCli(
       ["flight", "restore", "no-such-cp", "--dry-run", "--json"],
       dir,

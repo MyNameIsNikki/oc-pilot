@@ -1478,6 +1478,11 @@ test("flight records checkpoints, status, verify and end", () => {
         assert.equal(listed.status, 0, listed.stderr);
         const sessions = JSON.parse(listed.stdout);
         assert.equal(sessions.flights.length, 1);
+        const grepped = runCli(["flight", "grep", "почему", "--json"], dir);
+        assert.equal(grepped.status, 0, grepped.stderr);
+        const found = JSON.parse(grepped.stdout);
+        assert.ok(found.total >= 1);
+        assert.equal(found.matches[0]?.kind, "note");
         const missingCheckpoint = runCli(["flight", "restore", "no-such-cp", "--dry-run", "--json"], dir);
         assert.equal(missingCheckpoint.status, 2, missingCheckpoint.stderr);
         const missingReplay = runCli(["flight", "replay", "--to", "no-such-cp", "--json"], dir);

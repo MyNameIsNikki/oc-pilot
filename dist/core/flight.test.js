@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlights, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -268,6 +268,31 @@ test("bisectFlight finds the first failing checkpoint", () => {
         assert.equal(result.steps.length, 2);
         assert.equal(result.firstBad?.label, "bad");
         assert.equal(result.firstBad?.exitCode, 1);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("grepFlights finds notes and command output across sessions", () => {
+    const dir = makeRepo();
+    try {
+        startFlight(dir, "grep-one");
+        addFlightNote(dir, "почему выбран этот фикс");
+        execInFlight(dir, [process.execPath, "-e", "console.log('needle-output')"], { quiet: true });
+        endFlight(dir);
+        startFlight(dir, "grep-two");
+        addFlightNote(dir, "another note");
+        endFlight(dir);
+        const notes = grepFlights(dir, "почему");
+        assert.equal(notes.total, 1);
+        assert.equal(notes.matches[0]?.kind, "note");
+        assert.equal(notes.matches[0]?.name, "grep-one");
+        const output = grepFlights(dir, "needle-output");
+        assert.ok(output.total >= 1);
+        const limited = grepFlights(dir, "e", undefined, 1);
+        assert.equal(limited.matches.length, 1);
+        assert.ok(limited.total > 1);
+        assert.throws(() => grepFlights(dir, "   "), /Пустой поисковый запрос/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
