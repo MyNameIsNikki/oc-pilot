@@ -33,14 +33,18 @@ export function readTextFile(file: string, label = "файл"): string {
   }
 }
 
-export function writeOutput(text: string, outputPath?: string): string | undefined {
+export function writeOutput(
+  text: string,
+  outputPath?: string,
+  baseDir = process.cwd(),
+): string | undefined {
   const normalized = text.endsWith("\n") ? text : `${text}\n`;
   if (!outputPath) {
     process.stdout.write(normalized);
     return undefined;
   }
 
-  const absolute = resolve(outputPath);
+  const absolute = resolve(baseDir, outputPath);
   mkdirSync(dirname(absolute), { recursive: true });
   writeFileSync(absolute, normalized, "utf8");
   return absolute;

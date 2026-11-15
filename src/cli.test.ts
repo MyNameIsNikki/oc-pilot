@@ -1847,6 +1847,24 @@ test("flight records checkpoints, status, verify and end", () => {
   }
 });
 
+test("flight output resolves relative to --cwd", () => {
+  const repo = mkdtempSync(join(tmpdir(), "oc-pilot-cwd-repo-"));
+  const shell = mkdtempSync(join(tmpdir(), "oc-pilot-cwd-shell-"));
+  try {
+    spawnSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+    const result = runCli(
+      ["flight", "stats", "--html", "--output", "stats.html", "--cwd", repo],
+      shell,
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(join(repo, "stats.html")), true);
+    assert.equal(existsSync(join(shell, "stats.html")), false);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(shell, { recursive: true, force: true });
+  }
+});
+
 test("flight keygen writes a 64-hex key", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-keygen-"));
   try {

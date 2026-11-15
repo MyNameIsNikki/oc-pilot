@@ -31,13 +31,13 @@ export function readTextFile(file, label = "файл") {
         });
     }
 }
-export function writeOutput(text, outputPath) {
+export function writeOutput(text, outputPath, baseDir = process.cwd()) {
     const normalized = text.endsWith("\n") ? text : `${text}\n`;
     if (!outputPath) {
         process.stdout.write(normalized);
         return undefined;
     }
-    const absolute = resolve(outputPath);
+    const absolute = resolve(baseDir, outputPath);
     mkdirSync(dirname(absolute), { recursive: true });
     writeFileSync(absolute, normalized, "utf8");
     return absolute;

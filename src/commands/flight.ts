@@ -199,6 +199,7 @@ export function runFlight(argv: string[]): number {
 
   const ctx = resolveContext(values);
   const json = ctx.flags.json === true;
+  const flightOutput = (text: string) => writeOutput(text, ctx.flags.output, ctx.cwd);
 
   if (action === "keygen") {
     const key = generateFlightKey();
@@ -211,9 +212,8 @@ export function runFlight(argv: string[]): number {
   if (action === "start") {
     const name = asString(values, "name") ?? "flight";
     const session = startFlight(ctx.cwd, name);
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify({ active: true, session }, null, 2) : renderFlightStart(session),
-      ctx.flags.output,
     );
     log.success(`Полёт ${session.meta.id} начат.`);
     return 0;
@@ -225,9 +225,8 @@ export function runFlight(argv: string[]): number {
       timeoutMs: timeoutOf(values),
       quiet: json,
     });
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(result, null, 2) : renderFlightExec(result),
-      ctx.flags.output,
     );
     if (result.timedOut) return 124;
     return result.exitCode ?? 1;
@@ -241,9 +240,8 @@ export function runFlight(argv: string[]): number {
       });
     }
     const result = addFlightNote(ctx.cwd, text);
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(result, null, 2) : `[FLIGHT NOTE] #${result.seq}: ${result.note}`,
-      ctx.flags.output,
     );
     log.success("Заметка записана.");
     return 0;
@@ -252,9 +250,8 @@ export function runFlight(argv: string[]): number {
   if (action === "checkpoint") {
     const label = asString(values, "label") ?? new Date().toISOString();
     const checkpoint = createCheckpoint(ctx.cwd, label);
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(checkpoint, null, 2) : renderFlightCheckpoint(checkpoint),
-      ctx.flags.output,
     );
     log.success(`Чекпоинт ${checkpoint.label} записан.`);
     return 0;
@@ -262,22 +259,20 @@ export function runFlight(argv: string[]): number {
 
   if (action === "status") {
     const status = flightStatus(ctx.cwd);
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(status, null, 2) : renderFlightStatus(status),
-      ctx.flags.output,
     );
     return status.active ? 0 : 2;
   }
 
   if (action === "stats") {
     const stats = flightStats(ctx.cwd);
-    writeOutput(
+    flightOutput(
       asBoolean(values, "html")
         ? renderFlightStatsHtml(stats)
         : json
           ? JSON.stringify(stats, null, 2)
           : renderFlightStats(stats),
-      ctx.flags.output,
     );
     return 0;
   }
@@ -286,9 +281,8 @@ export function runFlight(argv: string[]): number {
     const limit = optionalNonNegativeInteger(values, "limit", "--limit");
     const all = listFlights(ctx.cwd);
     const flights = limit === undefined ? all : all.slice(0, limit);
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify({ flights }, null, 2) : renderFlightList(flights),
-      ctx.flags.output,
     );
     return 0;
   }
@@ -298,9 +292,8 @@ export function runFlight(argv: string[]): number {
     const show = bundlePath
       ? flightShowFromBundle(loadFlightBundle(bundlePath))
       : showFlight(ctx.cwd, asString(values, "id") ?? positionals[1]);
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(show, null, 2) : renderFlightShow(show),
-      ctx.flags.output,
     );
     return show.verification.valid ? 0 : 2;
   }
@@ -308,18 +301,16 @@ export function runFlight(argv: string[]): number {
   if (action === "verify") {
     if (asBoolean(values, "all")) {
       const audit = auditFlights(ctx.cwd);
-      writeOutput(
+      flightOutput(
         json ? JSON.stringify(audit, null, 2) : renderFlightAudit(audit),
-        ctx.flags.output,
       );
       return audit.tampered === 0 ? 0 : 2;
     }
     const show = showFlight(ctx.cwd, asString(values, "id") ?? positionals[1]);
-    writeOutput(
+    flightOutput(
       json
         ? JSON.stringify({ id: show.meta.id, ...show.verification }, null, 2)
         : renderFlightVerify(show.verification),
-      ctx.flags.output,
     );
     return show.verification.valid ? 0 : 2;
   }
@@ -338,9 +329,8 @@ export function runFlight(argv: string[]): number {
       asBoolean(values, "force"),
       asBoolean(values, "dry-run"),
     );
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(result, null, 2) : renderFlightRestore(result),
-      ctx.flags.output,
     );
     log.success(`Восстановлено: ${result.label}.`);
     return 0;
@@ -353,9 +343,8 @@ export function runFlight(argv: string[]): number {
       asString(values, "to"),
       asString(values, "path"),
     );
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(result, null, 2) : renderFlightReplay(result),
-      ctx.flags.output,
     );
     log.success(`Replay: ${result.path}`);
     return 0;
@@ -369,9 +358,8 @@ export function runFlight(argv: string[]): number {
       });
     }
     const result = bisectFlight(ctx.cwd, asString(values, "id"), command, timeoutOf(values));
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(result, null, 2) : renderFlightBisect(result),
-      ctx.flags.output,
     );
     return result.firstBad ? 1 : 0;
   }
@@ -383,9 +371,8 @@ export function runFlight(argv: string[]): number {
       asString(values, "from"),
       asString(values, "to"),
     );
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(result, null, 2) : renderFlightDiff(result),
-      ctx.flags.output,
     );
     return 0;
   }
@@ -404,13 +391,12 @@ export function runFlight(argv: string[]): number {
           flightShowFromBundle(loadFlightBundle(second)),
         )
       : compareFlights(ctx.cwd, first, second);
-    writeOutput(
+    flightOutput(
       asBoolean(values, "html")
         ? renderFlightCompareHtml(result)
         : json
           ? JSON.stringify(result, null, 2)
           : renderFlightCompare(result),
-      ctx.flags.output,
     );
     return result.a.valid && result.b.valid ? 0 : 2;
   }
@@ -421,9 +407,8 @@ export function runFlight(argv: string[]): number {
       ? flightShowFromBundle(loadFlightBundle(bundlePath))
       : showFlight(ctx.cwd, asString(values, "id"));
     const markdown = renderFlightSummary(show);
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify({ id: show.meta.id, markdown }, null, 2) : markdown,
-      ctx.flags.output,
     );
     log.success(`Сводка ${show.meta.id} записана.`);
     return 0;
@@ -435,9 +420,8 @@ export function runFlight(argv: string[]): number {
       ? loadFlightBundle(bundlePath)
       : exportFlight(ctx.cwd, asString(values, "id"));
     const html = renderFlightHtml(result);
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify({ id: result.meta.id, html }, null, 2) : html,
-      ctx.flags.output,
     );
     log.success(`HTML-отчёт ${result.meta.id} записан.`);
     return 0;
@@ -451,9 +435,8 @@ export function runFlight(argv: string[]): number {
       });
     }
     const result = verifyFlightBundle(file, asString(values, "key"));
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(result, null, 2) : renderFlightBundleVerify(result),
-      ctx.flags.output,
     );
     return result.valid ? 0 : 2;
   }
@@ -469,9 +452,8 @@ export function runFlight(argv: string[]): number {
     const result = bundlePath
       ? signFlightBundle(loadFlightBundle(bundlePath), keyPath as string)
       : exportFlight(ctx.cwd, asString(values, "id"), keyPath);
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(result, null, 2) : renderFlightExport(result),
-      ctx.flags.output,
     );
     log.success(`Экспорт ${result.meta.id}: ${result.digest}.`);
     return 0;
@@ -483,9 +465,8 @@ export function runFlight(argv: string[]): number {
       olderThanDays: optionalNonNegativeInteger(values, "older-than", "--older-than"),
       dryRun: asBoolean(values, "dry-run"),
     });
-    writeOutput(
+    flightOutput(
       json ? JSON.stringify(result, null, 2) : renderFlightPrune(result),
-      ctx.flags.output,
     );
     log.success(
       result.dryRun
@@ -497,17 +478,16 @@ export function runFlight(argv: string[]): number {
 
   if (action === "end") {
     const result = endFlight(ctx.cwd);
-    writeOutput(
+    flightOutput(
       json
         ? JSON.stringify({ meta: result.meta, summary: result.summary }, null, 2)
         : renderFlightEnd(result.summary),
-      ctx.flags.output,
     );
     log.success("Полёт завершён.");
     return 0;
   }
 
-  writeOutput(HELP);
+  flightOutput(HELP);
   log.warn(`Неизвестное действие flight: ${action}.`);
   return 1;
 }
