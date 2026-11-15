@@ -1478,6 +1478,10 @@ test("flight records checkpoints, status, verify and end", () => {
         assert.equal(listed.status, 0, listed.stderr);
         const sessions = JSON.parse(listed.stdout);
         assert.equal(sessions.flights.length, 1);
+        const missingCheckpoint = runCli(["flight", "restore", "no-such-cp", "--dry-run", "--json"], dir);
+        assert.equal(missingCheckpoint.status, 2, missingCheckpoint.stderr);
+        const missingReplay = runCli(["flight", "replay", "--to", "no-such-cp", "--json"], dir);
+        assert.equal(missingReplay.status, 2, missingReplay.stderr);
         const eventsPath = join(dir, ".git", "oc-pilot", "flights", started.session.meta.id, "events.jsonl");
         const rawEvents = readFileSync(eventsPath, "utf8");
         writeFileSync(eventsPath, rawEvents.replace('"after-b"', '"evil"'), "utf8");

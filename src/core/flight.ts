@@ -1007,6 +1007,7 @@ function resolveCheckpoint(checkpoints: FlightCheckpoint[], ref?: string): Fligh
   if (checkpoints.length === 0) {
     throw new PilotError("В полёте нет чекпоинтов.", {
       hint: "Создайте чекпоинт: oc-pilot flight checkpoint --label <метка>.",
+      exitCode: 2,
     });
   }
   if (!ref) return checkpoints[checkpoints.length - 1]!;
@@ -1016,6 +1017,7 @@ function resolveCheckpoint(checkpoints: FlightCheckpoint[], ref?: string): Fligh
   if (byCommit) return byCommit;
   throw new PilotError(`Чекпоинт не найден: ${ref}.`, {
     hint: "Посмотрите oc-pilot flight show <id>.",
+    exitCode: 2,
   });
 }
 

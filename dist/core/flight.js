@@ -736,6 +736,7 @@ function resolveCheckpoint(checkpoints, ref) {
     if (checkpoints.length === 0) {
         throw new PilotError("В полёте нет чекпоинтов.", {
             hint: "Создайте чекпоинт: oc-pilot flight checkpoint --label <метка>.",
+            exitCode: 2,
         });
     }
     if (!ref)
@@ -748,6 +749,7 @@ function resolveCheckpoint(checkpoints, ref) {
         return byCommit;
     throw new PilotError(`Чекпоинт не найден: ${ref}.`, {
         hint: "Посмотрите oc-pilot flight show <id>.",
+        exitCode: 2,
     });
 }
 function sanitizeLabel(label) {

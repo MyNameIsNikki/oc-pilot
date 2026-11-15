@@ -1843,6 +1843,14 @@ test("flight records checkpoints, status, verify and end", () => {
     const sessions = JSON.parse(listed.stdout) as { flights: Array<{ id: string }> };
     assert.equal(sessions.flights.length, 1);
 
+    const missingCheckpoint = runCli(
+      ["flight", "restore", "no-such-cp", "--dry-run", "--json"],
+      dir,
+    );
+    assert.equal(missingCheckpoint.status, 2, missingCheckpoint.stderr);
+    const missingReplay = runCli(["flight", "replay", "--to", "no-such-cp", "--json"], dir);
+    assert.equal(missingReplay.status, 2, missingReplay.stderr);
+
     const eventsPath = join(
       dir,
       ".git",
