@@ -17,6 +17,7 @@ import {
   endFlight,
   execInFlight,
   exportFlight,
+  filterFlightEvents,
   flightStats,
   flightStatus,
   loadFlightBundle,
@@ -331,6 +332,26 @@ test("bisectFlight finds the first failing checkpoint", () => {
     assert.equal(result.steps.length, 2);
     assert.equal(result.firstBad?.label, "bad");
     assert.equal(result.firstBad?.exitCode, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("filterFlightEvents filters by kind and keeps the tail", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "filter");
+    addFlightNote(dir, "первая");
+    createCheckpoint(dir, "cp-filter");
+    addFlightNote(dir, "вторая");
+    const show = showFlight(dir);
+    const notes = filterFlightEvents(show.events, "note");
+    assert.equal(notes.length, 2);
+    assert.ok(notes.every((event) => event.kind === "note"));
+    assert.equal(filterFlightEvents(show.events, undefined, 2).length, 2);
+    assert.equal(filterFlightEvents(show.events, "note", 1)[0]?.payload.text, "вторая");
+    assert.throws(() => filterFlightEvents(show.events, "bogus"), /Неизвестный тип события/);
+    assert.throws(() => filterFlightEvents(show.events, undefined, 0), /Некорректный --last/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

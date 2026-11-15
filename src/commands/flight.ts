@@ -13,6 +13,7 @@ import {
   flightShowFromBundle,
   flightStats,
   flightStatus,
+  filterFlightEvents,
   generateFlightKey,
   grepFlights,
   listFlights,
@@ -68,6 +69,8 @@ const OPTIONS: OptionSpec = withCommon({
   with: { type: "string" },
   keep: { type: "string" },
   limit: { type: "string" },
+  kind: { type: "string" },
+  last: { type: "string" },
   "older-than": { type: "string" },
   "dry-run": { type: "boolean" },
   force: { type: "boolean" },
@@ -92,7 +95,7 @@ const HELP = `Использование:
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
   oc-pilot flight grep <текст> [--id <id>] [--limit <n>]
   oc-pilot flight list [--limit <n>]
-  oc-pilot flight show [<id>] [--bundle <файл>]
+  oc-pilot flight show [<id>] [--bundle <файл>] [--kind <тип>] [--last <n>]
   oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
@@ -116,6 +119,8 @@ const HELP = `Использование:
       --with <id>           второй полёт для compare
       --keep <n>            сколько последних полётов оставить при prune (по умолчанию 20)
       --limit <n>           сколько последних полётов показать в list или совпадений в grep
+      --kind <тип>          фильтр событий в show: note, command.start, command.end, file.checkpoint и др.
+      --last <n>            показать только последние n событий в show
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore)
       --bundle <файл>       прочитать полёт, HTML или сводку из bundle либо переподписать его
@@ -315,8 +320,17 @@ export function runFlight(argv: string[]): number {
     const show = bundlePath
       ? flightShowFromBundle(loadFlightBundle(bundlePath))
       : showFlight(ctx.cwd, asString(values, "id") ?? positionals[1]);
+    const kind = asString(values, "kind");
+    const last = optionalNonNegativeInteger(values, "last", "--last");
+    const events =
+      kind === undefined && last === undefined
+        ? show.events
+        : filterFlightEvents(show.events, kind, last);
+    const filtered = { ...show, events };
     flightOutput(
-      json ? JSON.stringify(show, null, 2) : renderFlightShow(show),
+      json
+        ? JSON.stringify({ ...filtered, totalEvents: show.events.length }, null, 2)
+        : renderFlightShow(filtered),
     );
     return show.verification.valid ? 0 : 2;
   }

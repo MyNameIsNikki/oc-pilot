@@ -638,6 +638,39 @@ export function renderFlightPrune(result) {
     const list = result.removed.length > 0 ? `: ${shown}${suffix}` : "";
     return `[FLIGHT PRUNE] ${result.dryRun ? "будет удалено" : "удалено"} ${result.removed.length}${list}; осталось ${result.kept}${result.active ? `, активный ${result.active}` : ""}.`;
 }
+export const FLIGHT_EVENT_KINDS = [
+    "session.start",
+    "command.start",
+    "command.end",
+    "file.checkpoint",
+    "gate.result",
+    "approval",
+    "note",
+    "session.end",
+];
+export function filterFlightEvents(events, kind, last) {
+    let filtered = events;
+    if (kind !== undefined) {
+        const trimmed = kind.trim();
+        if (!FLIGHT_EVENT_KINDS.includes(trimmed)) {
+            throw new PilotError(`Неизвестный тип события: ${trimmed}`, {
+                hint: `Доступно: ${FLIGHT_EVENT_KINDS.join(", ")}.`,
+                exitCode: 2,
+            });
+        }
+        filtered = filtered.filter((event) => event.kind === trimmed);
+    }
+    if (last !== undefined) {
+        if (!Number.isInteger(last) || last < 1) {
+            throw new PilotError(`Некорректный --last: ${String(last)}`, {
+                hint: "Укажите положительное целое число.",
+                exitCode: 2,
+            });
+        }
+        filtered = filtered.slice(-last);
+    }
+    return filtered;
+}
 function eventSummary(event) {
     if (event.kind === "file.checkpoint") {
         return `чекпоинт ${String(event.payload.label ?? "")} (${String(event.payload.commit ?? "").slice(0, 8)})`;

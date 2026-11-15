@@ -1670,6 +1670,8 @@ const TOOLS = [
       properties: {
         id: { type: "string", description: "Flight session id; defaults to the active or most recent flight" },
         bundle: { type: "string", description: "Path to a flight export bundle; reads without the local journal" },
+        kind: { type: "string", description: "Filter events by kind, e.g. note or command.end" },
+        last: { type: "integer", minimum: 1, description: "Return only the last N events" },
         ...RESULT_PROPERTIES,
       },
     },
@@ -4341,6 +4343,10 @@ async function callFlightShow(input: JsonObject, cwd: string): Promise<ToolResul
   if (id) args.push("--id", id);
   const bundle = stringArg(input, "bundle");
   if (bundle) args.push("--bundle", bundle);
+  const kind = stringArg(input, "kind");
+  if (kind) args.push("--kind", kind);
+  const last = integerArg(input, "last");
+  if (last !== undefined) args.push("--last", String(last));
   return toToolResult(await runCli(args, cwd));
 }
 

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlights, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, filterFlightEvents, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlights, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -268,6 +268,26 @@ test("bisectFlight finds the first failing checkpoint", () => {
         assert.equal(result.steps.length, 2);
         assert.equal(result.firstBad?.label, "bad");
         assert.equal(result.firstBad?.exitCode, 1);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("filterFlightEvents filters by kind and keeps the tail", () => {
+    const dir = makeRepo();
+    try {
+        startFlight(dir, "filter");
+        addFlightNote(dir, "первая");
+        createCheckpoint(dir, "cp-filter");
+        addFlightNote(dir, "вторая");
+        const show = showFlight(dir);
+        const notes = filterFlightEvents(show.events, "note");
+        assert.equal(notes.length, 2);
+        assert.ok(notes.every((event) => event.kind === "note"));
+        assert.equal(filterFlightEvents(show.events, undefined, 2).length, 2);
+        assert.equal(filterFlightEvents(show.events, "note", 1)[0]?.payload.text, "вторая");
+        assert.throws(() => filterFlightEvents(show.events, "bogus"), /Неизвестный тип события/);
+        assert.throws(() => filterFlightEvents(show.events, undefined, 0), /Некорректный --last/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
