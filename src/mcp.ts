@@ -1644,6 +1644,7 @@ const TOOLS = [
         id: { type: "string", description: "Limit the search to one flight session" },
         limit: { type: "integer", minimum: 1, description: "Maximum number of matches; default 50" },
         kind: { type: "string", description: "Only search events of this kind, e.g. note or command.end" },
+        bundle: { type: "string", description: "Search an exported bundle instead of the local journal" },
         ...RESULT_PROPERTIES,
       },
     },
@@ -4330,6 +4331,8 @@ async function callFlightGrep(input: JsonObject, cwd: string): Promise<ToolResul
   if (limit !== undefined) args.push("--limit", String(limit));
   const kind = stringArg(input, "kind");
   if (kind) args.push("--kind", kind);
+  const bundle = stringArg(input, "bundle");
+  if (bundle) args.push("--bundle", bundle);
   return toToolResult(await runCli(args, cwd));
 }
 

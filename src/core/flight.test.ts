@@ -23,6 +23,7 @@ import {
   loadFlightBundle,
   flightShowFromBundle,
   generateFlightKey,
+  grepFlightBundle,
   grepFlights,
   listFlights,
   pruneFlights,
@@ -387,6 +388,27 @@ test("grepFlights finds notes and command output across sessions", () => {
     assert.throws(() => grepFlights(dir, "e", undefined, 50, "bogus"), /Неизвестный тип события/);
 
     assert.throws(() => grepFlights(dir, "   "), /Пустой поисковый запрос/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grepFlightBundle searches an exported bundle", () => {
+  const dir = makeRepo();
+  try {
+    const session = startFlight(dir, "grep-bundle");
+    addFlightNote(dir, "bundle needle note");
+    endFlight(dir);
+    const bundlePath = join(dir, "grep-bundle.json");
+    writeFileSync(bundlePath, JSON.stringify(exportFlight(dir, session.meta.id), null, 2), "utf8");
+
+    const result = grepFlightBundle(bundlePath, "needle");
+    assert.equal(result.total, 1);
+    assert.equal(result.matches[0]?.kind, "note");
+    assert.equal(result.matches[0]?.name, "grep-bundle");
+
+    const byKind = grepFlightBundle(bundlePath, "needle", 50, "command.end");
+    assert.equal(byKind.total, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

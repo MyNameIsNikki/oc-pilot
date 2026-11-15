@@ -513,7 +513,7 @@ function grepEventText(event) {
     }
     return "";
 }
-export function grepFlights(cwd, query, id, limit = 50, kind) {
+function grepShows(shows, query, limit, kind) {
     const needle = query.trim().toLowerCase();
     if (needle.length === 0) {
         throw new PilotError("Пустой поисковый запрос.", {
@@ -526,9 +526,6 @@ export function grepFlights(cwd, query, id, limit = 50, kind) {
             hint: "Укажите положительное целое число.",
         });
     }
-    const flights = id
-        ? [showFlight(cwd, id)]
-        : listFlights(cwd).map((flight) => showFlight(cwd, flight.id));
     const kindFilter = kind?.trim();
     if (kindFilter && !FLIGHT_EVENT_KINDS.includes(kindFilter)) {
         throw new PilotError(`Неизвестный тип события: ${kindFilter}`, {
@@ -538,7 +535,7 @@ export function grepFlights(cwd, query, id, limit = 50, kind) {
     }
     const matches = [];
     let total = 0;
-    for (const show of flights) {
+    for (const show of shows) {
         for (const event of show.events) {
             if (kindFilter && event.kind !== kindFilter)
                 continue;
@@ -559,6 +556,15 @@ export function grepFlights(cwd, query, id, limit = 50, kind) {
         }
     }
     return { query, matches, total };
+}
+export function grepFlights(cwd, query, id, limit = 50, kind) {
+    const shows = id
+        ? [showFlight(cwd, id)]
+        : listFlights(cwd).map((flight) => showFlight(cwd, flight.id));
+    return grepShows(shows, query, limit, kind);
+}
+export function grepFlightBundle(file, query, limit = 50, kind) {
+    return grepShows([flightShowFromBundle(loadFlightBundle(file))], query, limit, kind);
 }
 export function renderFlightGrep(result) {
     if (result.total === 0) {

@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { auditFlights, addFlightNote, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, filterFlightEvents, generateFlightKey, grepFlights, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightGrep, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "../core/flight.js";
+import { auditFlights, addFlightNote, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, filterFlightEvents, generateFlightKey, grepFlightBundle, grepFlights, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightGrep, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "../core/flight.js";
 import { writeOutput, writeSecretOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -35,7 +35,7 @@ const HELP = `Использование:
   oc-pilot flight status
   oc-pilot flight stats [--html]
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
-  oc-pilot flight grep <текст> [--id <id>] [--limit <n>] [--kind <тип>]
+  oc-pilot flight grep <текст> [--id <id>] [--bundle <файл>] [--limit <n>] [--kind <тип>]
   oc-pilot flight list [--limit <n>]
   oc-pilot flight show [<id>] [--bundle <файл>] [--kind <тип>] [--last <n>]
   oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
@@ -65,7 +65,7 @@ const HELP = `Использование:
       --last <n>            показать только последние n событий в show
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore)
-      --bundle <файл>       прочитать полёт, HTML или сводку из bundle либо переподписать его
+      --bundle <файл>       читать из экспортированного bundle (show/html/summary/grep) или переподписать его
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
       --bundles             сравнивать два экспортированных bundle вместо сессий
@@ -210,7 +210,12 @@ export function runFlight(argv) {
                 hint: 'Используйте: oc-pilot flight grep "что искать".',
             });
         }
-        const result = grepFlights(ctx.cwd, text, asString(values, "id"), optionalNonNegativeInteger(values, "limit", "--limit"), asString(values, "kind"));
+        const limit = optionalNonNegativeInteger(values, "limit", "--limit");
+        const kind = asString(values, "kind");
+        const bundlePath = asString(values, "bundle");
+        const result = bundlePath
+            ? grepFlightBundle(bundlePath, text, limit, kind)
+            : grepFlights(ctx.cwd, text, asString(values, "id"), limit, kind);
         flightOutput(json ? JSON.stringify(result, null, 2) : renderFlightGrep(result));
         log.success(`Найдено совпадений: ${result.matches.length}.`);
         return 0;

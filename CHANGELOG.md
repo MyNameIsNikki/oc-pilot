@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.143.0
+
+- `flight grep <текст> --bundle <файл>` ищет по экспортированному бандлу без локального журнала; MCP `flight_grep` принимает `bundle`.
+- Документация; 902 теста; версия 0.143.0.
+
 ## 0.142.0
 
 - `flight grep <текст> --kind <тип>` ограничивает поиск одним типом события (note, command.start, command.end и др.); MCP `flight_grep` принимает `kind`.

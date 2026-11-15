@@ -550,6 +550,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(flightGrep.inputSchema.properties.text, "text missing on flight_grep");
     assert.ok(flightGrep.inputSchema.properties.limit, "limit missing on flight_grep");
     assert.ok(flightGrep.inputSchema.properties.kind, "kind missing on flight_grep");
+    assert.ok(flightGrep.inputSchema.properties.bundle, "bundle missing on flight_grep");
 
     const flightExport = tools.find((tool) => tool.name === "flight_export");
     assert.ok(flightExport, "flight_export tool missing");

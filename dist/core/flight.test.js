@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, filterFlightEvents, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlights, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, filterFlightEvents, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlightBundle, grepFlights, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -317,6 +317,25 @@ test("grepFlights finds notes and command output across sessions", () => {
         assert.ok(onlyNotes.matches.every((match) => match.kind === "note"));
         assert.throws(() => grepFlights(dir, "e", undefined, 50, "bogus"), /Неизвестный тип события/);
         assert.throws(() => grepFlights(dir, "   "), /Пустой поисковый запрос/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("grepFlightBundle searches an exported bundle", () => {
+    const dir = makeRepo();
+    try {
+        const session = startFlight(dir, "grep-bundle");
+        addFlightNote(dir, "bundle needle note");
+        endFlight(dir);
+        const bundlePath = join(dir, "grep-bundle.json");
+        writeFileSync(bundlePath, JSON.stringify(exportFlight(dir, session.meta.id), null, 2), "utf8");
+        const result = grepFlightBundle(bundlePath, "needle");
+        assert.equal(result.total, 1);
+        assert.equal(result.matches[0]?.kind, "note");
+        assert.equal(result.matches[0]?.name, "grep-bundle");
+        const byKind = grepFlightBundle(bundlePath, "needle", 50, "command.end");
+        assert.equal(byKind.total, 0);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
