@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -455,6 +455,25 @@ test("exportFlight defaults to the most recent flight after end", () => {
         assert.equal(activeFlight(dir), undefined);
         const result = exportFlight(dir);
         assert.equal(result.meta.id, session.meta.id);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("loadFlightBundle reads an exported bundle", () => {
+    const dir = makeRepo();
+    try {
+        const session = startFlight(dir, "portable");
+        createCheckpoint(dir, "portable-cp");
+        endFlight(dir);
+        const bundle = exportFlight(dir, session.meta.id);
+        const bundlePath = join(dir, "portable.json");
+        writeFileSync(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
+        const loaded = loadFlightBundle(bundlePath);
+        assert.equal(loaded.meta.id, session.meta.id);
+        assert.equal(loaded.digest, bundle.digest);
+        assert.equal(loaded.events.length, bundle.events.length);
+        assert.equal(loaded.checkpoints.length, 1);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

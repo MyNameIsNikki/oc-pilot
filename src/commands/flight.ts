@@ -12,6 +12,7 @@ import {
   flightStatus,
   generateFlightKey,
   listFlights,
+  loadFlightBundle,
   pruneFlights,
   renderFlightAudit,
   renderFlightBisect,
@@ -64,6 +65,7 @@ const OPTIONS: OptionSpec = withCommon({
   force: { type: "boolean" },
   all: { type: "boolean" },
   key: { type: "string" },
+  bundle: { type: "string" },
   html: { type: "boolean" },
   to: { type: "string" },
   from: { type: "string" },
@@ -85,7 +87,7 @@ const HELP = `Использование:
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
   oc-pilot flight compare <id-a> <id-b> [--html]
-  oc-pilot flight html [--id <id>] [--output <файл>]
+  oc-pilot flight html [--id <id>] [--bundle <файл>] [--output <файл>]
   oc-pilot flight export [--id <id>] [--output <файл>] [--key <файл>]
   oc-pilot flight verify-bundle <файл> [--key <файл>]
   oc-pilot flight end
@@ -104,6 +106,7 @@ const HELP = `Использование:
       --limit <n>           сколько последних полётов показать в list
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore)
+      --bundle <файл>       отрендерить HTML из экспортированного bundle
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
       --force               восстановить поверх изменённого рабочего дерева
@@ -377,7 +380,10 @@ export function runFlight(argv: string[]): number {
   }
 
   if (action === "html") {
-    const result = exportFlight(ctx.cwd, asString(values, "id"));
+    const bundlePath = asString(values, "bundle");
+    const result = bundlePath
+      ? loadFlightBundle(bundlePath)
+      : exportFlight(ctx.cwd, asString(values, "id"));
     const html = renderFlightHtml(result);
     writeOutput(
       json ? JSON.stringify({ id: result.meta.id, html }, null, 2) : html,

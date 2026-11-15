@@ -956,7 +956,7 @@ export function exportFlight(cwd, id, keyPath) {
     }
     return result;
 }
-export function verifyFlightBundle(file, keyPath) {
+export function loadFlightBundle(file) {
     let parsed;
     try {
         parsed = JSON.parse(readFileSync(file, "utf8"));
@@ -964,11 +964,13 @@ export function verifyFlightBundle(file, keyPath) {
     catch (error) {
         throw new PilotError(`Не удалось прочитать flight bundle: ${error instanceof Error ? error.message : String(error)}`, {
             hint: "Передайте JSON-файл, созданный oc-pilot flight export.",
+            exitCode: 2,
         });
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new PilotError("Flight bundle должен быть JSON-объектом.", {
             hint: "Передайте файл, созданный oc-pilot flight export.",
+            exitCode: 2,
         });
     }
     const bundle = parsed;
@@ -979,8 +981,13 @@ export function verifyFlightBundle(file, keyPath) {
         !Array.isArray(bundle.events)) {
         throw new PilotError("Flight bundle повреждён: нет обязательных полей.", {
             hint: "Передайте файл, созданный oc-pilot flight export.",
+            exitCode: 2,
         });
     }
+    return bundle;
+}
+export function verifyFlightBundle(file, keyPath) {
+    const bundle = loadFlightBundle(file);
     const { digest, signature, ...base } = bundle;
     const digestOk = flightBundleDigest(base) === digest;
     const chain = verifyFlightEvents(bundle.events);

@@ -1743,6 +1743,10 @@ const TOOLS = [
       additionalProperties: false,
       properties: {
         id: { type: "string", description: "Flight session id; defaults to the active flight" },
+        bundle: {
+          type: "string",
+          description: "Path to a flight export bundle; renders without the local journal",
+        },
         ...RESULT_PROPERTIES,
       },
     },
@@ -4328,6 +4332,8 @@ async function callFlightHtml(input: JsonObject, cwd: string): Promise<ToolResul
   const args = ["flight", "html", "--json"];
   const id = stringArg(input, "id");
   if (id) args.push("--id", id);
+  const bundle = stringArg(input, "bundle");
+  if (bundle) args.push("--bundle", bundle);
   return toToolResult(await runCli(args, cwd));
 }
 

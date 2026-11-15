@@ -1264,18 +1264,20 @@ export function exportFlight(cwd: string, id?: string, keyPath?: string): Flight
   return result;
 }
 
-export function verifyFlightBundle(file: string, keyPath?: string): FlightBundleVerifyResult {
+export function loadFlightBundle(file: string): FlightExportResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(file, "utf8"));
   } catch (error) {
     throw new PilotError(`Не удалось прочитать flight bundle: ${error instanceof Error ? error.message : String(error)}`, {
       hint: "Передайте JSON-файл, созданный oc-pilot flight export.",
+      exitCode: 2,
     });
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new PilotError("Flight bundle должен быть JSON-объектом.", {
       hint: "Передайте файл, созданный oc-pilot flight export.",
+      exitCode: 2,
     });
   }
   const bundle = parsed as FlightExportResult;
@@ -1288,8 +1290,14 @@ export function verifyFlightBundle(file: string, keyPath?: string): FlightBundle
   ) {
     throw new PilotError("Flight bundle повреждён: нет обязательных полей.", {
       hint: "Передайте файл, созданный oc-pilot flight export.",
+      exitCode: 2,
     });
   }
+  return bundle;
+}
+
+export function verifyFlightBundle(file: string, keyPath?: string): FlightBundleVerifyResult {
+  const bundle = loadFlightBundle(file);
   const { digest, signature, ...base } = bundle;
   const digestOk = flightBundleDigest(base) === digest;
   const chain = verifyFlightEvents(bundle.events);

@@ -1407,6 +1407,13 @@ test("flight records checkpoints, status, verify and end", () => {
         assert.match(report.html, /^<!doctype html>/);
         assert.match(report.html, /after-b/);
         assert.match(report.html, /Timeline/);
+        const exported = runCli(["flight", "export", "--id", started.session.meta.id, "--output", "bundle.json", "--json"], dir);
+        assert.equal(exported.status, 0, exported.stderr);
+        const fromBundle = runCli(["flight", "html", "--bundle", "bundle.json", "--json"], dir);
+        assert.equal(fromBundle.status, 0, fromBundle.stderr);
+        const bundled = JSON.parse(fromBundle.stdout);
+        assert.equal(bundled.id, started.session.meta.id);
+        assert.match(bundled.html, /^<!doctype html>/);
         const compare = runCli(["flight", "compare", started.session.meta.id, second.session.meta.id, "--json"], dir);
         assert.equal(compare.status, 0, compare.stderr);
         const compared = JSON.parse(compare.stdout);

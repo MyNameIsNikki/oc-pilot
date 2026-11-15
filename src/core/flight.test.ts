@@ -17,6 +17,7 @@ import {
   exportFlight,
   flightStats,
   flightStatus,
+  loadFlightBundle,
   generateFlightKey,
   listFlights,
   pruneFlights,
@@ -522,6 +523,26 @@ test("exportFlight defaults to the most recent flight after end", () => {
 
     const result = exportFlight(dir);
     assert.equal(result.meta.id, session.meta.id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadFlightBundle reads an exported bundle", () => {
+  const dir = makeRepo();
+  try {
+    const session = startFlight(dir, "portable");
+    createCheckpoint(dir, "portable-cp");
+    endFlight(dir);
+    const bundle = exportFlight(dir, session.meta.id);
+    const bundlePath = join(dir, "portable.json");
+    writeFileSync(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
+
+    const loaded = loadFlightBundle(bundlePath);
+    assert.equal(loaded.meta.id, session.meta.id);
+    assert.equal(loaded.digest, bundle.digest);
+    assert.equal(loaded.events.length, bundle.events.length);
+    assert.equal(loaded.checkpoints.length, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
