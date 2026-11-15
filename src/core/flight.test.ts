@@ -32,6 +32,7 @@ import {
   restoreFlight,
   type FlightStats,
   showFlight,
+  signFlightBundle,
   startFlight,
   verifyFlightBundle,
   verifyFlightEvents,
@@ -589,6 +590,33 @@ test("flightShowFromBundle recomputes the chain for a loaded bundle", () => {
       ),
     };
     assert.equal(flightShowFromBundle(tampered).verification.valid, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("signFlightBundle re-signs a valid bundle and refuses a tampered one", () => {
+  const dir = makeRepo();
+  try {
+    const session = startFlight(dir, "resign");
+    createCheckpoint(dir, "resign-cp");
+    endFlight(dir);
+
+    const keyOne = join(dir, "one.key");
+    const keyTwo = join(dir, "two.key");
+    writeFileSync(keyOne, "first-secret", "utf8");
+    writeFileSync(keyTwo, "second-secret", "utf8");
+
+    const signed = exportFlight(dir, session.meta.id, keyOne);
+    const resigned = signFlightBundle(signed, keyTwo);
+    const path = join(dir, "resigned.json");
+    writeFileSync(path, JSON.stringify(resigned, null, 2), "utf8");
+    const verified = verifyFlightBundle(path, keyTwo);
+    assert.equal(verified.signature, "valid");
+    assert.equal(verified.valid, true);
+
+    const tampered = { ...signed, exportedAt: "2000-01-01T00:00:00.000Z" };
+    assert.throws(() => signFlightBundle(tampered, keyTwo), /digest не совпадает/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

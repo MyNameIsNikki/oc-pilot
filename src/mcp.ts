@@ -1826,6 +1826,7 @@ const TOOLS = [
         id: { type: "string", description: "Flight session id; defaults to the active flight" },
         output: { type: "string", description: "Optional bundle file path" },
         key: { type: "string", description: "Optional HMAC key file; signs the bundle digest" },
+        bundle: { type: "string", description: "Optional existing bundle to re-sign; requires key" },
         ...RESULT_PROPERTIES,
       },
     },
@@ -4396,6 +4397,8 @@ async function callFlightExport(input: JsonObject, cwd: string): Promise<ToolRes
   if (output) args.push("--output", output);
   const key = stringArg(input, "key");
   if (key) args.push("--key", key);
+  const bundle = stringArg(input, "bundle");
+  if (bundle) args.push("--bundle", bundle);
   return toToolResult(await runCli(args, cwd));
 }
 

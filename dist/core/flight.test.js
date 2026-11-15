@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -514,6 +514,30 @@ test("flightShowFromBundle recomputes the chain for a loaded bundle", () => {
                 : event),
         };
         assert.equal(flightShowFromBundle(tampered).verification.valid, false);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("signFlightBundle re-signs a valid bundle and refuses a tampered one", () => {
+    const dir = makeRepo();
+    try {
+        const session = startFlight(dir, "resign");
+        createCheckpoint(dir, "resign-cp");
+        endFlight(dir);
+        const keyOne = join(dir, "one.key");
+        const keyTwo = join(dir, "two.key");
+        writeFileSync(keyOne, "first-secret", "utf8");
+        writeFileSync(keyTwo, "second-secret", "utf8");
+        const signed = exportFlight(dir, session.meta.id, keyOne);
+        const resigned = signFlightBundle(signed, keyTwo);
+        const path = join(dir, "resigned.json");
+        writeFileSync(path, JSON.stringify(resigned, null, 2), "utf8");
+        const verified = verifyFlightBundle(path, keyTwo);
+        assert.equal(verified.signature, "valid");
+        assert.equal(verified.valid, true);
+        const tampered = { ...signed, exportedAt: "2000-01-01T00:00:00.000Z" };
+        assert.throws(() => signFlightBundle(tampered, keyTwo), /digest не совпадает/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

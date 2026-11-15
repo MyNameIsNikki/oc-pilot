@@ -1359,6 +1359,21 @@ export function loadFlightBundle(file: string): FlightExportResult {
   return bundle;
 }
 
+export function signFlightBundle(bundle: FlightExportResult, keyPath: string): FlightExportResult {
+  const { digest, signature: _signature, ...base } = bundle;
+  if (flightBundleDigest(base) !== digest) {
+    throw new PilotError("Flight bundle повреждён: digest не совпадает.", {
+      hint: "Не подписывайте изменённый bundle; сначала проверьте его через flight verify-bundle.",
+      exitCode: 2,
+    });
+  }
+  return {
+    ...base,
+    digest,
+    signature: { type: "hmac-sha256", value: hmacFlightDigest(readFileSync(keyPath), digest) },
+  };
+}
+
 export function flightShowFromBundle(bundle: FlightExportResult): FlightShow {
   return {
     meta: bundle.meta,

@@ -1762,6 +1762,20 @@ test("flight records checkpoints, status, verify and end", () => {
     assert.equal(bundledShow.meta.id, started.session.meta.id);
     assert.equal(bundledShow.verification.valid, true);
 
+    const keygen = runCli(["flight", "keygen", "--output", "flight.key", "--cwd", dir], dir);
+    assert.equal(keygen.status, 0, keygen.stderr);
+    const resign = runCli(
+      ["flight", "export", "--bundle", "bundle.json", "--key", "flight.key", "--output", "resigned.json", "--json"],
+      dir,
+    );
+    assert.equal(resign.status, 0, resign.stderr);
+    const verifyResigned = runCli(
+      ["flight", "verify-bundle", "resigned.json", "--key", "flight.key", "--json"],
+      dir,
+    );
+    assert.equal(verifyResigned.status, 0, verifyResigned.stderr);
+    assert.equal((JSON.parse(verifyResigned.stdout) as { signature: string }).signature, "valid");
+
     const compare = runCli(
       ["flight", "compare", started.session.meta.id, second.session.meta.id, "--json"],
       dir,

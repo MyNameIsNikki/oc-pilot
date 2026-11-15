@@ -40,6 +40,7 @@ import {
   replayFlight,
   restoreFlight,
   showFlight,
+  signFlightBundle,
   startFlight,
   verifyFlightBundle,
 } from "../core/flight.js";
@@ -91,7 +92,7 @@ const HELP = `Использование:
   oc-pilot flight compare <id-a> <id-b> [--html]
   oc-pilot flight summary [--id <id>] [--bundle <файл>] [--output <файл>]
   oc-pilot flight html [--id <id>] [--bundle <файл>] [--output <файл>]
-  oc-pilot flight export [--id <id>] [--output <файл>] [--key <файл>]
+  oc-pilot flight export [--id <id>] [--bundle <файл>] [--output <файл>] [--key <файл>]
   oc-pilot flight verify-bundle <файл> [--key <файл>]
   oc-pilot flight end
   oc-pilot flight verify [<id>] [--all]
@@ -109,7 +110,7 @@ const HELP = `Использование:
       --limit <n>           сколько последних полётов показать в list
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore)
-      --bundle <файл>       прочитать полёт, HTML или сводку из экспортированного bundle
+      --bundle <файл>       прочитать полёт, HTML или сводку из bundle либо переподписать его
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
       --force               восстановить поверх изменённого рабочего дерева
@@ -139,6 +140,7 @@ ${COMMON_HELP}
   oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef --html --output compare.html
   oc-pilot flight html --output flight.html
   oc-pilot flight export --key flight.key --output flight.json
+  oc-pilot flight export --bundle flight.json --key new.key --output resigned.json
   oc-pilot flight verify-bundle flight.json --key flight.key
   oc-pilot flight verify 20261114T120000-ab12cd`;
 
@@ -429,7 +431,16 @@ export function runFlight(argv: string[]): number {
   }
 
   if (action === "export") {
-    const result = exportFlight(ctx.cwd, asString(values, "id"), asString(values, "key"));
+    const bundlePath = asString(values, "bundle");
+    const keyPath = asString(values, "key");
+    if (bundlePath && !keyPath) {
+      throw new PilotError("Для повторной подписи bundle нужен --key.", {
+        hint: "Используйте: oc-pilot flight export --bundle <файл> --key <файл>.",
+      });
+    }
+    const result = bundlePath
+      ? signFlightBundle(loadFlightBundle(bundlePath), keyPath as string)
+      : exportFlight(ctx.cwd, asString(values, "id"), keyPath);
     writeOutput(
       json ? JSON.stringify(result, null, 2) : renderFlightExport(result),
       ctx.flags.output,
