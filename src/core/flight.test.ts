@@ -534,6 +534,7 @@ test("renderFlightStatsHtml escapes command names", () => {
     ended: 2,
     events: 10,
     commands: 2,
+    notes: 3,
     checkpoints: 2,
     failedCommands: 1,
     durationMs: 1000,
@@ -558,6 +559,7 @@ test("flightStats aggregates sessions and commands", () => {
     ];
     startFlight(dir, "first");
     execInFlight(dir, command, { quiet: true });
+    addFlightNote(dir, "first note");
     createCheckpoint(dir, "first-cp");
     endFlight(dir);
 
@@ -571,8 +573,9 @@ test("flightStats aggregates sessions and commands", () => {
     assert.equal(stats.total, 2);
     assert.equal(stats.ended, 2);
     assert.equal(stats.active, 0);
-    assert.equal(stats.events, 10);
+    assert.equal(stats.events, 11);
     assert.equal(stats.commands, 2);
+    assert.equal(stats.notes, 1);
     assert.equal(stats.checkpoints, 2);
     assert.equal(stats.failedCommands, 1);
     assert.equal(stats.topCommands.length, 1);

@@ -354,6 +354,7 @@ export function flightStats(cwd) {
     const commands = new Map();
     let events = 0;
     let commandCount = 0;
+    let notes = 0;
     let checkpoints = 0;
     let failedCommands = 0;
     let durationMs = 0;
@@ -367,6 +368,8 @@ export function flightStats(cwd) {
         for (const event of show.events) {
             if (event.kind === "command.start")
                 commandCount += 1;
+            if (event.kind === "note")
+                notes += 1;
             if (event.kind !== "command.end")
                 continue;
             const payload = event.payload;
@@ -395,6 +398,7 @@ export function flightStats(cwd) {
         ended: flights.filter((flight) => flight.ended).length,
         events,
         commands: commandCount,
+        notes,
         checkpoints,
         failedCommands,
         durationMs,
@@ -567,7 +571,7 @@ export function renderFlightStats(stats) {
         return "[FLIGHT STATS] полётов нет.";
     const lines = [
         `[FLIGHT STATS] всего ${stats.total}: завершено ${stats.ended}, активно ${stats.active}.`,
-        `События: ${stats.events}, команды: ${stats.commands}, чекпоинты: ${stats.checkpoints}, ошибки команд: ${stats.failedCommands}.`,
+        `События: ${stats.events}, команды: ${stats.commands}, заметки: ${stats.notes}, чекпоинты: ${stats.checkpoints}, ошибки команд: ${stats.failedCommands}.`,
         `Длительность: ${stats.durationMs} мс, средняя: ${stats.averageDurationMs} мс.`,
     ];
     if (stats.topCommands.length > 0) {
@@ -585,6 +589,7 @@ export function renderFlightStatsHtml(stats) {
         ["Active", stats.active],
         ["Events", stats.events],
         ["Commands", stats.commands],
+        ["Notes", stats.notes],
         ["Checkpoints", stats.checkpoints],
         ["Failed commands", stats.failedCommands],
         ["Duration", `${stats.durationMs} ms`],
