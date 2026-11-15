@@ -810,6 +810,13 @@ export function renderFlightSummary(show: FlightShow): string {
       );
     }
   }
+  const notes = show.events
+    .filter((event) => event.kind === "note")
+    .map((event) => String((event.payload as Record<string, unknown>).text ?? ""))
+    .filter((note) => note.length > 0);
+  if (notes.length > 0) {
+    lines.push("", "## Заметки", "", ...notes.map((note) => `- ${note}`));
+  }
   if (!show.verification.valid) {
     lines.push("", "## Повреждения", "", ...show.verification.errors.map((error) => `- ${error}`));
   }

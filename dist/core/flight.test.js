@@ -278,12 +278,15 @@ test("renderFlightSummary lists checkpoints and commands", () => {
     try {
         const session = startFlight(dir, "summary");
         execInFlight(dir, [process.execPath, "-e", "process.exit(0)"], { quiet: true });
+        addFlightNote(dir, "почему так");
         createCheckpoint(dir, "cp-one");
         endFlight(dir);
         const markdown = renderFlightSummary(showFlight(dir, session.meta.id));
         assert.match(markdown, /^# Полёт: summary/);
         assert.match(markdown, /\| cp-one \|/);
         assert.match(markdown, /## Команды/);
+        assert.match(markdown, /## Заметки/);
+        assert.match(markdown, /- почему так/);
         assert.match(markdown, /Цепочка: целая/);
     }
     finally {
