@@ -79,10 +79,12 @@ test("startFlight creates a hash-chained session and active status", () => {
     assert.equal(status.session?.meta.id, session.meta.id);
     assert.equal(status.checkpoints, 0);
 
+    addFlightNote(dir, "list note");
     const flights = listFlights(dir);
     assert.equal(flights.length, 1);
     assert.equal(flights[0]?.id, session.meta.id);
     assert.equal(flights[0]?.ended, false);
+    assert.equal(flights[0]?.notes, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

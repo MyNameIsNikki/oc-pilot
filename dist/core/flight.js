@@ -344,6 +344,7 @@ export function listFlights(cwd) {
             ...meta,
             events: events.length,
             checkpoints: events.filter((event) => event.kind === "file.checkpoint").length,
+            notes: events.filter((event) => event.kind === "note").length,
             ended: events.some((event) => event.kind === "session.end"),
         });
     }
@@ -490,7 +491,7 @@ export function renderFlightList(flights) {
     if (flights.length === 0)
         return "Полётов пока нет.";
     return flights
-        .map((flight) => `${flight.id}  ${flight.ended ? "завершён" : "активен"}  ${flight.name}  событий ${flight.events}, чекпоинтов ${flight.checkpoints}`)
+        .map((flight) => `${flight.id}  ${flight.ended ? "завершён" : "активен"}  ${flight.name}  событий ${flight.events}, чекпоинтов ${flight.checkpoints}, заметок ${flight.notes}`)
         .join("\n");
 }
 function grepEventText(event) {

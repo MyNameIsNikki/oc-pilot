@@ -87,6 +87,7 @@ export interface FlightStatus {
 export interface FlightListEntry extends FlightMeta {
   events: number;
   checkpoints: number;
+  notes: number;
   ended: boolean;
 }
 
@@ -521,6 +522,7 @@ export function listFlights(cwd: string): FlightListEntry[] {
       ...meta,
       events: events.length,
       checkpoints: events.filter((event) => event.kind === "file.checkpoint").length,
+      notes: events.filter((event) => event.kind === "note").length,
       ended: events.some((event) => event.kind === "session.end"),
     });
   }
@@ -668,7 +670,7 @@ export function renderFlightList(flights: FlightListEntry[]): string {
   return flights
     .map(
       (flight) =>
-        `${flight.id}  ${flight.ended ? "завершён" : "активен"}  ${flight.name}  событий ${flight.events}, чекпоинтов ${flight.checkpoints}`,
+        `${flight.id}  ${flight.ended ? "завершён" : "активен"}  ${flight.name}  событий ${flight.events}, чекпоинтов ${flight.checkpoints}, заметок ${flight.notes}`,
     )
     .join("\n");
 }
