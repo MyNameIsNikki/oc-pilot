@@ -304,7 +304,8 @@ export function runFlight(argv: string[]): number {
     flightOutput(json ? JSON.stringify(result, null, 2) : renderFlightGrep(result));
     log.success(`Найдено совпадений: ${result.matches.length}.`);
     if (!bundlePath) return 0;
-    return verifyFlightEvents(loadFlightBundle(bundlePath).events).valid ? 0 : 2;
+    const bundleCheck = verifyFlightBundle(bundlePath);
+    return bundleCheck.digestOk && bundleCheck.chainOk ? 0 : 2;
   }
 
   if (action === "list") {
@@ -437,7 +438,13 @@ export function runFlight(argv: string[]): number {
           ? JSON.stringify(result, null, 2)
           : renderFlightCompare(result),
     );
-    return result.a.valid && result.b.valid ? 0 : 2;
+    const bundlesOk = asBoolean(values, "bundles")
+      ? [first, second].every((file) => {
+          const check = verifyFlightBundle(file);
+          return check.digestOk && check.chainOk;
+        })
+      : true;
+    return result.a.valid && result.b.valid && bundlesOk ? 0 : 2;
   }
 
   if (action === "summary") {

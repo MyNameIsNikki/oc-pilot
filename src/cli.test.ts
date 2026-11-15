@@ -1880,6 +1880,22 @@ test("flight records checkpoints, status, verify and end", () => {
     );
     assert.equal(compareBad.status, 2, compareBad.stderr);
 
+    writeFileSync(
+      join(dir, "bundle-digest.json"),
+      bundleText.replace(/"exportedAt": "[^"]*"/, '"exportedAt": "2000-01-01T00:00:00.000Z"'),
+      "utf8",
+    );
+    const grepDigest = runCli(
+      ["flight", "grep", "почему", "--bundle", "bundle-digest.json", "--json"],
+      dir,
+    );
+    assert.equal(grepDigest.status, 2, grepDigest.stderr);
+    const compareDigest = runCli(
+      ["flight", "compare", "--bundles", "bundle.json", "bundle-digest.json", "--json"],
+      dir,
+    );
+    assert.equal(compareDigest.status, 2, compareDigest.stderr);
+
     const filtered = runCli(
       ["flight", "show", "--id", started.session.meta.id, "--kind", "note", "--json"],
       dir,
