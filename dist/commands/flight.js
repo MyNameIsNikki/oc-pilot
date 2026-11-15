@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, } from "../core/flight.js";
+import { auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, generateFlightKey, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, } from "../core/flight.js";
 import { writeOutput, writeSecretOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -38,6 +38,7 @@ const HELP = `Использование:
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
   oc-pilot flight compare <id-a> <id-b> [--html]
+  oc-pilot flight summary [--id <id>] [--output <файл>]
   oc-pilot flight html [--id <id>] [--bundle <файл>] [--output <файл>]
   oc-pilot flight export [--id <id>] [--output <файл>] [--key <файл>]
   oc-pilot flight verify-bundle <файл> [--key <файл>]
@@ -250,6 +251,13 @@ export function runFlight(argv) {
                 ? JSON.stringify(result, null, 2)
                 : renderFlightCompare(result), ctx.flags.output);
         return result.a.valid && result.b.valid ? 0 : 2;
+    }
+    if (action === "summary") {
+        const show = showFlight(ctx.cwd, asString(values, "id"));
+        const markdown = renderFlightSummary(show);
+        writeOutput(json ? JSON.stringify({ id: show.meta.id, markdown }, null, 2) : markdown, ctx.flags.output);
+        log.success(`Сводка ${show.meta.id} записана.`);
+        return 0;
     }
     if (action === "html") {
         const bundlePath = asString(values, "bundle");

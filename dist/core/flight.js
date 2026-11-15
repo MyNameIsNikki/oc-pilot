@@ -563,6 +563,68 @@ function eventSummary(event) {
     }
     return String(event.payload.name ?? event.kind);
 }
+export function renderFlightSummary(show) {
+    const checkpoints = flightCheckpoints(show);
+    const commands = [];
+    for (const event of show.events) {
+        if (event.kind !== "command.end")
+            continue;
+        const payload = event.payload;
+        const parts = Array.isArray(payload.command)
+            ? payload.command.filter((part) => typeof part === "string")
+            : [];
+        if (parts.length === 0)
+            continue;
+        commands.push({
+            command: parts.join(" "),
+            exitCode: typeof payload.exitCode === "number" ? payload.exitCode : undefined,
+            durationMs: typeof payload.durationMs === "number" ? payload.durationMs : undefined,
+        });
+    }
+    const startedAt = Date.parse(show.meta.startedAt);
+    const lastTs = show.events.at(-1)?.ts;
+    const durationMs = lastTs ? Math.max(0, Date.parse(lastTs) - startedAt) : 0;
+    const failed = commands.filter((command) => command.exitCode !== undefined && command.exitCode !== 0);
+    const lines = [
+        `# Полёт: ${show.meta.name}`,
+        "",
+        `- ID: \`${show.meta.id}\``,
+        `- Начат: ${show.meta.startedAt}`,
+        `- База: \`${show.meta.baseCommit ?? "HEAD"}\``,
+        `- Длительность: ${durationMs} мс`,
+        `- События: ${show.events.length}`,
+        `- Чекпоинты: ${checkpoints.length}`,
+        `- Команды: ${commands.length} (ошибок: ${failed.length})`,
+        `- Цепочка: ${show.verification.valid ? "целая" : "повреждена"}`,
+        "",
+        "## Чекпоинты",
+        "",
+    ];
+    if (checkpoints.length === 0) {
+        lines.push("_нет_");
+    }
+    else {
+        lines.push("| Метка | Коммит |", "| --- | --- |");
+        for (const checkpoint of checkpoints) {
+            lines.push(`| ${checkpoint.label} | \`${checkpoint.commit.slice(0, 12)}\` |`);
+        }
+    }
+    lines.push("", "## Команды", "");
+    if (commands.length === 0) {
+        lines.push("_нет_");
+    }
+    else {
+        lines.push("| Команда | Код | Длительность |", "| --- | --- | --- |");
+        for (const command of commands) {
+            const code = command.exitCode === undefined ? "?" : String(command.exitCode);
+            lines.push(`| \`${command.command.replaceAll("|", "\\|")}\` | ${code} | ${command.durationMs ?? 0} мс |`);
+        }
+    }
+    if (!show.verification.valid) {
+        lines.push("", "## Повреждения", "", ...show.verification.errors.map((error) => `- ${error}`));
+    }
+    return lines.join("\n");
+}
 export function renderFlightShow(show) {
     const lines = [
         `Полёт ${show.meta.id} (${show.meta.name})`,

@@ -489,6 +489,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
       "flight_diff",
       "flight_compare",
       "flight_html",
+      "flight_summary",
       "flight_stats",
       "flight_prune",
       "flight_restore",
@@ -515,6 +516,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
     const flightHtml = tools.find((tool) => tool.name === "flight_html");
     assert.ok(flightHtml, "flight_html tool missing");
     assert.ok(flightHtml.inputSchema.properties.id, "id missing on flight_html");
+
+    const flightSummary = tools.find((tool) => tool.name === "flight_summary");
+    assert.ok(flightSummary, "flight_summary tool missing");
+    assert.ok(flightSummary.inputSchema.properties.id, "id missing on flight_summary");
     assert.ok(flightHtml.inputSchema.properties.bundle, "bundle missing on flight_html");
 
     const flightPrune = tools.find((tool) => tool.name === "flight_prune");

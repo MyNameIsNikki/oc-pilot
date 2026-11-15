@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -268,6 +268,23 @@ test("bisectFlight finds the first failing checkpoint", () => {
         assert.equal(result.steps.length, 2);
         assert.equal(result.firstBad?.label, "bad");
         assert.equal(result.firstBad?.exitCode, 1);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("renderFlightSummary lists checkpoints and commands", () => {
+    const dir = makeRepo();
+    try {
+        const session = startFlight(dir, "summary");
+        execInFlight(dir, [process.execPath, "-e", "process.exit(0)"], { quiet: true });
+        createCheckpoint(dir, "cp-one");
+        endFlight(dir);
+        const markdown = renderFlightSummary(showFlight(dir, session.meta.id));
+        assert.match(markdown, /^# Полёт: summary/);
+        assert.match(markdown, /\| cp-one \|/);
+        assert.match(markdown, /## Команды/);
+        assert.match(markdown, /Цепочка: целая/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

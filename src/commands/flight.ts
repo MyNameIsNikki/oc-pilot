@@ -33,6 +33,7 @@ import {
   renderFlightStart,
   renderFlightStats,
   renderFlightStatsHtml,
+  renderFlightSummary,
   renderFlightStatus,
   renderFlightVerify,
   replayFlight,
@@ -87,6 +88,7 @@ const HELP = `Использование:
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
   oc-pilot flight compare <id-a> <id-b> [--html]
+  oc-pilot flight summary [--id <id>] [--output <файл>]
   oc-pilot flight html [--id <id>] [--bundle <файл>] [--output <файл>]
   oc-pilot flight export [--id <id>] [--output <файл>] [--key <файл>]
   oc-pilot flight verify-bundle <файл> [--key <файл>]
@@ -377,6 +379,17 @@ export function runFlight(argv: string[]): number {
       ctx.flags.output,
     );
     return result.a.valid && result.b.valid ? 0 : 2;
+  }
+
+  if (action === "summary") {
+    const show = showFlight(ctx.cwd, asString(values, "id"));
+    const markdown = renderFlightSummary(show);
+    writeOutput(
+      json ? JSON.stringify({ id: show.meta.id, markdown }, null, 2) : markdown,
+      ctx.flags.output,
+    );
+    log.success(`Сводка ${show.meta.id} записана.`);
+    return 0;
   }
 
   if (action === "html") {

@@ -1704,6 +1704,19 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_summary",
+        description: "Render a Markdown summary of a flight session: checkpoints, commands with exit codes and duration, chain status.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                id: { type: "string", description: "Flight session id; defaults to the active or most recent flight" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "flight_export",
         description: "Export a redacted flight bundle with journal, checkpoint patches and a sha256 digest. Needs --allow-write when output is set.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -4578,6 +4591,13 @@ async function callFlightRestore(input, cwd) {
         args.push("--dry-run");
     return toToolResult(await runCli(args, cwd));
 }
+async function callFlightSummary(input, cwd) {
+    const args = ["flight", "summary", "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    return toToolResult(await runCli(args, cwd));
+}
 async function callFlightExport(input, cwd) {
     const args = ["flight", "export", "--json"];
     const id = stringArg(input, "id");
@@ -5148,6 +5168,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightCompare(input, cwd);
         case "flight_html":
             return callFlightHtml(input, cwd);
+        case "flight_summary":
+            return callFlightSummary(input, cwd);
         case "flight_stats":
             return callFlightStats(input, cwd);
         case "flight_prune":
@@ -5304,6 +5326,9 @@ function summarizeResult(value) {
     }
     if (typeof value.total === "number" && Array.isArray(value.topCommands)) {
         return `oc-pilot: flight stats ${String(value.total)} session(s), ${String(value.commands ?? 0)} command(s), ${String(value.failedCommands ?? 0)} failed`;
+    }
+    if (typeof value.id === "string" && typeof value.markdown === "string") {
+        return `oc-pilot: flight summary ${String(value.id)} ready`;
     }
     if (typeof value.id === "string" && typeof value.html === "string") {
         return `oc-pilot: flight html ${value.id} (${String(value.html.length)} chars)`;
