@@ -958,6 +958,7 @@ export function bisectFlight(cwd, id, command, timeoutMs = 600_000) {
     if (checkpoints.length === 0) {
         throw new PilotError("В полёте нет чекпоинтов для bisect.", {
             hint: "Создайте чекпоинты: oc-pilot flight checkpoint --label <метка>.",
+            exitCode: 2,
         });
     }
     const steps = [];

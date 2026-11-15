@@ -1932,6 +1932,16 @@ test("flight records checkpoints, status, verify and end", () => {
     const missingReplay = runCli(["flight", "replay", "--to", "no-such-cp", "--json"], dir);
     assert.equal(missingReplay.status, 2, missingReplay.stderr);
 
+    const noCheckpoint = runCli(["flight", "start", "--name", "no-checkpoint", "--json"], dir);
+    assert.equal(noCheckpoint.status, 0, noCheckpoint.stderr);
+    const bisectNoCheckpoints = runCli(
+      ["flight", "bisect", "--", process.execPath, "-e", "process.exit(0)"],
+      dir,
+    );
+    assert.equal(bisectNoCheckpoints.status, 2, bisectNoCheckpoints.stderr);
+    const endNoCheckpoint = runCli(["flight", "end", "--json"], dir);
+    assert.equal(endNoCheckpoint.status, 0, endNoCheckpoint.stderr);
+
     const eventsPath = join(
       dir,
       ".git",
