@@ -1649,7 +1649,7 @@ const TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
-        id: { type: "string", description: "Flight session id; defaults to the active flight" },
+        id: { type: "string", description: "Flight session id; defaults to the active or most recent flight" },
         all: { type: "boolean", description: "Verify every recorded flight instead of one session" },
         ...RESULT_PROPERTIES,
       },

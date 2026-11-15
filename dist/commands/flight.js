@@ -66,8 +66,9 @@ const HELP = `Использование:
 ${COMMON_HELP}
 Коды возврата:
   0  успех
-  1  ошибка, команда exec/bisect завершилась с ненулевым кодом
-  2  полёт не запущен или журнал повреждён
+  1  ошибка oc-pilot или провал bisect
+  2  полёт не запущен, полёт не найден или журнал повреждён
+  exec возвращает код команды (124 при таймауте)
 
 Примеры:
   oc-pilot flight keygen --output flight.key
@@ -86,16 +87,6 @@ ${COMMON_HELP}
   oc-pilot flight export --key flight.key --output flight.json
   oc-pilot flight verify-bundle flight.json --key flight.key
   oc-pilot flight verify 20261114T120000-ab12cd`;
-function requireId(values, positionals) {
-    const id = asString(values, "id") ?? positionals[1];
-    if (!id) {
-        throw new PilotError("Не указан идентификатор полёта.", {
-            hint: "Посмотрите список: oc-pilot flight list.",
-            exitCode: 2,
-        });
-    }
-    return id;
-}
 function timeoutOf(values) {
     const raw = asString(values, "timeout");
     if (raw === undefined)
@@ -202,7 +193,7 @@ export function runFlight(argv) {
             writeOutput(json ? JSON.stringify(audit, null, 2) : renderFlightAudit(audit), ctx.flags.output);
             return audit.tampered === 0 ? 0 : 2;
         }
-        const show = showFlight(ctx.cwd, requireId(values, positionals));
+        const show = showFlight(ctx.cwd, asString(values, "id") ?? positionals[1]);
         writeOutput(json
             ? JSON.stringify({ id: show.meta.id, ...show.verification }, null, 2)
             : renderFlightVerify(show.verification), ctx.flags.output);

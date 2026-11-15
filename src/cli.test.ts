@@ -1694,6 +1694,12 @@ test("flight records checkpoints, status, verify and end", () => {
     const shownFlight = JSON.parse(shown.stdout) as { meta: { id: string } };
     assert.equal(shownFlight.meta.id, started.session.meta.id);
 
+    const verifiedDefault = runCli(["flight", "verify", "--json"], dir);
+    assert.equal(verifiedDefault.status, 0, verifiedDefault.stderr);
+    const defaultVerify = JSON.parse(verifiedDefault.stdout) as { id: string; valid: boolean };
+    assert.equal(defaultVerify.id, started.session.meta.id);
+    assert.equal(defaultVerify.valid, true);
+
     const noFlightCheckpoint = runCli(["flight", "checkpoint", "--json"], dir);
     assert.equal(noFlightCheckpoint.status, 2);
 
