@@ -1651,8 +1651,9 @@ const TOOLS = [
             additionalProperties: false,
             required: ["id", "with"],
             properties: {
-                id: { type: "string", description: "First flight session id" },
-                with: { type: "string", description: "Second flight session id" },
+                id: { type: "string", description: "First flight session id or bundle path with bundles" },
+                with: { type: "string", description: "Second flight session id or bundle path with bundles" },
+                bundles: { type: "boolean", description: "Treat id and with as exported bundle paths" },
                 ...RESULT_PROPERTIES,
             },
         },
@@ -4576,7 +4577,10 @@ async function callFlightDiff(input, cwd) {
 async function callFlightCompare(input, cwd) {
     const id = stringArg(input, "id", true);
     const other = stringArg(input, "with", true);
-    return toToolResult(await runCli(["flight", "compare", id, other, "--json"], cwd));
+    const args = ["flight", "compare", id, other, "--json"];
+    if (booleanArg(input, "bundles"))
+        args.push("--bundles");
+    return toToolResult(await runCli(args, cwd));
 }
 async function callFlightHtml(input, cwd) {
     const args = ["flight", "html", "--json"];

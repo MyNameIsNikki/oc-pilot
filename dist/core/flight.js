@@ -938,8 +938,11 @@ function compareSide(show) {
     return { side, runs };
 }
 export function compareFlights(cwd, idA, idB) {
-    const left = compareSide(showFlight(cwd, idA));
-    const right = compareSide(showFlight(cwd, idB));
+    return compareFlightShows(showFlight(cwd, idA), showFlight(cwd, idB));
+}
+export function compareFlightShows(showA, showB) {
+    const left = compareSide(showA);
+    const right = compareSide(showB);
     const common = [];
     const onlyA = [];
     const onlyB = [];

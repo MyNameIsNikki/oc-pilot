@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -492,6 +492,33 @@ test("exportFlight defaults to the most recent flight after end", () => {
         assert.equal(activeFlight(dir), undefined);
         const result = exportFlight(dir);
         assert.equal(result.meta.id, session.meta.id);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("compareFlightShows compares two loaded bundles", () => {
+    const dir = makeRepo();
+    try {
+        const first = startFlight(dir, "bundle-a");
+        execInFlight(dir, [process.execPath, "-e", "process.exit(0)"], { quiet: true });
+        createCheckpoint(dir, "a-cp");
+        endFlight(dir);
+        const second = startFlight(dir, "bundle-b");
+        execInFlight(dir, [process.execPath, "-e", "process.exit(0)"], { quiet: true });
+        createCheckpoint(dir, "b-cp");
+        endFlight(dir);
+        const aPath = join(dir, "a.json");
+        const bPath = join(dir, "b.json");
+        writeFileSync(aPath, JSON.stringify(exportFlight(dir, first.meta.id)), "utf8");
+        writeFileSync(bPath, JSON.stringify(exportFlight(dir, second.meta.id)), "utf8");
+        const result = compareFlightShows(flightShowFromBundle(loadFlightBundle(aPath)), flightShowFromBundle(loadFlightBundle(bPath)));
+        assert.equal(result.a.name, "bundle-a");
+        assert.equal(result.b.name, "bundle-b");
+        assert.equal(result.a.valid, true);
+        assert.equal(result.b.valid, true);
+        assert.equal(result.common.length, 1);
+        assert.equal(typeof result.sameFinalTree, "boolean");
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

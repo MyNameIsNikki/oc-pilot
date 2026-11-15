@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.136.0
+
+- `flight compare --bundles <a> <b>` сравнивает два экспортированных bundle без локального журнала; ядро получило `compareFlightShows`, MCP `flight_compare` принимает `bundles`.
+- Документация; 898 тестов; версия 0.136.0.
+
 ## 0.135.0
 
 - `flight summary` теперь включает секцию «Заметки» со всеми `flight note` событиями.

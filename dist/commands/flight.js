@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { auditFlights, addFlightNote, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, generateFlightKey, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, } from "../core/flight.js";
+import { auditFlights, addFlightNote, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, generateFlightKey, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, } from "../core/flight.js";
 import { writeOutput, writeSecretOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -18,6 +18,7 @@ const OPTIONS = withCommon({
     all: { type: "boolean" },
     key: { type: "string" },
     bundle: { type: "string" },
+    bundles: { type: "boolean" },
     html: { type: "boolean" },
     to: { type: "string" },
     from: { type: "string" },
@@ -38,7 +39,7 @@ const HELP = `Использование:
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
-  oc-pilot flight compare <id-a> <id-b> [--html]
+  oc-pilot flight compare <id-a> <id-b> [--bundles] [--html]
   oc-pilot flight summary [--id <id>] [--bundle <файл>] [--output <файл>]
   oc-pilot flight html [--id <id>] [--bundle <файл>] [--output <файл>]
   oc-pilot flight export [--id <id>] [--bundle <файл>] [--output <файл>] [--key <файл>]
@@ -62,6 +63,7 @@ const HELP = `Использование:
       --bundle <файл>       прочитать полёт, HTML или сводку из bundle либо переподписать его
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
+      --bundles             сравнивать два экспортированных bundle вместо сессий
       --force               восстановить поверх изменённого рабочего дерева
       --all                 проверить цепочки всех полётов (verify)
       --to <ref>            чекпоинт для replay/diff: метка или commit
@@ -88,6 +90,7 @@ ${COMMON_HELP}
   oc-pilot flight diff --from base --to "tests green"
   oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef
   oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef --html --output compare.html
+  oc-pilot flight compare --bundles a.json b.json
   oc-pilot flight html --output flight.html
   oc-pilot flight export --key flight.key --output flight.json
   oc-pilot flight export --bundle flight.json --key new.key --output resigned.json
@@ -262,7 +265,9 @@ export function runFlight(argv) {
                 hint: "Используйте: oc-pilot flight compare <id-a> <id-b>.",
             });
         }
-        const result = compareFlights(ctx.cwd, first, second);
+        const result = asBoolean(values, "bundles")
+            ? compareFlightShows(flightShowFromBundle(loadFlightBundle(first)), flightShowFromBundle(loadFlightBundle(second)))
+            : compareFlights(ctx.cwd, first, second);
         writeOutput(asBoolean(values, "html")
             ? renderFlightCompareHtml(result)
             : json

@@ -1246,8 +1246,12 @@ function compareSide(show: FlightShow): { side: FlightCompareSide; runs: Map<str
 }
 
 export function compareFlights(cwd: string, idA: string, idB: string): FlightCompareResult {
-  const left = compareSide(showFlight(cwd, idA));
-  const right = compareSide(showFlight(cwd, idB));
+  return compareFlightShows(showFlight(cwd, idA), showFlight(cwd, idB));
+}
+
+export function compareFlightShows(showA: FlightShow, showB: FlightShow): FlightCompareResult {
+  const left = compareSide(showA);
+  const right = compareSide(showB);
   const common: string[][] = [];
   const onlyA: string[][] = [];
   const onlyB: string[][] = [];

@@ -1798,6 +1798,23 @@ test("flight records checkpoints, status, verify and end", () => {
     assert.equal(compared.b.checkpoints, 1);
     assert.equal(compared.sameFinalTree, true);
 
+    const exportedSecond = runCli(
+      ["flight", "export", "--id", second.session.meta.id, "--output", "bundle-b.json", "--json"],
+      dir,
+    );
+    assert.equal(exportedSecond.status, 0, exportedSecond.stderr);
+    const compareBundles = runCli(
+      ["flight", "compare", "--bundles", "bundle.json", "bundle-b.json", "--json"],
+      dir,
+    );
+    assert.equal(compareBundles.status, 0, compareBundles.stderr);
+    const comparedBundles = JSON.parse(compareBundles.stdout) as {
+      a: { id: string };
+      b: { id: string };
+    };
+    assert.equal(comparedBundles.a.id, started.session.meta.id);
+    assert.equal(comparedBundles.b.id, second.session.meta.id);
+
     const stats = runCli(["flight", "stats", "--json"], dir);
     assert.equal(stats.status, 0, stats.stderr);
     const totals = JSON.parse(stats.stdout) as {
