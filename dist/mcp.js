@@ -1530,6 +1530,19 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_list",
+        description: "List recorded flight sessions, newest first, with event and checkpoint counts.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                limit: { type: "integer", minimum: 0, description: "Maximum number of sessions to return" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "flight_show",
         description: "Read a flight journal and verify its hash chain. Defaults to the active flight.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -4454,6 +4467,13 @@ async function callFlightCheckpoint(input, cwd) {
 async function callFlightStatus(_input, cwd) {
     return toToolResult(await runCli(["flight", "status", "--json"], cwd));
 }
+async function callFlightList(input, cwd) {
+    const args = ["flight", "list", "--json"];
+    const limit = integerArg(input, "limit");
+    if (limit !== undefined)
+        args.push("--limit", String(limit));
+    return toToolResult(await runCli(args, cwd));
+}
 async function callFlightShow(input, cwd) {
     const args = ["flight", "show", "--json"];
     const id = stringArg(input, "id");
@@ -5100,6 +5120,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightCheckpoint(input, cwd);
         case "flight_status":
             return callFlightStatus(input, cwd);
+        case "flight_list":
+            return callFlightList(input, cwd);
         case "flight_show":
             return callFlightShow(input, cwd);
         case "flight_verify":
@@ -5246,6 +5268,9 @@ function summarizeResult(value) {
     }
     if (typeof value.score === "number" && typeof value.hotspot === "boolean" && value.totals && typeof value.totals === "object") {
         return `oc-pilot: chronos ${String(value.score)}, ${value.hotspot ? "hotspot" : "stable"}`;
+    }
+    if (Array.isArray(value.flights)) {
+        return `oc-pilot: ${String(value.flights.length)} flight session(s)`;
     }
     if (typeof value.id === "string" && typeof value.label === "string" && typeof value.commit === "string" && typeof value.path === "string") {
         return `oc-pilot: flight replay ${value.id} ${value.label}`;

@@ -1413,6 +1413,10 @@ test("flight records checkpoints, status, verify and end", () => {
         const pruned = JSON.parse(prune.stdout);
         assert.equal(pruned.removed.length, 1);
         assert.equal(pruned.dryRun, true);
+        const listed = runCli(["flight", "list", "--limit", "1", "--json"], dir);
+        assert.equal(listed.status, 0, listed.stderr);
+        const sessions = JSON.parse(listed.stdout);
+        assert.equal(sessions.flights.length, 1);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

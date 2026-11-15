@@ -97,7 +97,7 @@ The token itself is never written to the config: the generated entry references
 | `custom` | Free-form request with optional diff | `instruction: string` |
 | `scan` | Offline secret scan, no model call | none (git mode by default) |
 
-Flight tools: `flight_start` (name), `flight_exec` (command array, optional timeout), `flight_checkpoint` (optional label), `flight_status`, `flight_show` (optional id), `flight_verify` (optional id), `flight_end`, `flight_replay` (optional to/path), `flight_bisect` (command array, optional timeout), `flight_diff` (optional from/to), `flight_compare` (two ids), `flight_html` (optional id), `flight_stats`, `flight_prune` (optional keep/older_than_days/dry_run), `flight_restore` (label/commit, optional id/force/dry_run), `flight_export` (optional output/key), `flight_verify_bundle` (file, optional key). They are write tools except status/show/verify/diff/compare/html/stats/verify_bundle and require `--allow-write`.
+Flight tools: `flight_start` (name), `flight_exec` (command array, optional timeout), `flight_checkpoint` (optional label), `flight_status`, `flight_list` (optional limit), `flight_show` (optional id), `flight_verify` (optional id), `flight_end`, `flight_replay` (optional to/path), `flight_bisect` (command array, optional timeout), `flight_diff` (optional from/to), `flight_compare` (two ids), `flight_html` (optional id), `flight_stats`, `flight_prune` (optional keep/older_than_days/dry_run), `flight_restore` (label/commit, optional id/force/dry_run), `flight_export` (optional output/key), `flight_verify_bundle` (file, optional key). They are write tools except status/show/verify/diff/compare/html/stats/verify_bundle and require `--allow-write`.
 
 All tools return:
 
@@ -396,7 +396,7 @@ server. Add it to `~/.dsh/profiles/web/cordis.patch.yml`:
         serverName: oc_pilot
         transport: stdio
         command: npx
-        args: ['-y', 'oc-pilot@0.125.0', 'mcp', '--cwd', '/absolute/path/to/project']
+        args: ['-y', 'oc-pilot@0.126.0', 'mcp', '--cwd', '/absolute/path/to/project']
         toolCallTimeoutMs: 300000
 ```
 
@@ -480,7 +480,7 @@ The repository also ships a composite action, so the whole gate is:
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: MyNameIsNikki/oc-pilot@v0.125.0
+- uses: MyNameIsNikki/oc-pilot@v0.126.0
   with:
     command: scan
     args: --base origin/${{ github.base_ref }} --fail-on-secrets
@@ -524,7 +524,7 @@ The repository ships `.pre-commit-hooks.yaml`, so the standard
 ```yaml
 repos:
   - repo: https://github.com/MyNameIsNikki/oc-pilot
-    rev: v0.125.0
+    rev: v0.126.0
     hooks:
       - id: oc-pilot-secrets  # oc-pilot scan --staged
       - id: oc-pilot-review   # oc-pilot review --staged --fail-on critical --fail-on-secrets

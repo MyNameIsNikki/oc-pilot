@@ -56,6 +56,7 @@ const OPTIONS: OptionSpec = withCommon({
   id: { type: "string" },
   with: { type: "string" },
   keep: { type: "string" },
+  limit: { type: "string" },
   "older-than": { type: "string" },
   "dry-run": { type: "boolean" },
   force: { type: "boolean" },
@@ -74,7 +75,7 @@ const HELP = `Использование:
   oc-pilot flight status
   oc-pilot flight stats [--html]
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
-  oc-pilot flight list
+  oc-pilot flight list [--limit <n>]
   oc-pilot flight show <id>
   oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
@@ -97,6 +98,7 @@ const HELP = `Использование:
       --id <id>             идентификатор полёта
       --with <id>           второй полёт для compare
       --keep <n>            сколько последних полётов оставить при prune (по умолчанию 20)
+      --limit <n>           сколько последних полётов показать в list
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore)
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
@@ -255,7 +257,9 @@ export function runFlight(argv: string[]): number {
   }
 
   if (action === "list") {
-    const flights = listFlights(ctx.cwd);
+    const limit = optionalNonNegativeInteger(values, "limit", "--limit");
+    const all = listFlights(ctx.cwd);
+    const flights = limit === undefined ? all : all.slice(0, limit);
     writeOutput(
       json ? JSON.stringify({ flights }, null, 2) : renderFlightList(flights),
       ctx.flags.output,

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.126.0
+
+- `flight list [--limit <n>]` показывает только последние полёты; `--json` отдаёт `{flights}`.
+- Новый MCP-инструмент `flight_list` (read-only), документация; 890 тестов; версия 0.126.0.
+
 ## 0.125.0
 
 - `flight restore --dry-run` показывает файлы, которые изменятся, без изменения worktree; `flight_restore` в MCP принимает `dry_run`.

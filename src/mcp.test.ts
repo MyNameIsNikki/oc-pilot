@@ -480,6 +480,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
       "flight_exec",
       "flight_checkpoint",
       "flight_status",
+      "flight_list",
       "flight_show",
       "flight_verify",
       "flight_end",
@@ -519,6 +520,10 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(flightPrune, "flight_prune tool missing");
     assert.ok(flightPrune.inputSchema.properties.keep, "keep missing on flight_prune");
     assert.ok(flightPrune.inputSchema.properties.older_than_days, "older_than_days missing on flight_prune");
+
+    const flightList = tools.find((tool) => tool.name === "flight_list");
+    assert.ok(flightList, "flight_list tool missing");
+    assert.ok(flightList.inputSchema.properties.limit, "limit missing on flight_list");
 
     const flightExport = tools.find((tool) => tool.name === "flight_export");
     assert.ok(flightExport, "flight_export tool missing");
