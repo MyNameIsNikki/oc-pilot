@@ -1,6 +1,7 @@
 import { PilotError } from "../core/errors.js";
 import {
   auditFlights,
+  addFlightNote,
   bisectFlight,
   compareFlights,
   createCheckpoint,
@@ -79,6 +80,7 @@ const HELP = `Использование:
   oc-pilot flight keygen [--output <файл>]
   oc-pilot flight start [--name <имя>]
   oc-pilot flight exec [--timeout <мс>] -- <команда...>
+  oc-pilot flight note <текст>
   oc-pilot flight checkpoint [--label <метка>]
   oc-pilot flight status
   oc-pilot flight stats [--html]
@@ -128,6 +130,7 @@ ${COMMON_HELP}
 Примеры:
   oc-pilot flight keygen --output flight.key
   oc-pilot flight start --name "fix auth"
+  oc-pilot flight note "почему выбран этот фикс"
   oc-pilot flight stats --html --output stats.html
   oc-pilot flight prune --keep 20 --dry-run
   oc-pilot flight exec -- npm test
@@ -224,6 +227,22 @@ export function runFlight(argv: string[]): number {
     );
     if (result.timedOut) return 124;
     return result.exitCode ?? 1;
+  }
+
+  if (action === "note") {
+    const text = positionals.slice(1).join(" ").trim();
+    if (!text) {
+      throw new PilotError("Не указан текст заметки.", {
+        hint: "Используйте: oc-pilot flight note \"что произошло и почему\".",
+      });
+    }
+    const result = addFlightNote(ctx.cwd, text);
+    writeOutput(
+      json ? JSON.stringify(result, null, 2) : `[FLIGHT NOTE] #${result.seq}: ${result.note}`,
+      ctx.flags.output,
+    );
+    log.success("Заметка записана.");
+    return 0;
   }
 
   if (action === "checkpoint") {

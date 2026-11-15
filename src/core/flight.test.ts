@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   activeFlight,
   appendFlightEvent,
+  addFlightNote,
   auditFlights,
   bisectFlight,
   compareFlights,
@@ -440,6 +441,23 @@ test("pruneFlights removes old ended sessions and keeps the active flight", () =
     assert.equal(real.removed.length, 2);
     assert.equal(listFlights(dir).length, 1);
     assert.equal(activeFlight(dir)?.meta.id, active.meta.id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("addFlightNote appends a hash-chained note", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "notes");
+    const result = addFlightNote(dir, "почему так");
+    assert.equal(result.note, "почему так");
+    assert.equal(result.seq, 2);
+    const show = showFlight(dir, result.id);
+    assert.equal(show.verification.valid, true);
+    const note = show.events.find((event) => event.kind === "note");
+    assert.equal(note?.payload.text, "почему так");
+    assert.throws(() => addFlightNote(dir, "   "), /Пустая заметка/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

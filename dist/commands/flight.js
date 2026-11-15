@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, generateFlightKey, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, } from "../core/flight.js";
+import { auditFlights, addFlightNote, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, generateFlightKey, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, } from "../core/flight.js";
 import { writeOutput, writeSecretOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -27,6 +27,7 @@ const HELP = `Использование:
   oc-pilot flight keygen [--output <файл>]
   oc-pilot flight start [--name <имя>]
   oc-pilot flight exec [--timeout <мс>] -- <команда...>
+  oc-pilot flight note <текст>
   oc-pilot flight checkpoint [--label <метка>]
   oc-pilot flight status
   oc-pilot flight stats [--html]
@@ -76,6 +77,7 @@ ${COMMON_HELP}
 Примеры:
   oc-pilot flight keygen --output flight.key
   oc-pilot flight start --name "fix auth"
+  oc-pilot flight note "почему выбран этот фикс"
   oc-pilot flight stats --html --output stats.html
   oc-pilot flight prune --keep 20 --dry-run
   oc-pilot flight exec -- npm test
@@ -157,6 +159,18 @@ export function runFlight(argv) {
         if (result.timedOut)
             return 124;
         return result.exitCode ?? 1;
+    }
+    if (action === "note") {
+        const text = positionals.slice(1).join(" ").trim();
+        if (!text) {
+            throw new PilotError("Не указан текст заметки.", {
+                hint: "Используйте: oc-pilot flight note \"что произошло и почему\".",
+            });
+        }
+        const result = addFlightNote(ctx.cwd, text);
+        writeOutput(json ? JSON.stringify(result, null, 2) : `[FLIGHT NOTE] #${result.seq}: ${result.note}`, ctx.flags.output);
+        log.success("Заметка записана.");
+        return 0;
     }
     if (action === "checkpoint") {
         const label = asString(values, "label") ?? new Date().toISOString();

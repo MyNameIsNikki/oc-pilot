@@ -1590,6 +1590,21 @@ const TOOLS = [
     },
   },
   {
+    name: "flight_note",
+    description:
+      "Append a free-form note to the active flight journal so later readers know why something was done. Needs --allow-write.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["text"],
+      properties: {
+        text: { type: "string", description: "Note text" },
+        ...RESULT_PROPERTIES,
+      },
+    },
+  },
+  {
     name: "flight_checkpoint",
     description:
       "Create a dangling git commit checkpoint of the current worktree and append it to the active flight journal. Needs --allow-write.",
@@ -4276,6 +4291,11 @@ async function callFlightCheckpoint(input: JsonObject, cwd: string): Promise<Too
   return toToolResult(await runCli(args, cwd));
 }
 
+async function callFlightNote(input: JsonObject, cwd: string): Promise<ToolResult> {
+  const text = stringArg(input, "text", true)!;
+  return toToolResult(await runCli(["flight", "note", text, "--json"], cwd));
+}
+
 async function callFlightStatus(_input: JsonObject, cwd: string): Promise<ToolResult> {
   return toToolResult(await runCli(["flight", "status", "--json"], cwd));
 }
@@ -4730,7 +4750,7 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
     }
     if (
       name.startsWith("flight_") &&
-      ["flight_start", "flight_exec", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_prune", "flight_restore", "flight_export"].includes(name)
+      ["flight_start", "flight_exec", "flight_note", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_prune", "flight_restore", "flight_export"].includes(name)
     ) {
       throw new ToolInputError("flight write actions are disabled in read-only mode; start the MCP server with --allow-write");
     }
@@ -4866,6 +4886,8 @@ async function dispatchTool(name: string, input: JsonObject, cwd: string, readOn
       return callFlightStart(input, cwd);
     case "flight_exec":
       return callFlightExec(input, cwd);
+    case "flight_note":
+      return callFlightNote(input, cwd);
     case "flight_checkpoint":
       return callFlightCheckpoint(input, cwd);
     case "flight_status":
@@ -5076,6 +5098,9 @@ function summarizeResult(value: JsonObject): string {
   if (typeof value.format === "string" && value.format.startsWith("oc-pilot-flight-export/") && typeof value.digest === "string") {
     const checkpoints = Array.isArray(value.checkpoints) ? value.checkpoints.length : 0;
     return `oc-pilot: flight export ${String(checkpoints)} checkpoint(s), ${value.digest.slice(0, 15)}`;
+  }
+  if (typeof value.note === "string" && typeof value.seq === "number") {
+    return `oc-pilot: flight note #${String(value.seq)} recorded`;
   }
   if (value.mode === "restore" && typeof value.id === "string" && typeof value.label === "string" && typeof value.commit === "string") {
     return `oc-pilot: flight restore ${value.label} ${value.commit.slice(0, 8)}`;

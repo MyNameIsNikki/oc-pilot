@@ -100,6 +100,18 @@ export function appendFlightEvent(dir, kind, payload) {
     appendFileSync(eventsPath(dir), `${JSON.stringify(event)}\n`, "utf8");
     return event;
 }
+export function addFlightNote(cwd, text) {
+    const note = text.trim();
+    if (note.length === 0) {
+        throw new PilotError("Пустая заметка.", {
+            hint: "Передайте текст: oc-pilot flight note \"...\".",
+            exitCode: 2,
+        });
+    }
+    const session = requireActiveFlight(cwd);
+    const event = appendFlightEvent(session.dir, "note", { text: note });
+    return { id: session.meta.id, seq: event.seq, note };
+}
 export function verifyFlightEvents(events) {
     const errors = [];
     let previous = "genesis";
@@ -556,6 +568,9 @@ export function renderFlightPrune(result) {
 function eventSummary(event) {
     if (event.kind === "file.checkpoint") {
         return `чекпоинт ${String(event.payload.label ?? "")} (${String(event.payload.commit ?? "").slice(0, 8)})`;
+    }
+    if (event.kind === "note") {
+        return `Заметка: ${String(event.payload.text ?? "")}`;
     }
     if (event.kind === "command.start" || event.kind === "command.end") {
         const command = Array.isArray(event.payload.command) ? event.payload.command.join(" ") : "";

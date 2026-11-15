@@ -21,6 +21,7 @@ export type FlightEventKind =
   | "file.checkpoint"
   | "gate.result"
   | "approval"
+  | "note"
   | "session.end";
 
 export interface FlightEvent {
@@ -244,6 +245,25 @@ export function appendFlightEvent(
   const event: FlightEvent = { ...base, hash: flightEventHash(base) };
   appendFileSync(eventsPath(dir), `${JSON.stringify(event)}\n`, "utf8");
   return event;
+}
+
+export interface FlightNoteResult {
+  id: string;
+  seq: number;
+  note: string;
+}
+
+export function addFlightNote(cwd: string, text: string): FlightNoteResult {
+  const note = text.trim();
+  if (note.length === 0) {
+    throw new PilotError("Пустая заметка.", {
+      hint: "Передайте текст: oc-pilot flight note \"...\".",
+      exitCode: 2,
+    });
+  }
+  const session = requireActiveFlight(cwd);
+  const event = appendFlightEvent(session.dir, "note", { text: note });
+  return { id: session.meta.id, seq: event.seq, note };
 }
 
 export function verifyFlightEvents(events: FlightEvent[]): FlightVerifyResult {
@@ -722,6 +742,9 @@ export function renderFlightPrune(result: FlightPruneResult): string {
 function eventSummary(event: FlightEvent): string {
   if (event.kind === "file.checkpoint") {
     return `чекпоинт ${String(event.payload.label ?? "")} (${String(event.payload.commit ?? "").slice(0, 8)})`;
+  }
+  if (event.kind === "note") {
+    return `Заметка: ${String(event.payload.text ?? "")}`;
   }
   if (event.kind === "command.start" || event.kind === "command.end") {
     const command = Array.isArray(event.payload.command) ? event.payload.command.join(" ") : "";

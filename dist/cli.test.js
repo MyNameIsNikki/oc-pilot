@@ -1354,6 +1354,11 @@ test("flight records checkpoints, status, verify and end", () => {
         const started = JSON.parse(start.stdout);
         assert.equal(started.active, true);
         assert.match(started.session.meta.id, /^[A-Za-z0-9._-]+$/);
+        const note = runCli(["flight", "note", "почему так", "--json"], dir);
+        assert.equal(note.status, 0, note.stderr);
+        const noted = JSON.parse(note.stdout);
+        assert.equal(noted.note, "почему так");
+        assert.ok(noted.seq >= 2);
         writeFileSync(join(dir, "b.txt"), "two\n", "utf8");
         const checkpoint = runCli(["flight", "checkpoint", "--label", "after-b", "--json"], dir);
         assert.equal(checkpoint.status, 0, checkpoint.stderr);

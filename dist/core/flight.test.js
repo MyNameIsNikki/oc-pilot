@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -375,6 +375,23 @@ test("pruneFlights removes old ended sessions and keeps the active flight", () =
         assert.equal(real.removed.length, 2);
         assert.equal(listFlights(dir).length, 1);
         assert.equal(activeFlight(dir)?.meta.id, active.meta.id);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("addFlightNote appends a hash-chained note", () => {
+    const dir = makeRepo();
+    try {
+        startFlight(dir, "notes");
+        const result = addFlightNote(dir, "почему так");
+        assert.equal(result.note, "почему так");
+        assert.equal(result.seq, 2);
+        const show = showFlight(dir, result.id);
+        assert.equal(show.verification.valid, true);
+        const note = show.events.find((event) => event.kind === "note");
+        assert.equal(note?.payload.text, "почему так");
+        assert.throws(() => addFlightNote(dir, "   "), /Пустая заметка/);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });
