@@ -31,7 +31,7 @@ const HELP = `Использование:
   oc-pilot flight stats [--html]
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
   oc-pilot flight list [--limit <n>]
-  oc-pilot flight show <id>
+  oc-pilot flight show [<id>]
   oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
@@ -91,6 +91,7 @@ function requireId(values, positionals) {
     if (!id) {
         throw new PilotError("Не указан идентификатор полёта.", {
             hint: "Посмотрите список: oc-pilot flight list.",
+            exitCode: 2,
         });
     }
     return id;
@@ -191,7 +192,7 @@ export function runFlight(argv) {
         return 0;
     }
     if (action === "show") {
-        const show = showFlight(ctx.cwd, requireId(values, positionals));
+        const show = showFlight(ctx.cwd, asString(values, "id") ?? positionals[1]);
         writeOutput(json ? JSON.stringify(show, null, 2) : renderFlightShow(show), ctx.flags.output);
         return show.verification.valid ? 0 : 2;
     }

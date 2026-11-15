@@ -1544,13 +1544,13 @@ const TOOLS = [
     },
     {
         name: "flight_show",
-        description: "Read a flight journal and verify its hash chain. Defaults to the active flight.",
+        description: "Read a flight journal and verify its hash chain. Defaults to the active or most recent flight.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: {
             type: "object",
             additionalProperties: false,
             properties: {
-                id: { type: "string", description: "Flight session id; defaults to the active flight" },
+                id: { type: "string", description: "Flight session id; defaults to the active or most recent flight" },
                 ...RESULT_PROPERTIES,
             },
         },

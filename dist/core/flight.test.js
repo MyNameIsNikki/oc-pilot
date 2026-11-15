@@ -224,6 +224,19 @@ test("auditFlights reports tampered sessions", () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+test("showFlight defaults to the latest flight and exits 2 on an empty journal", () => {
+    const dir = makeRepo();
+    try {
+        assert.throws(() => showFlight(dir), (error) => error.exitCode === 2);
+        const session = startFlight(dir, "default");
+        endFlight(dir);
+        assert.equal(showFlight(dir).meta.id, session.meta.id);
+        assert.throws(() => showFlight(dir, "no-such-flight"), (error) => error.exitCode === 2);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 test("diffFlight compares the base commit with a checkpoint", () => {
     const dir = makeRepo();
     try {

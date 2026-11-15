@@ -43,6 +43,7 @@ function sessionDir(root, id) {
     if (!/^[A-Za-z0-9._-]+$/.test(id) || id === "." || id === "..") {
         throw new PilotError(`Некорректный идентификатор полёта: ${id}`, {
             hint: "Используйте идентификатор из oc-pilot flight list.",
+            exitCode: 2,
         });
     }
     return join(root, id);
@@ -175,6 +176,7 @@ export function requireActiveFlight(cwd) {
     if (!session) {
         throw new PilotError("Полёт не запущен.", {
             hint: "Начните: oc-pilot flight start --name \"...\".",
+            exitCode: 2,
         });
     }
     return session;
@@ -429,10 +431,12 @@ export function pruneFlights(cwd, options = {}) {
 }
 export function showFlight(cwd, id) {
     const root = flightsRoot(cwd);
-    const dir = sessionDir(root, id);
+    const resolved = resolveFlightId(cwd, id);
+    const dir = sessionDir(root, resolved);
     if (!existsSync(metaPath(dir))) {
-        throw new PilotError(`Полёт ${id} не найден.`, {
+        throw new PilotError(`Полёт ${resolved} не найден.`, {
             hint: "Посмотрите список: oc-pilot flight list.",
+            exitCode: 2,
         });
     }
     const meta = readMeta(dir);
@@ -636,6 +640,7 @@ function resolveFlightId(cwd, id) {
         return latest.id;
     throw new PilotError("Полёт не запущен.", {
         hint: "Запустите oc-pilot flight start или укажите --id.",
+        exitCode: 2,
     });
 }
 function flightCheckpoints(show) {
