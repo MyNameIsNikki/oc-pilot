@@ -1895,6 +1895,21 @@ test("flight records checkpoints, status, verify and end", () => {
       dir,
     );
     assert.equal(compareDigest.status, 2, compareDigest.stderr);
+    const showDigest = runCli(
+      ["flight", "show", "--bundle", "bundle-digest.json", "--json"],
+      dir,
+    );
+    assert.equal(showDigest.status, 2, showDigest.stderr);
+    const summaryDigest = runCli(
+      ["flight", "summary", "--bundle", "bundle-digest.json", "--json"],
+      dir,
+    );
+    assert.equal(summaryDigest.status, 2, summaryDigest.stderr);
+    const htmlDigest = runCli(
+      ["flight", "html", "--bundle", "bundle-digest.json", "--json"],
+      dir,
+    );
+    assert.equal(htmlDigest.status, 2, htmlDigest.stderr);
 
     const filtered = runCli(
       ["flight", "show", "--id", started.session.meta.id, "--kind", "note", "--json"],

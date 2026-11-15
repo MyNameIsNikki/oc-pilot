@@ -335,6 +335,10 @@ export function runFlight(argv: string[]): number {
         ? JSON.stringify({ ...filtered, totalEvents: show.events.length }, null, 2)
         : renderFlightShow(filtered),
     );
+    if (bundlePath) {
+      const check = verifyFlightBundle(bundlePath);
+      return check.digestOk && check.chainOk ? 0 : 2;
+    }
     return show.verification.valid ? 0 : 2;
   }
 
@@ -457,6 +461,10 @@ export function runFlight(argv: string[]): number {
       json ? JSON.stringify({ id: show.meta.id, markdown }, null, 2) : markdown,
     );
     log.success(`Сводка ${show.meta.id} записана.`);
+    if (bundlePath) {
+      const check = verifyFlightBundle(bundlePath);
+      return check.digestOk && check.chainOk ? 0 : 2;
+    }
     return show.verification.valid ? 0 : 2;
   }
 
@@ -470,6 +478,10 @@ export function runFlight(argv: string[]): number {
       json ? JSON.stringify({ id: result.meta.id, html }, null, 2) : html,
     );
     log.success(`HTML-отчёт ${result.meta.id} записан.`);
+    if (bundlePath) {
+      const check = verifyFlightBundle(bundlePath);
+      return check.digestOk && check.chainOk ? 0 : 2;
+    }
     return verifyFlightEvents(result.events).valid ? 0 : 2;
   }
 

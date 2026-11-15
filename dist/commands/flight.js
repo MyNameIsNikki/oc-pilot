@@ -244,6 +244,10 @@ export function runFlight(argv) {
         flightOutput(json
             ? JSON.stringify({ ...filtered, totalEvents: show.events.length }, null, 2)
             : renderFlightShow(filtered));
+        if (bundlePath) {
+            const check = verifyFlightBundle(bundlePath);
+            return check.digestOk && check.chainOk ? 0 : 2;
+        }
         return show.verification.valid ? 0 : 2;
     }
     if (action === "verify") {
@@ -324,6 +328,10 @@ export function runFlight(argv) {
         const markdown = renderFlightSummary(show);
         flightOutput(json ? JSON.stringify({ id: show.meta.id, markdown }, null, 2) : markdown);
         log.success(`Сводка ${show.meta.id} записана.`);
+        if (bundlePath) {
+            const check = verifyFlightBundle(bundlePath);
+            return check.digestOk && check.chainOk ? 0 : 2;
+        }
         return show.verification.valid ? 0 : 2;
     }
     if (action === "html") {
@@ -334,6 +342,10 @@ export function runFlight(argv) {
         const html = renderFlightHtml(result);
         flightOutput(json ? JSON.stringify({ id: result.meta.id, html }, null, 2) : html);
         log.success(`HTML-отчёт ${result.meta.id} записан.`);
+        if (bundlePath) {
+            const check = verifyFlightBundle(bundlePath);
+            return check.digestOk && check.chainOk ? 0 : 2;
+        }
         return verifyFlightEvents(result.events).valid ? 0 : 2;
     }
     if (action === "verify-bundle") {
