@@ -1643,6 +1643,7 @@ const TOOLS = [
         text: { type: "string", description: "Text to search for" },
         id: { type: "string", description: "Limit the search to one flight session" },
         limit: { type: "integer", minimum: 1, description: "Maximum number of matches; default 50" },
+        kind: { type: "string", description: "Only search events of this kind, e.g. note or command.end" },
         ...RESULT_PROPERTIES,
       },
     },
@@ -4327,6 +4328,8 @@ async function callFlightGrep(input: JsonObject, cwd: string): Promise<ToolResul
   if (id) args.push("--id", id);
   const limit = integerArg(input, "limit");
   if (limit !== undefined) args.push("--limit", String(limit));
+  const kind = stringArg(input, "kind");
+  if (kind) args.push("--kind", kind);
   return toToolResult(await runCli(args, cwd));
 }
 

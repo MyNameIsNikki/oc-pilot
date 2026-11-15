@@ -513,7 +513,7 @@ function grepEventText(event) {
     }
     return "";
 }
-export function grepFlights(cwd, query, id, limit = 50) {
+export function grepFlights(cwd, query, id, limit = 50, kind) {
     const needle = query.trim().toLowerCase();
     if (needle.length === 0) {
         throw new PilotError("Пустой поисковый запрос.", {
@@ -529,10 +529,19 @@ export function grepFlights(cwd, query, id, limit = 50) {
     const flights = id
         ? [showFlight(cwd, id)]
         : listFlights(cwd).map((flight) => showFlight(cwd, flight.id));
+    const kindFilter = kind?.trim();
+    if (kindFilter && !FLIGHT_EVENT_KINDS.includes(kindFilter)) {
+        throw new PilotError(`Неизвестный тип события: ${kindFilter}`, {
+            hint: `Доступно: ${FLIGHT_EVENT_KINDS.join(", ")}.`,
+            exitCode: 2,
+        });
+    }
     const matches = [];
     let total = 0;
     for (const show of flights) {
         for (const event of show.events) {
+            if (kindFilter && event.kind !== kindFilter)
+                continue;
             const text = grepEventText(event);
             if (!text.toLowerCase().includes(needle))
                 continue;

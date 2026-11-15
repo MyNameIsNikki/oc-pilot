@@ -1483,6 +1483,11 @@ test("flight records checkpoints, status, verify and end", () => {
         const found = JSON.parse(grepped.stdout);
         assert.ok(found.total >= 1);
         assert.equal(found.matches[0]?.kind, "note");
+        const grepByKind = runCli(["flight", "grep", "почему", "--kind", "note", "--json"], dir);
+        assert.equal(grepByKind.status, 0, grepByKind.stderr);
+        const byKind = JSON.parse(grepByKind.stdout);
+        assert.ok(byKind.total >= 1);
+        assert.ok(byKind.matches.every((match) => match.kind === "note"));
         const filtered = runCli(["flight", "show", "--id", started.session.meta.id, "--kind", "note", "--json"], dir);
         assert.equal(filtered.status, 0, filtered.stderr);
         const filteredShow = JSON.parse(filtered.stdout);

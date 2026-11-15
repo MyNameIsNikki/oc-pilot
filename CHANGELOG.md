@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.142.0
+
+- `flight grep <текст> --kind <тип>` ограничивает поиск одним типом события (note, command.start, command.end и др.); MCP `flight_grep` принимает `kind`.
+- Документация; 901 тест; версия 0.142.0.
+
 ## 0.141.0
 
 - `flight stats` и `flight stats --html` теперь считают заметки: в `FlightStats` появилось поле `notes`, в текстовом отчёте — «заметки», в дашборде — карточка Notes.

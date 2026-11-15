@@ -93,7 +93,7 @@ const HELP = `Использование:
   oc-pilot flight status
   oc-pilot flight stats [--html]
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
-  oc-pilot flight grep <текст> [--id <id>] [--limit <n>]
+  oc-pilot flight grep <текст> [--id <id>] [--limit <n>] [--kind <тип>]
   oc-pilot flight list [--limit <n>]
   oc-pilot flight show [<id>] [--bundle <файл>] [--kind <тип>] [--last <n>]
   oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
@@ -119,7 +119,7 @@ const HELP = `Использование:
       --with <id>           второй полёт для compare
       --keep <n>            сколько последних полётов оставить при prune (по умолчанию 20)
       --limit <n>           сколько последних полётов показать в list или совпадений в grep
-      --kind <тип>          фильтр событий в show: note, command.start, command.end, file.checkpoint и др.
+      --kind <тип>          фильтр событий в show и grep: note, command.start, command.end, file.checkpoint и др.
       --last <n>            показать только последние n событий в show
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore)
@@ -299,6 +299,7 @@ export function runFlight(argv: string[]): number {
       text,
       asString(values, "id"),
       optionalNonNegativeInteger(values, "limit", "--limit"),
+      asString(values, "kind"),
     );
     flightOutput(json ? JSON.stringify(result, null, 2) : renderFlightGrep(result));
     log.success(`Найдено совпадений: ${result.matches.length}.`);

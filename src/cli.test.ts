@@ -1849,6 +1849,15 @@ test("flight records checkpoints, status, verify and end", () => {
     assert.ok(found.total >= 1);
     assert.equal(found.matches[0]?.kind, "note");
 
+    const grepByKind = runCli(["flight", "grep", "почему", "--kind", "note", "--json"], dir);
+    assert.equal(grepByKind.status, 0, grepByKind.stderr);
+    const byKind = JSON.parse(grepByKind.stdout) as {
+      total: number;
+      matches: Array<{ kind: string }>;
+    };
+    assert.ok(byKind.total >= 1);
+    assert.ok(byKind.matches.every((match) => match.kind === "note"));
+
     const filtered = runCli(
       ["flight", "show", "--id", started.session.meta.id, "--kind", "note", "--json"],
       dir,

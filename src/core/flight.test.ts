@@ -381,6 +381,11 @@ test("grepFlights finds notes and command output across sessions", () => {
     assert.equal(limited.matches.length, 1);
     assert.ok(limited.total > 1);
 
+    const onlyNotes = grepFlights(dir, "о", undefined, 50, "note");
+    assert.ok(onlyNotes.total >= 1);
+    assert.ok(onlyNotes.matches.every((match) => match.kind === "note"));
+    assert.throws(() => grepFlights(dir, "e", undefined, 50, "bogus"), /Неизвестный тип события/);
+
     assert.throws(() => grepFlights(dir, "   "), /Пустой поисковый запрос/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

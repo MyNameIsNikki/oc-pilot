@@ -698,6 +698,7 @@ export function grepFlights(
   query: string,
   id?: string,
   limit = 50,
+  kind?: string,
 ): FlightGrepResult {
   const needle = query.trim().toLowerCase();
   if (needle.length === 0) {
@@ -714,10 +715,18 @@ export function grepFlights(
   const flights = id
     ? [showFlight(cwd, id)]
     : listFlights(cwd).map((flight) => showFlight(cwd, flight.id));
+  const kindFilter = kind?.trim();
+  if (kindFilter && !FLIGHT_EVENT_KINDS.includes(kindFilter as FlightEventKind)) {
+    throw new PilotError(`Неизвестный тип события: ${kindFilter}`, {
+      hint: `Доступно: ${FLIGHT_EVENT_KINDS.join(", ")}.`,
+      exitCode: 2,
+    });
+  }
   const matches: FlightGrepMatch[] = [];
   let total = 0;
   for (const show of flights) {
     for (const event of show.events) {
+      if (kindFilter && event.kind !== kindFilter) continue;
       const text = grepEventText(event);
       if (!text.toLowerCase().includes(needle)) continue;
       total += 1;
