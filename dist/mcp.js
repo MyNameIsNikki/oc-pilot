@@ -1551,6 +1551,7 @@ const TOOLS = [
             additionalProperties: false,
             properties: {
                 id: { type: "string", description: "Flight session id; defaults to the active or most recent flight" },
+                bundle: { type: "string", description: "Path to a flight export bundle; reads without the local journal" },
                 ...RESULT_PROPERTIES,
             },
         },
@@ -4498,6 +4499,9 @@ async function callFlightShow(input, cwd) {
     const id = stringArg(input, "id");
     if (id)
         args.push("--id", id);
+    const bundle = stringArg(input, "bundle");
+    if (bundle)
+        args.push("--bundle", bundle);
     return toToolResult(await runCli(args, cwd));
 }
 async function callFlightVerify(input, cwd) {

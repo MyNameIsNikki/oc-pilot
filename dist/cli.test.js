@@ -1426,6 +1426,11 @@ test("flight records checkpoints, status, verify and end", () => {
         assert.equal(bundledSummary.id, started.session.meta.id);
         assert.match(bundledSummary.markdown, /^# Полёт: /);
         assert.match(bundledSummary.markdown, /Цепочка: целая/);
+        const showFromBundle = runCli(["flight", "show", "--bundle", "bundle.json", "--json"], dir);
+        assert.equal(showFromBundle.status, 0, showFromBundle.stderr);
+        const bundledShow = JSON.parse(showFromBundle.stdout);
+        assert.equal(bundledShow.meta.id, started.session.meta.id);
+        assert.equal(bundledShow.verification.valid, true);
         const compare = runCli(["flight", "compare", started.session.meta.id, second.session.meta.id, "--json"], dir);
         assert.equal(compare.status, 0, compare.stderr);
         const compared = JSON.parse(compare.stdout);

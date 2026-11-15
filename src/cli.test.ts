@@ -1753,6 +1753,15 @@ test("flight records checkpoints, status, verify and end", () => {
     assert.match(bundledSummary.markdown, /^# Полёт: /);
     assert.match(bundledSummary.markdown, /Цепочка: целая/);
 
+    const showFromBundle = runCli(["flight", "show", "--bundle", "bundle.json", "--json"], dir);
+    assert.equal(showFromBundle.status, 0, showFromBundle.stderr);
+    const bundledShow = JSON.parse(showFromBundle.stdout) as {
+      meta: { id: string };
+      verification: { valid: boolean };
+    };
+    assert.equal(bundledShow.meta.id, started.session.meta.id);
+    assert.equal(bundledShow.verification.valid, true);
+
     const compare = runCli(
       ["flight", "compare", started.session.meta.id, second.session.meta.id, "--json"],
       dir,

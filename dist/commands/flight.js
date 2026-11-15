@@ -32,7 +32,7 @@ const HELP = `Использование:
   oc-pilot flight stats [--html]
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
   oc-pilot flight list [--limit <n>]
-  oc-pilot flight show [<id>]
+  oc-pilot flight show [<id>] [--bundle <файл>]
   oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
@@ -58,7 +58,7 @@ const HELP = `Использование:
       --limit <n>           сколько последних полётов показать в list
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore)
-      --bundle <файл>       отрендерить HTML или сводку из экспортированного bundle
+      --bundle <файл>       прочитать полёт, HTML или сводку из экспортированного bundle
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
       --force               восстановить поверх изменённого рабочего дерева
@@ -186,7 +186,10 @@ export function runFlight(argv) {
         return 0;
     }
     if (action === "show") {
-        const show = showFlight(ctx.cwd, asString(values, "id") ?? positionals[1]);
+        const bundlePath = asString(values, "bundle");
+        const show = bundlePath
+            ? flightShowFromBundle(loadFlightBundle(bundlePath))
+            : showFlight(ctx.cwd, asString(values, "id") ?? positionals[1]);
         writeOutput(json ? JSON.stringify(show, null, 2) : renderFlightShow(show), ctx.flags.output);
         return show.verification.valid ? 0 : 2;
     }
