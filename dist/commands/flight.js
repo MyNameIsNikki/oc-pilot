@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { auditFlights, addFlightNote, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, generateFlightKey, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, } from "../core/flight.js";
+import { auditFlights, addFlightNote, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, generateFlightKey, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "../core/flight.js";
 import { writeOutput, writeSecretOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -284,7 +284,7 @@ export function runFlight(argv) {
         const markdown = renderFlightSummary(show);
         flightOutput(json ? JSON.stringify({ id: show.meta.id, markdown }, null, 2) : markdown);
         log.success(`Сводка ${show.meta.id} записана.`);
-        return 0;
+        return show.verification.valid ? 0 : 2;
     }
     if (action === "html") {
         const bundlePath = asString(values, "bundle");
@@ -294,7 +294,7 @@ export function runFlight(argv) {
         const html = renderFlightHtml(result);
         flightOutput(json ? JSON.stringify({ id: result.meta.id, html }, null, 2) : html);
         log.success(`HTML-отчёт ${result.meta.id} записан.`);
-        return 0;
+        return verifyFlightEvents(result.events).valid ? 0 : 2;
     }
     if (action === "verify-bundle") {
         const file = positionals[1];

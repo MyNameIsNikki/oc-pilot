@@ -45,6 +45,7 @@ import {
   signFlightBundle,
   startFlight,
   verifyFlightBundle,
+  verifyFlightEvents,
 } from "../core/flight.js";
 import { writeOutput, writeSecretOutput } from "../core/io.js";
 import { log } from "../core/log.js";
@@ -411,7 +412,7 @@ export function runFlight(argv: string[]): number {
       json ? JSON.stringify({ id: show.meta.id, markdown }, null, 2) : markdown,
     );
     log.success(`Сводка ${show.meta.id} записана.`);
-    return 0;
+    return show.verification.valid ? 0 : 2;
   }
 
   if (action === "html") {
@@ -424,7 +425,7 @@ export function runFlight(argv: string[]): number {
       json ? JSON.stringify({ id: result.meta.id, html }, null, 2) : html,
     );
     log.success(`HTML-отчёт ${result.meta.id} записан.`);
-    return 0;
+    return verifyFlightEvents(result.events).valid ? 0 : 2;
   }
 
   if (action === "verify-bundle") {

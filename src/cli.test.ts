@@ -1842,6 +1842,27 @@ test("flight records checkpoints, status, verify and end", () => {
     assert.equal(listed.status, 0, listed.stderr);
     const sessions = JSON.parse(listed.stdout) as { flights: Array<{ id: string }> };
     assert.equal(sessions.flights.length, 1);
+
+    const eventsPath = join(
+      dir,
+      ".git",
+      "oc-pilot",
+      "flights",
+      started.session.meta.id,
+      "events.jsonl",
+    );
+    const rawEvents = readFileSync(eventsPath, "utf8");
+    writeFileSync(eventsPath, rawEvents.replace('"after-b"', '"evil"'), "utf8");
+    const tamperedSummary = runCli(
+      ["flight", "summary", "--id", started.session.meta.id, "--json"],
+      dir,
+    );
+    assert.equal(tamperedSummary.status, 2, tamperedSummary.stderr);
+    const tamperedHtml = runCli(
+      ["flight", "html", "--id", started.session.meta.id, "--json"],
+      dir,
+    );
+    assert.equal(tamperedHtml.status, 2, tamperedHtml.stderr);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
