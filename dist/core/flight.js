@@ -1294,6 +1294,7 @@ function htmlEventOutput(event) {
 }
 export function renderFlightHtml(result) {
     const meta = result.meta;
+    const verification = verifyFlightEvents(result.events);
     const checkpointRows = result.checkpoints.length === 0
         ? `<tr><td colspan="4" class="muted">No checkpoints.</td></tr>`
         : result.checkpoints
@@ -1318,9 +1319,9 @@ ${output}
 </li>`;
     })
         .join("\n");
-    const errors = result.verification.valid
+    const errors = verification.valid
         ? ""
-        : `<section class="errors"><h2>Chain errors</h2><ul>${result.verification.errors
+        : `<section class="errors"><h2>Chain errors</h2><ul>${verification.errors
             .map((error) => `<li>${escapeHtml(error)}</li>`)
             .join("")}</ul></section>`;
     return `<!doctype html>
@@ -1375,7 +1376,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; overflow-wrap: 
 <div class="eyebrow">oc-pilot flight</div>
 <h1>${escapeHtml(meta.name)}</h1>
 <p class="id">${escapeHtml(meta.id)}</p>
-<span class="badge ${result.verification.valid ? "ok" : "bad"}">${result.verification.valid ? "chain valid" : "chain tampered"}</span>
+<span class="badge ${verification.valid ? "ok" : "bad"}">${verification.valid ? "chain valid" : "chain tampered"}</span>
 </header>
 <div class="grid">
 <div><span>Started</span><strong>${escapeHtml(meta.startedAt)}</strong></div>

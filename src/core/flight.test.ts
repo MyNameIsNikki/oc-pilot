@@ -542,7 +542,8 @@ test("renderFlightHtml escapes content and includes checkpoints", () => {
     createCheckpoint(dir, "<b>after</b>");
     endFlight(dir);
 
-    const html = renderFlightHtml(exportFlight(dir, session.meta.id));
+    const bundle = exportFlight(dir, session.meta.id);
+    const html = renderFlightHtml(bundle);
     assert.match(html, /^<!doctype html>/);
     assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
     assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
@@ -550,6 +551,21 @@ test("renderFlightHtml escapes content and includes checkpoints", () => {
     assert.match(html, /&lt;img src=x&gt;/);
     assert.match(html, /chain valid/);
     assert.match(html, /Timeline/);
+
+    const tampered = {
+      ...bundle,
+      events: bundle.events.map((event, index) =>
+        index === 0
+          ? {
+              ...event,
+              payload: { ...(event.payload as Record<string, unknown>), name: "tampered" },
+            }
+          : event,
+      ),
+    };
+    const tamperedHtml = renderFlightHtml(tampered);
+    assert.match(tamperedHtml, /chain tampered/);
+    assert.match(tamperedHtml, /Chain errors/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
