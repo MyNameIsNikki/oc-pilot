@@ -1743,6 +1743,16 @@ test("flight records checkpoints, status, verify and end", () => {
     assert.match(summarized.markdown, /after-b/);
     assert.match(summarized.markdown, /## Команды/);
 
+    const summaryFromBundle = runCli(
+      ["flight", "summary", "--bundle", "bundle.json", "--json"],
+      dir,
+    );
+    assert.equal(summaryFromBundle.status, 0, summaryFromBundle.stderr);
+    const bundledSummary = JSON.parse(summaryFromBundle.stdout) as { id: string; markdown: string };
+    assert.equal(bundledSummary.id, started.session.meta.id);
+    assert.match(bundledSummary.markdown, /^# Полёт: /);
+    assert.match(bundledSummary.markdown, /Цепочка: целая/);
+
     const compare = runCli(
       ["flight", "compare", started.session.meta.id, second.session.meta.id, "--json"],
       dir,

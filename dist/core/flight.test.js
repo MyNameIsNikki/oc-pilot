@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, auditFlights, bisectFlight, compareFlights, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -491,6 +491,29 @@ test("loadFlightBundle reads an exported bundle", () => {
         assert.equal(loaded.digest, bundle.digest);
         assert.equal(loaded.events.length, bundle.events.length);
         assert.equal(loaded.checkpoints.length, 1);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("flightShowFromBundle recomputes the chain for a loaded bundle", () => {
+    const dir = makeRepo();
+    try {
+        const session = startFlight(dir, "bundle-show");
+        createCheckpoint(dir, "bundle-cp");
+        endFlight(dir);
+        const bundle = exportFlight(dir, session.meta.id);
+        const show = flightShowFromBundle(bundle);
+        assert.equal(show.meta.id, session.meta.id);
+        assert.equal(show.events.length, bundle.events.length);
+        assert.equal(show.verification.valid, true);
+        const tampered = {
+            ...bundle,
+            events: bundle.events.map((event, index) => index === 0
+                ? { ...event, payload: { ...event.payload, name: "tampered" } }
+                : event),
+        };
+        assert.equal(flightShowFromBundle(tampered).verification.valid, false);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

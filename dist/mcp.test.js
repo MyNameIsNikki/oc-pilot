@@ -436,6 +436,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
         const flightSummary = tools.find((tool) => tool.name === "flight_summary");
         assert.ok(flightSummary, "flight_summary tool missing");
         assert.ok(flightSummary.inputSchema.properties.id, "id missing on flight_summary");
+        assert.ok(flightSummary.inputSchema.properties.bundle, "bundle missing on flight_summary");
         assert.ok(flightHtml.inputSchema.properties.bundle, "bundle missing on flight_html");
         const flightPrune = tools.find((tool) => tool.name === "flight_prune");
         assert.ok(flightPrune, "flight_prune tool missing");

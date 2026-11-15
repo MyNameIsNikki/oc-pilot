@@ -1359,6 +1359,14 @@ export function loadFlightBundle(file: string): FlightExportResult {
   return bundle;
 }
 
+export function flightShowFromBundle(bundle: FlightExportResult): FlightShow {
+  return {
+    meta: bundle.meta,
+    events: bundle.events,
+    verification: verifyFlightEvents(bundle.events),
+  };
+}
+
 export function verifyFlightBundle(file: string, keyPath?: string): FlightBundleVerifyResult {
   const bundle = loadFlightBundle(file);
   const { digest, signature, ...base } = bundle;

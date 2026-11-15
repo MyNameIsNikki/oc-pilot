@@ -1048,6 +1048,13 @@ export function loadFlightBundle(file) {
     }
     return bundle;
 }
+export function flightShowFromBundle(bundle) {
+    return {
+        meta: bundle.meta,
+        events: bundle.events,
+        verification: verifyFlightEvents(bundle.events),
+    };
+}
 export function verifyFlightBundle(file, keyPath) {
     const bundle = loadFlightBundle(file);
     const { digest, signature, ...base } = bundle;

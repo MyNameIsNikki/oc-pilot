@@ -8,6 +8,7 @@ import {
   endFlight,
   execInFlight,
   exportFlight,
+  flightShowFromBundle,
   flightStats,
   flightStatus,
   generateFlightKey,
@@ -88,7 +89,7 @@ const HELP = `Использование:
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
   oc-pilot flight compare <id-a> <id-b> [--html]
-  oc-pilot flight summary [--id <id>] [--output <файл>]
+  oc-pilot flight summary [--id <id>] [--bundle <файл>] [--output <файл>]
   oc-pilot flight html [--id <id>] [--bundle <файл>] [--output <файл>]
   oc-pilot flight export [--id <id>] [--output <файл>] [--key <файл>]
   oc-pilot flight verify-bundle <файл> [--key <файл>]
@@ -108,7 +109,7 @@ const HELP = `Использование:
       --limit <n>           сколько последних полётов показать в list
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore)
-      --bundle <файл>       отрендерить HTML из экспортированного bundle
+      --bundle <файл>       отрендерить HTML или сводку из экспортированного bundle
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
       --force               восстановить поверх изменённого рабочего дерева
@@ -382,7 +383,10 @@ export function runFlight(argv: string[]): number {
   }
 
   if (action === "summary") {
-    const show = showFlight(ctx.cwd, asString(values, "id"));
+    const bundlePath = asString(values, "bundle");
+    const show = bundlePath
+      ? flightShowFromBundle(loadFlightBundle(bundlePath))
+      : showFlight(ctx.cwd, asString(values, "id"));
     const markdown = renderFlightSummary(show);
     writeOutput(
       json ? JSON.stringify({ id: show.meta.id, markdown }, null, 2) : markdown,
