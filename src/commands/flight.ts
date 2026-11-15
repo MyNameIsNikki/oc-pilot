@@ -303,7 +303,8 @@ export function runFlight(argv: string[]): number {
       : grepFlights(ctx.cwd, text, asString(values, "id"), limit, kind);
     flightOutput(json ? JSON.stringify(result, null, 2) : renderFlightGrep(result));
     log.success(`Найдено совпадений: ${result.matches.length}.`);
-    return 0;
+    if (!bundlePath) return 0;
+    return verifyFlightEvents(loadFlightBundle(bundlePath).events).valid ? 0 : 2;
   }
 
   if (action === "list") {
