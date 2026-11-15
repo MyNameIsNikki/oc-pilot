@@ -30,7 +30,7 @@ const HELP = `Использование:
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
   oc-pilot flight list
   oc-pilot flight show <id>
-  oc-pilot flight restore <метка|commit> [--id <id>] [--force]
+  oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
@@ -52,7 +52,7 @@ const HELP = `Использование:
       --with <id>           второй полёт для compare
       --keep <n>            сколько последних полётов оставить при prune (по умолчанию 20)
       --older-than <дней>   удалять только полёты старше указанного возраста
-      --dry-run             показать, что будет удалено, без удаления
+      --dry-run             показать план без изменений (prune/restore)
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
       --force               восстановить поверх изменённого рабочего дерева
@@ -203,7 +203,7 @@ export function runFlight(argv) {
                 hint: "Используйте: oc-pilot flight restore <метка|commit> [--force].",
             });
         }
-        const result = restoreFlight(ctx.cwd, ref, asString(values, "id"), asBoolean(values, "force"));
+        const result = restoreFlight(ctx.cwd, ref, asString(values, "id"), asBoolean(values, "force"), asBoolean(values, "dry-run"));
         writeOutput(json ? JSON.stringify(result, null, 2) : renderFlightRestore(result), ctx.flags.output);
         log.success(`Восстановлено: ${result.label}.`);
         return 0;

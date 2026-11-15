@@ -529,6 +529,7 @@ test("MCP advertises slop and result caps in tools/list", () => {
     assert.ok(flightRestore.inputSchema.properties.ref, "ref missing on flight_restore");
     assert.ok(flightRestore.inputSchema.properties.id, "id missing on flight_restore");
     assert.ok(flightRestore.inputSchema.properties.force, "force missing on flight_restore");
+    assert.ok(flightRestore.inputSchema.properties.dry_run, "dry_run missing on flight_restore");
 
     const flightVerifyBundle = tools.find((tool) => tool.name === "flight_verify_bundle");
     assert.ok(flightVerifyBundle, "flight_verify_bundle tool missing");

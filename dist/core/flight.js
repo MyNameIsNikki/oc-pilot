@@ -652,9 +652,27 @@ export function replayFlight(cwd, id, to, path) {
     }
     return { id: show.meta.id, label: checkpoint.label, commit: checkpoint.commit, path: target };
 }
-export function restoreFlight(cwd, ref, id, force = false) {
+export function restoreFlight(cwd, ref, id, force = false, dryRun = false) {
     const show = showFlight(cwd, resolveFlightId(cwd, id));
     const checkpoint = resolveCheckpoint(flightCheckpoints(show), ref);
+    const diff = runGit(["diff", "--name-only", checkpoint.commit, "--", "."], cwd);
+    if (diff.status !== 0) {
+        throw new PilotError(`Не удалось сравнить чекпоинт: ${diff.stderr.trim() || "git diff failed"}.`);
+    }
+    const files = diff.stdout
+        .split("\n")
+        .map((file) => file.trim())
+        .filter((file) => file.length > 0);
+    if (dryRun) {
+        return {
+            id: show.meta.id,
+            label: checkpoint.label,
+            commit: checkpoint.commit,
+            mode: "restore",
+            dryRun: true,
+            files,
+        };
+    }
     const status = runGit(["status", "--porcelain"], cwd);
     if (status.status !== 0) {
         throw new PilotError(`Не удалось проверить рабочее дерево: ${status.stderr.trim() || "git status failed"}.`);
@@ -673,6 +691,8 @@ export function restoreFlight(cwd, ref, id, force = false) {
         label: checkpoint.label,
         commit: checkpoint.commit,
         mode: "restore",
+        dryRun: false,
+        files,
     };
 }
 export function bisectFlight(cwd, id, command, timeoutMs = 600_000) {
@@ -966,7 +986,8 @@ export function renderFlightReplay(result) {
     return `[FLIGHT REPLAY] ${result.label} (${result.commit.slice(0, 12)}) → ${result.path}`;
 }
 export function renderFlightRestore(result) {
-    return `[FLIGHT RESTORE] ${result.label} (${result.commit.slice(0, 12)}) → worktree`;
+    const files = result.files.length > 0 ? `: ${result.files.join(", ")}` : "";
+    return `[FLIGHT RESTORE] ${result.dryRun ? "будет восстановлено" : "восстановлено"} ${result.label} (${result.commit.slice(0, 12)})${files}`;
 }
 export function renderFlightBisect(result) {
     const lines = [`[FLIGHT BISECT] ${result.id}: ${result.steps.length} чекпоинтов.`];

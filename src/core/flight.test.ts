@@ -223,6 +223,10 @@ test("restoreFlight restores a checkpoint and refuses a dirty tree", () => {
 
     writeFileSync(join(dir, "a.txt"), "changed\n", "utf8");
     writeFileSync(join(dir, "c.txt"), "keep\n", "utf8");
+    const dry = restoreFlight(dir, "after-b", undefined, false, true);
+    assert.equal(dry.dryRun, true);
+    assert.ok(dry.files.includes("a.txt"));
+    assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "changed\n");
     assert.throws(() => restoreFlight(dir, "after-b"), /Рабочее дерево содержит изменения/);
 
     const result = restoreFlight(dir, "after-b", undefined, true);

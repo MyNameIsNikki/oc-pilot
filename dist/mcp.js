@@ -1680,6 +1680,7 @@ const TOOLS = [
                 ref: { type: "string", description: "Checkpoint label or commit" },
                 id: { type: "string", description: "Flight session id; defaults to the latest flight" },
                 force: { type: "boolean", description: "Restore over a dirty worktree" },
+                dry_run: { type: "boolean", description: "Report files without restoring" },
                 ...RESULT_PROPERTIES,
             },
         },
@@ -4543,6 +4544,8 @@ async function callFlightRestore(input, cwd) {
         args.push("--id", id);
     if (booleanArg(input, "force"))
         args.push("--force");
+    if (booleanArg(input, "dry_run"))
+        args.push("--dry-run");
     return toToolResult(await runCli(args, cwd));
 }
 async function callFlightExport(input, cwd) {

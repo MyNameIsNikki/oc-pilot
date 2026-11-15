@@ -951,7 +951,7 @@ ZCode импортирует серверы из Claude Code, Codex, OpenCode и
 
 `chronos` читает хронику файла: коммиты, churn, маркеры fix/revert/incident/security, антитела и вакцины, а затем считает hotspot score. `[HOTSPOT]` означает, что у файла есть история исправлений, откатов или инцидентов; проверьте его перед изменением и добавьте вакцину для следующего фикса. Низкий score не доказывает, что файл безопасен.
 
-`flight` записывает агентскую сессию как чёрный ящик с хеш-цепочкой: `flight start --name "fix auth"` создаёт `.git/oc-pilot/flights/<id>/events.jsonl`, `flight exec -- <команда>` сохраняет команду и хвост вывода, а `flight checkpoint --label after-fix` делает висячий git-коммит всего worktree, не двигая HEAD. `flight status`, `list` и `show` показывают журнал; `flight verify <id>` пересчитывает цепочку и печатает `[FLIGHT TAMPERED]` при любом изменении; `flight end` закрывает сессию. Журнал локальный, NDJSON и без зависимостей. `flight replay --to <метка|commit>` разворачивает чекпоинт в отдельный worktree, `flight bisect -- <команда>` прогоняет команду по чекпоинтам и останавливается на первом сбое, `flight diff` сравнивает чекпоинты, а `flight export` пишет redacted-бандл с sha256-дайджестом. `flight compare <id-a> <id-b>` сравнивает две сессии по числу событий, длительности, набору команд, exit code и итоговому дереву. `flight html` собирает self-contained HTML-таймлайн с чекпоинтами и выводом команд. `flight stats` суммирует сессии, команды, ошибки, чекпоинты и длительность по журналу. `flight prune` удаляет старые завершённые сессии, сохраняя активный полёт и N последних. `flight export --key <файл>` подписывает дайджест бандла через HMAC-SHA256, а `flight verify-bundle <файл> --key <файл>` проверяет дайджест, цепочку и подпись. `flight compare --html` рисует визуальный отчёт сравнения. `flight stats --html` собирает self-contained дашборд журнала. `flight keygen --output flight.key` генерирует случайный HMAC-ключ для подписи экспортов. `flight restore <метка|commit>` восстанавливает worktree из чекпоинта, не двигая HEAD.
+`flight` записывает агентскую сессию как чёрный ящик с хеш-цепочкой: `flight start --name "fix auth"` создаёт `.git/oc-pilot/flights/<id>/events.jsonl`, `flight exec -- <команда>` сохраняет команду и хвост вывода, а `flight checkpoint --label after-fix` делает висячий git-коммит всего worktree, не двигая HEAD. `flight status`, `list` и `show` показывают журнал; `flight verify <id>` пересчитывает цепочку и печатает `[FLIGHT TAMPERED]` при любом изменении; `flight end` закрывает сессию. Журнал локальный, NDJSON и без зависимостей. `flight replay --to <метка|commit>` разворачивает чекпоинт в отдельный worktree, `flight bisect -- <команда>` прогоняет команду по чекпоинтам и останавливается на первом сбое, `flight diff` сравнивает чекпоинты, а `flight export` пишет redacted-бандл с sha256-дайджестом. `flight compare <id-a> <id-b>` сравнивает две сессии по числу событий, длительности, набору команд, exit code и итоговому дереву. `flight html` собирает self-contained HTML-таймлайн с чекпоинтами и выводом команд. `flight stats` суммирует сессии, команды, ошибки, чекпоинты и длительность по журналу. `flight prune` удаляет старые завершённые сессии, сохраняя активный полёт и N последних. `flight export --key <файл>` подписывает дайджест бандла через HMAC-SHA256, а `flight verify-bundle <файл> --key <файл>` проверяет дайджест, цепочку и подпись. `flight compare --html` рисует визуальный отчёт сравнения. `flight stats --html` собирает self-contained дашборд журнала. `flight keygen --output flight.key` генерирует случайный HMAC-ключ для подписи экспортов. `flight restore <метка|commit>` восстанавливает worktree из чекпоинта, не двигая HEAD; `--dry-run` показывает файлы, которые изменятся.
 
 `beacon` записывает заявление о проверке коммита: `beacon stamp --check tests=pass --check preflight=pass --key beacon.key` сохраняет коммит, tree, версию инструмента, агента, модель, команды, проверки и digest в `.oc-pilot/beacon.json`, а затем подписывает его HMAC или `ssh-keygen`. `beacon verify` ловит `[BEACON TAMPERED]` и `[UNATTRIBUTED]`; `beacon render --markdown` печатает комментарий для PR. Неподписанный beacon валиден, но не атрибутирован, поэтому в CI используйте `--require-signature`.
 
@@ -988,7 +988,7 @@ ZCode импортирует серверы из Claude Code, Codex, OpenCode и
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # версия зафиксирована для воспроизводимости:
-npx -y oc-pilot@0.124.1 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.125.0 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -1060,7 +1060,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.124.1
+      - uses: MyNameIsNikki/oc-pilot@v0.125.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
