@@ -538,6 +538,12 @@ test("renderFlightStatsHtml escapes command names", () => {
         failedCommands: 1,
         durationMs: 1000,
         averageDurationMs: 500,
+        last: {
+            id: "20260101000000-abcdef",
+            name: "<b>last</b>",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            ended: true,
+        },
         topCommands: [{ command: "<script>alert(1)</script>", runs: 2, failures: 1 }],
     };
     const html = renderFlightStatsHtml(stats);
@@ -546,6 +552,8 @@ test("renderFlightStatsHtml escapes command names", () => {
     assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
     assert.match(html, /Top commands/);
     assert.match(html, /Failed commands/);
+    assert.match(html, /Last flight/);
+    assert.match(html, /&lt;b&gt;last&lt;\/b&gt;/);
 });
 test("flightStats aggregates sessions and commands", () => {
     const dir = makeRepo();

@@ -891,6 +891,9 @@ export function renderFlightStatsHtml(stats: FlightStats): string {
               `<tr><td><code>${escapeHtml(command.command)}</code></td><td>${command.runs}</td><td>${command.failures}</td></tr>`,
           )
           .join("")}</tbody></table>`;
+  const lastFlight = stats.last
+    ? `<p><code>${escapeHtml(stats.last.id)}</code> ${escapeHtml(stats.last.name)} — ${stats.last.ended ? "ended" : "active"}, started ${escapeHtml(stats.last.startedAt)}</p>`
+    : `<p class="muted">No flights recorded yet.</p>`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -921,6 +924,7 @@ code { font-family:ui-monospace, SFMono-Regular, Consolas, monospace; }
 <main>
 <h1>oc-pilot flight stats</h1>
 <div class="grid">${cards}</div>
+<section><h2>Last flight</h2>${lastFlight}</section>
 <section><h2>Top commands</h2>${commands}</section>
 </main>
 </body>
