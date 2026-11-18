@@ -302,7 +302,8 @@ export function runFlight(argv) {
             flightOutput(json
                 ? JSON.stringify(bundleDiff, null, 2)
                 : renderFlightBundleDiff(bundleDiff));
-            return 0;
+            const bundleCheck = verifyFlightBundle(bundlePath);
+            return bundleCheck.digestOk && bundleCheck.chainOk ? 0 : 2;
         }
         const result = diffFlight(ctx.cwd, asString(values, "id"), asString(values, "from"), asString(values, "to"));
         flightOutput(json ? JSON.stringify(result, null, 2) : renderFlightDiff(result));

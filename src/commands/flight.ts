@@ -425,7 +425,8 @@ export function runFlight(argv: string[]): number {
           ? JSON.stringify(bundleDiff, null, 2)
           : renderFlightBundleDiff(bundleDiff),
       );
-      return 0;
+      const bundleCheck = verifyFlightBundle(bundlePath);
+      return bundleCheck.digestOk && bundleCheck.chainOk ? 0 : 2;
     }
     const result = diffFlight(
       ctx.cwd,

@@ -1519,6 +1519,8 @@ test("flight records checkpoints, status, verify and end", () => {
         assert.equal(summaryDigest.status, 2, summaryDigest.stderr);
         const htmlDigest = runCli(["flight", "html", "--bundle", "bundle-digest.json", "--json"], dir);
         assert.equal(htmlDigest.status, 2, htmlDigest.stderr);
+        const diffDigest = runCli(["flight", "diff", "--bundle", "bundle-digest.json", "--to", "after-b", "--json"], dir);
+        assert.equal(diffDigest.status, 2, diffDigest.stderr);
         const filtered = runCli(["flight", "show", "--id", started.session.meta.id, "--kind", "note", "--json"], dir);
         assert.equal(filtered.status, 0, filtered.stderr);
         const filteredShow = JSON.parse(filtered.stdout);

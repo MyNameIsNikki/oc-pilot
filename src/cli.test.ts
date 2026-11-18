@@ -1925,6 +1925,11 @@ test("flight records checkpoints, status, verify and end", () => {
       dir,
     );
     assert.equal(htmlDigest.status, 2, htmlDigest.stderr);
+    const diffDigest = runCli(
+      ["flight", "diff", "--bundle", "bundle-digest.json", "--to", "after-b", "--json"],
+      dir,
+    );
+    assert.equal(diffDigest.status, 2, diffDigest.stderr);
 
     const filtered = runCli(
       ["flight", "show", "--id", started.session.meta.id, "--kind", "note", "--json"],
