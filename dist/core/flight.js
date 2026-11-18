@@ -446,6 +446,35 @@ export function pruneFlights(cwd, options = {}) {
         dryRun: options.dryRun === true,
     };
 }
+export function deleteFlight(cwd, id, dryRun = false) {
+    const target = id.trim();
+    if (!target) {
+        throw new PilotError("Не указан идентификатор полёта.", {
+            hint: "Используйте: oc-pilot flight delete <id>.",
+            exitCode: 2,
+        });
+    }
+    const show = showFlight(cwd, target);
+    const active = activeFlight(cwd);
+    if (active && active.meta.id === show.meta.id) {
+        throw new PilotError("Нельзя удалить активный полёт.", {
+            hint: "Сначала завершите его: oc-pilot flight end.",
+        });
+    }
+    const entry = listFlights(cwd).find((flight) => flight.id === show.meta.id);
+    const result = {
+        id: show.meta.id,
+        name: show.meta.name,
+        events: show.events.length,
+        checkpoints: entry?.checkpoints ?? 0,
+        removed: false,
+        dryRun,
+    };
+    if (dryRun)
+        return result;
+    rmSync(sessionDir(flightsRoot(cwd), show.meta.id), { recursive: true, force: true });
+    return { ...result, removed: true };
+}
 export function showFlight(cwd, id) {
     const root = flightsRoot(cwd);
     const resolved = resolveFlightId(cwd, id);
@@ -672,6 +701,10 @@ export function renderFlightPrune(result) {
     const suffix = result.removed.length > 5 ? ` и ещё ${result.removed.length - 5}` : "";
     const list = result.removed.length > 0 ? `: ${shown}${suffix}` : "";
     return `[FLIGHT PRUNE] ${result.dryRun ? "будет удалено" : "удалено"} ${result.removed.length}${list}; осталось ${result.kept}${result.active ? `, активный ${result.active}` : ""}.`;
+}
+export function renderFlightDelete(result) {
+    const verb = result.dryRun ? "будет удалён" : "удалён";
+    return `[FLIGHT DELETE] ${verb} ${result.id} (${result.name}): событий ${result.events}, чекпоинтов ${result.checkpoints}.`;
 }
 export const FLIGHT_EVENT_KINDS = [
     "session.start",

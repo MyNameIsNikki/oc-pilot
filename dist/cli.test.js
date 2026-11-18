@@ -1537,6 +1537,16 @@ test("flight records checkpoints, status, verify and end", () => {
         assert.equal(tamperedSummary.status, 2, tamperedSummary.stderr);
         const tamperedHtml = runCli(["flight", "html", "--id", started.session.meta.id, "--json"], dir);
         assert.equal(tamperedHtml.status, 2, tamperedHtml.stderr);
+        const deletePreview = runCli(["flight", "delete", second.session.meta.id, "--dry-run", "--json"], dir);
+        assert.equal(deletePreview.status, 0, deletePreview.stderr);
+        const previewDelete = JSON.parse(deletePreview.stdout);
+        assert.equal(previewDelete.dryRun, true);
+        assert.equal(previewDelete.removed, false);
+        const deleted = runCli(["flight", "delete", second.session.meta.id, "--json"], dir);
+        assert.equal(deleted.status, 0, deleted.stderr);
+        const deletedFlight = JSON.parse(deleted.stdout);
+        assert.equal(deletedFlight.id, second.session.meta.id);
+        assert.equal(deletedFlight.removed, true);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

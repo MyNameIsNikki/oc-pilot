@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  deleteFlight,
   activeFlight,
   appendFlightEvent,
   addFlightNote,
@@ -27,6 +28,7 @@ import {
   grepFlights,
   listFlights,
   pruneFlights,
+  renderFlightDelete,
   readFlightEvents,
   renderFlightCompareHtml,
   renderFlightHtml,
@@ -546,6 +548,33 @@ test("pruneFlights removes old ended sessions and keeps the active flight", () =
 
     const real = pruneFlights(dir, { keep: 0 });
     assert.equal(real.removed.length, 2);
+    assert.equal(listFlights(dir).length, 1);
+    assert.equal(activeFlight(dir)?.meta.id, active.meta.id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("deleteFlight removes an ended flight and refuses the active one", () => {
+  const dir = makeRepo();
+  try {
+    const first = startFlight(dir, "delete-me");
+    createCheckpoint(dir, "delete-cp");
+    endFlight(dir);
+    const active = startFlight(dir, "keep-me");
+
+    assert.throws(() => deleteFlight(dir, active.meta.id), /Нельзя удалить активный полёт/);
+
+    const preview = deleteFlight(dir, first.meta.id, true);
+    assert.equal(preview.dryRun, true);
+    assert.equal(preview.removed, false);
+    assert.equal(preview.checkpoints, 1);
+    assert.match(renderFlightDelete(preview), /\[FLIGHT DELETE\]/);
+    assert.equal(listFlights(dir).length, 2);
+
+    const removed = deleteFlight(dir, first.meta.id);
+    assert.equal(removed.removed, true);
+    assert.equal(removed.id, first.meta.id);
     assert.equal(listFlights(dir).length, 1);
     assert.equal(activeFlight(dir)?.meta.id, active.meta.id);
   } finally {

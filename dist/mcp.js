@@ -1708,6 +1708,21 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_delete",
+        description: "Delete one recorded flight session by id. Refuses the active flight. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["id"],
+            properties: {
+                id: { type: "string", description: "Flight session id from flight_list" },
+                dry_run: { type: "boolean", description: "Report what would be removed without deleting" },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "flight_prune",
         description: "Delete old ended flight sessions while keeping the active flight and the newest N sessions. Needs --allow-write.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -4638,6 +4653,13 @@ async function callFlightHtml(input, cwd) {
 async function callFlightStats(_input, cwd) {
     return toToolResult(await runCli(["flight", "stats", "--json"], cwd));
 }
+async function callFlightDelete(input, cwd) {
+    const id = stringArg(input, "id", true);
+    const args = ["flight", "delete", id, "--json"];
+    if (booleanArg(input, "dry_run"))
+        args.push("--dry-run");
+    return toToolResult(await runCli(args, cwd));
+}
 async function callFlightPrune(input, cwd) {
     const args = ["flight", "prune", "--json"];
     const keep = integerArg(input, "keep");
@@ -5088,7 +5110,7 @@ async function dispatchTool(name, input, cwd, readOnly) {
             throw new ToolInputError("scan_injection fix writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
         if (name.startsWith("flight_") &&
-            ["flight_start", "flight_exec", "flight_note", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_prune", "flight_restore", "flight_export"].includes(name)) {
+            ["flight_start", "flight_exec", "flight_note", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_delete", "flight_prune", "flight_restore", "flight_export"].includes(name)) {
             throw new ToolInputError("flight write actions are disabled in read-only mode; start the MCP server with --allow-write");
         }
     }
@@ -5253,6 +5275,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightSummary(input, cwd);
         case "flight_stats":
             return callFlightStats(input, cwd);
+        case "flight_delete":
+            return callFlightDelete(input, cwd);
         case "flight_prune":
             return callFlightPrune(input, cwd);
         case "flight_restore":
@@ -5407,6 +5431,12 @@ function summarizeResult(value) {
     }
     if (Array.isArray(value.removed) && typeof value.kept === "number" && typeof value.dryRun === "boolean") {
         return `oc-pilot: flight prune removed ${String(value.removed.length)}, kept ${String(value.kept)}`;
+    }
+    if (typeof value.removed === "boolean" &&
+        typeof value.dryRun === "boolean" &&
+        typeof value.id === "string" &&
+        typeof value.name === "string") {
+        return `oc-pilot: flight delete ${value.dryRun ? "preview" : "done"} ${value.id}`;
     }
     if (typeof value.total === "number" && Array.isArray(value.topCommands)) {
         return `oc-pilot: flight stats ${String(value.total)} session(s), ${String(value.commands ?? 0)} command(s), ${String(value.failedCommands ?? 0)} failed`;

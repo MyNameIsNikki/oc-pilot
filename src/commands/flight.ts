@@ -7,6 +7,7 @@ import {
   compareFlightShows,
   createCheckpoint,
   diffFlight,
+  deleteFlight,
   endFlight,
   execInFlight,
   exportFlight,
@@ -26,6 +27,7 @@ import {
   renderFlightCheckpoint,
   renderFlightCompare,
   renderFlightCompareHtml,
+  renderFlightDelete,
   renderFlightDiff,
   renderFlightEnd,
   renderFlightExec,
@@ -94,6 +96,7 @@ const HELP = `Использование:
   oc-pilot flight status
   oc-pilot flight stats [--html]
   oc-pilot flight prune [--keep <n>] [--older-than <дней>] [--dry-run]
+  oc-pilot flight delete <id> [--dry-run]
   oc-pilot flight grep <текст> [--id <id>] [--bundle <файл>] [--limit <n>] [--kind <тип>]
   oc-pilot flight list [--limit <n>]
   oc-pilot flight show [<id>] [--bundle <файл>] [--kind <тип>] [--last <n>]
@@ -123,7 +126,7 @@ const HELP = `Использование:
       --kind <тип>          фильтр событий в show и grep: note, command.start, command.end, file.checkpoint и др.
       --last <n>            показать только последние n событий в show
       --older-than <дней>   удалять только полёты старше указанного возраста
-      --dry-run             показать план без изменений (prune/restore)
+      --dry-run             показать план без изменений (prune/restore/delete)
       --bundle <файл>       читать из экспортированного bundle (show/html/summary/grep) или переподписать его
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
@@ -146,6 +149,7 @@ ${COMMON_HELP}
   oc-pilot flight note "почему выбран этот фикс"
   oc-pilot flight stats --html --output stats.html
   oc-pilot flight prune --keep 20 --dry-run
+  oc-pilot flight delete <id> --dry-run
   oc-pilot flight grep "почему"
   oc-pilot flight exec -- npm test
   oc-pilot flight checkpoint --label "tests green"
@@ -514,6 +518,25 @@ export function runFlight(argv: string[]): number {
       json ? JSON.stringify(result, null, 2) : renderFlightExport(result),
     );
     log.success(`Экспорт ${result.meta.id}: ${result.digest}.`);
+    return 0;
+  }
+
+  if (action === "delete") {
+    const id = positionals[1];
+    if (!id) {
+      throw new PilotError("Не указан идентификатор полёта.", {
+        hint: "Используйте: oc-pilot flight delete <id>.",
+      });
+    }
+    const result = deleteFlight(ctx.cwd, id, asBoolean(values, "dry-run"));
+    flightOutput(
+      json ? JSON.stringify(result, null, 2) : renderFlightDelete(result),
+    );
+    log.success(
+      result.dryRun
+        ? `Будет удалён полёт ${result.id}.`
+        : `Полёт ${result.id} удалён.`,
+    );
     return 0;
   }
 

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, filterFlightEvents, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlightBundle, grepFlights, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { deleteFlight, activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, filterFlightEvents, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlightBundle, grepFlights, listFlights, pruneFlights, renderFlightDelete, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -466,6 +466,30 @@ test("pruneFlights removes old ended sessions and keeps the active flight", () =
         assert.equal(listFlights(dir).length, 3);
         const real = pruneFlights(dir, { keep: 0 });
         assert.equal(real.removed.length, 2);
+        assert.equal(listFlights(dir).length, 1);
+        assert.equal(activeFlight(dir)?.meta.id, active.meta.id);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("deleteFlight removes an ended flight and refuses the active one", () => {
+    const dir = makeRepo();
+    try {
+        const first = startFlight(dir, "delete-me");
+        createCheckpoint(dir, "delete-cp");
+        endFlight(dir);
+        const active = startFlight(dir, "keep-me");
+        assert.throws(() => deleteFlight(dir, active.meta.id), /Нельзя удалить активный полёт/);
+        const preview = deleteFlight(dir, first.meta.id, true);
+        assert.equal(preview.dryRun, true);
+        assert.equal(preview.removed, false);
+        assert.equal(preview.checkpoints, 1);
+        assert.match(renderFlightDelete(preview), /\[FLIGHT DELETE\]/);
+        assert.equal(listFlights(dir).length, 2);
+        const removed = deleteFlight(dir, first.meta.id);
+        assert.equal(removed.removed, true);
+        assert.equal(removed.id, first.meta.id);
         assert.equal(listFlights(dir).length, 1);
         assert.equal(activeFlight(dir)?.meta.id, active.meta.id);
     }
