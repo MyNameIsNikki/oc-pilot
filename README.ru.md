@@ -988,7 +988,7 @@ ZCode импортирует серверы из Claude Code, Codex, OpenCode и
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # версия зафиксирована для воспроизводимости:
-npx -y oc-pilot@0.156.0 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.157.0 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -1060,7 +1060,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.156.0
+      - uses: MyNameIsNikki/oc-pilot@v0.157.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets

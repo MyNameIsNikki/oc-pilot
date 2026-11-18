@@ -1,6 +1,6 @@
 {
   "name": "oc-pilot",
-  "version": "0.156.0",
+  "version": "0.157.0",
   "description": "Local AI code review, tested fixes, test-failure analysis and secret scanning for agent CLIs",
   "type": "module",
   "repository": {
@@ -69,7 +69,18 @@
     "fix",
     "docker",
     "github-actions",
-    "agent-skills"
+    "agent-skills",
+    "ai-agents",
+    "coding-agent",
+    "agentic",
+    "verification",
+    "flight-recorder",
+    "devtools",
+    "llm",
+    "ai-agent",
+    "developer-tools",
+    "test-generation",
+    "static-analysis"
   ],
   "license": "MIT",
   "devDependencies": {

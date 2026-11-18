@@ -1,0 +1,67 @@
+# oc-pilot
+
+> Local CLI for coding agents: AI code review, tested fixes, test-failure triage, secret scanning, and a hash-chained flight recorder that shows what an agent actually did.
+
+oc-pilot is a zero-dependency Node.js CLI and MCP server that sits next to agent CLIs (OpenCode, Claude Code, Codex, Cursor, Gemini CLI) and checks their work locally: review a git diff, triage a failing test, generate a minimal patch, audit dependencies and secrets, and record an agent session as a tamper-evident journal.
+
+## Install
+
+```bash
+npm install -g oc-pilot
+```
+
+Requires Node.js 22 or newer.
+
+## Quick start
+
+```bash
+oc-pilot doctor
+oc-pilot review
+oc-pilot test-fix
+oc-pilot preflight --staged
+```
+
+## Flight recorder
+
+Every agent session can be recorded as a hash-chained journal with checkpoints of the full worktree:
+
+```bash
+oc-pilot flight start --name "fix auth"
+oc-pilot flight exec -- npm test
+oc-pilot flight checkpoint --label "tests green"
+oc-pilot flight verify
+oc-pilot flight summary
+oc-pilot flight export --key flight.key --output flight.json
+```
+
+The journal is local, NDJSON and zero-dependency. Checkpoints are dangling git commits, so a session can be replayed, diffed, bisected or restored without moving HEAD.
+
+## What it solves
+
+- AI review of a diff with concrete bugs, security issues and idiom problems.
+- Failing-test triage: minimal fix, test loop, rollback on red.
+- Generated tests that must stay green.
+- Secret scanning and SAST over the diff, offline.
+- Dependency and environment drift checks.
+- A verifiable record of what an agent changed and why.
+
+## Commands
+
+`review`, `test-fix`, `test-gen`, `test-guard`, `flaky`, `mutate`, `fuzz`, `query`, `sandbox`, `sast`, `authz`, `fix`, `docgen`, `custom`, `scan`, `deps`, `env-sync`, `coverage`, `pack`, `contract-drift`, `anti-regression`, `boundaries`, `test-plan`, `compliance`, `preflight`, `flight`, `beacon`, `quarantine`, `mirage`, `warden`, `tribunal`, `ready`, `receipt`, `doctor`, `setup`, `stats`, `slop`.
+
+Run `oc-pilot <command> --help` for flags and examples.
+
+## MCP server
+
+`oc-pilot-mcp` exposes the same checks as MCP tools, including `review`, `test_fix`, `fix`, `scan`, `preflight`, `flight_start`, `flight_exec`, `flight_checkpoint`, `flight_verify`, `flight_summary`, `flight_export` and `flight_verify_bundle`.
+
+```bash
+oc-pilot setup --all
+```
+
+## Links
+
+- Repository: https://github.com/MyNameIsNikki/oc-pilot
+- npm: https://www.npmjs.com/package/oc-pilot
+- Changelog: https://github.com/MyNameIsNikki/oc-pilot/blob/main/CHANGELOG.md
+- Integrations: https://github.com/MyNameIsNikki/oc-pilot/blob/main/docs/integrations.md

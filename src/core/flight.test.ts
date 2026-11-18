@@ -323,6 +323,17 @@ test("showFlight defaults to the latest flight and exits 2 on an empty journal",
   }
 });
 
+test("createCheckpoint rejects a duplicate label", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "dup-labels");
+    createCheckpoint(dir, "dup");
+    assert.throws(() => createCheckpoint(dir, "dup"), /уже есть/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("diffFlight compares the base commit with a checkpoint", () => {
   const dir = makeRepo();
   try {

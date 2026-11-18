@@ -397,6 +397,20 @@ function runGitWithEnv(
 
 export function createCheckpoint(cwd: string, label: string): FlightCheckpoint {
   const session = requireActiveFlight(cwd);
+  const wanted = label.trim();
+  if (
+    wanted.length > 0 &&
+    session.events.some(
+      (event) =>
+        event.kind === "file.checkpoint" &&
+        String((event.payload as Record<string, unknown>).label ?? "") === wanted,
+    )
+  ) {
+    throw new PilotError(`Чекпоинт с меткой «${wanted}» уже есть.`, {
+      hint: "Выберите другую метку: --label <имя>.",
+      exitCode: 2,
+    });
+  }
   const repoRoot = getRepoRoot(cwd);
   const indexFile = join(session.dir, `index-${randomBytes(4).toString("hex")}.tmp`);
   const env: NodeJS.ProcessEnv = {
