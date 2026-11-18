@@ -79,7 +79,7 @@ ${COMMON_HELP}
 Коды возврата:
   0  успех
   1  ошибка oc-pilot или провал bisect
-  2  полёт не запущен, полёт или чекпоинт не найден, журнал повреждён
+  2  полёт не запущен, полёт или чекпоинт не найден, журнал повреждён, некорректная опция
   exec возвращает код команды (124 при таймауте)
 
 Примеры:
@@ -124,6 +124,7 @@ function optionalNonNegativeInteger(values, key, label) {
     if (!Number.isInteger(value) || value < 0) {
         throw new PilotError(`Некорректный ${label}: ${raw}`, {
             hint: "Укажите неотрицательное целое число.",
+            exitCode: 2,
         });
     }
     return value;

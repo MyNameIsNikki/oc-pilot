@@ -1986,6 +1986,11 @@ test("flight records checkpoints, status, verify and end", () => {
     const deletedFlight = JSON.parse(deleted.stdout) as { id: string; removed: boolean };
     assert.equal(deletedFlight.id, second.session.meta.id);
     assert.equal(deletedFlight.removed, true);
+
+    const badLimit = runCli(["flight", "grep", "почему", "--limit", "0", "--json"], dir);
+    assert.equal(badLimit.status, 2, badLimit.stderr);
+    const badListLimit = runCli(["flight", "list", "--limit", "abc", "--json"], dir);
+    assert.equal(badListLimit.status, 2, badListLimit.stderr);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

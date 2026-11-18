@@ -764,6 +764,7 @@ function grepShows(
   if (!Number.isInteger(limit) || limit < 1) {
     throw new PilotError(`Некорректный --limit: ${String(limit)}`, {
       hint: "Укажите положительное целое число.",
+      exitCode: 2,
     });
   }
   const kindFilter = kind?.trim();
