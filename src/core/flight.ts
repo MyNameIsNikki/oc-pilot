@@ -83,6 +83,7 @@ export interface FlightStatus {
   commands?: number;
   notes?: number;
   lastEvent?: FlightEvent;
+  last?: FlightListEntry;
 }
 
 export interface FlightListEntry extends FlightMeta {
@@ -640,7 +641,10 @@ export function showFlight(cwd: string, id?: string): FlightShow {
 
 export function flightStatus(cwd: string): FlightStatus {
   const session = activeFlight(cwd);
-  if (!session) return { active: false };
+  if (!session) {
+    const last = listFlights(cwd)[0];
+    return last ? { active: false, last } : { active: false };
+  }
   const checkpoints = session.events.filter((event) => event.kind === "file.checkpoint").length;
   const commands = session.events.filter((event) => event.kind === "command.start").length;
   const notes = session.events.filter((event) => event.kind === "note").length;
@@ -656,6 +660,12 @@ export function flightStatus(cwd: string): FlightStatus {
 
 export function renderFlightStatus(status: FlightStatus): string {
   if (!status.active || !status.session) {
+    if (status.last) {
+      return [
+        "Полёт не запущен. Начните: oc-pilot flight start --name \"...\".",
+        `Последний: ${status.last.id} (${status.last.name}), завершён: событий ${status.last.events}, чекпоинтов ${status.last.checkpoints}, заметок ${status.last.notes}`,
+      ].join("\n");
+    }
     return "Полёт не запущен. Начните: oc-pilot flight start --name \"...\".";
   }
   const { meta } = status.session;

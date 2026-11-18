@@ -33,6 +33,7 @@ import {
   renderFlightAudit,
   renderFlightStatsHtml,
   renderFlightSummary,
+  renderFlightStatus,
   replayFlight,
   restoreFlight,
   type FlightStats,
@@ -86,6 +87,21 @@ test("startFlight creates a hash-chained session and active status", () => {
     assert.equal(flights[0]?.id, session.meta.id);
     assert.equal(flights[0]?.ended, false);
     assert.equal(flights[0]?.notes, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("flightStatus reports the last flight after end", () => {
+  const dir = makeRepo();
+  try {
+    const session = startFlight(dir, "last-status");
+    endFlight(dir);
+    const status = flightStatus(dir);
+    assert.equal(status.active, false);
+    assert.equal(status.last?.id, session.meta.id);
+    assert.equal(status.last?.name, "last-status");
+    assert.match(renderFlightStatus(status), /Последний: /);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

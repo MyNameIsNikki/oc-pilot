@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, filterFlightEvents, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlightBundle, grepFlights, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, endFlight, execInFlight, exportFlight, filterFlightEvents, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlightBundle, grepFlights, listFlights, pruneFlights, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -44,6 +44,21 @@ test("startFlight creates a hash-chained session and active status", () => {
         assert.equal(flights[0]?.id, session.meta.id);
         assert.equal(flights[0]?.ended, false);
         assert.equal(flights[0]?.notes, 1);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("flightStatus reports the last flight after end", () => {
+    const dir = makeRepo();
+    try {
+        const session = startFlight(dir, "last-status");
+        endFlight(dir);
+        const status = flightStatus(dir);
+        assert.equal(status.active, false);
+        assert.equal(status.last?.id, session.meta.id);
+        assert.equal(status.last?.name, "last-status");
+        assert.match(renderFlightStatus(status), /Последний: /);
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

@@ -5169,6 +5169,10 @@ function summarizeResult(value: JsonObject): string {
       const id = typeof session.meta?.id === "string" ? session.meta.id : "unknown";
       return `oc-pilot: flight active ${id}`;
     }
+    if (value.last && typeof value.last === "object") {
+      const last = value.last as { id?: unknown; name?: unknown };
+      return `oc-pilot: flight inactive; last ${String(last.id ?? "unknown")} (${String(last.name ?? "?")})`;
+    }
     return "oc-pilot: flight inactive";
   }
   if (Array.isArray(value.flights)) {
