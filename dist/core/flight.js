@@ -466,11 +466,13 @@ export function flightStatus(cwd) {
         return { active: false };
     const checkpoints = session.events.filter((event) => event.kind === "file.checkpoint").length;
     const commands = session.events.filter((event) => event.kind === "command.start").length;
+    const notes = session.events.filter((event) => event.kind === "note").length;
     return {
         active: true,
         session,
         checkpoints,
         commands,
+        notes,
         lastEvent: session.events.at(-1),
     };
 }
@@ -483,7 +485,7 @@ export function renderFlightStatus(status) {
         `Полёт ${meta.id} (${meta.name})`,
         `Начат: ${meta.startedAt}`,
         `Коммит: ${meta.baseCommit ?? "нет HEAD"}`,
-        `Событий: ${status.session.events.length}; чекпоинтов: ${status.checkpoints ?? 0}; команд: ${status.commands ?? 0}`,
+        `Событий: ${status.session.events.length}; чекпоинтов: ${status.checkpoints ?? 0}; команд: ${status.commands ?? 0}; заметок: ${status.notes ?? 0}`,
         `Последнее событие: ${status.lastEvent?.kind ?? "нет"}`,
     ].join("\n");
 }
@@ -497,6 +499,10 @@ export function renderFlightList(flights) {
 function grepEventText(event) {
     if (event.kind === "note")
         return String(event.payload.text ?? "");
+    if (event.kind === "file.checkpoint")
+        return String(event.payload.label ?? "");
+    if (event.kind === "session.start")
+        return String(event.payload.name ?? "");
     if (event.kind === "command.start" || event.kind === "command.end") {
         const parts = [];
         if (Array.isArray(event.payload.command)) {

@@ -78,6 +78,7 @@ test("startFlight creates a hash-chained session and active status", () => {
     assert.equal(status.active, true);
     assert.equal(status.session?.meta.id, session.meta.id);
     assert.equal(status.checkpoints, 0);
+    assert.equal(status.notes, 0);
 
     addFlightNote(dir, "list note");
     const flights = listFlights(dir);
@@ -366,6 +367,7 @@ test("grepFlights finds notes and command output across sessions", () => {
     startFlight(dir, "grep-one");
     addFlightNote(dir, "почему выбран этот фикс");
     execInFlight(dir, [process.execPath, "-e", "console.log('needle-output')"], { quiet: true });
+    createCheckpoint(dir, "needle-cp");
     endFlight(dir);
 
     startFlight(dir, "grep-two");
@@ -379,6 +381,10 @@ test("grepFlights finds notes and command output across sessions", () => {
 
     const output = grepFlights(dir, "needle-output");
     assert.ok(output.total >= 1);
+
+    const checkpoint = grepFlights(dir, "needle-cp");
+    assert.equal(checkpoint.total, 1);
+    assert.equal(checkpoint.matches[0]?.kind, "file.checkpoint");
 
     const limited = grepFlights(dir, "e", undefined, 1);
     assert.equal(limited.matches.length, 1);
