@@ -577,6 +577,8 @@ test("flightStats aggregates sessions and commands", () => {
         assert.equal(stats.topCommands.length, 1);
         assert.equal(stats.topCommands[0]?.runs, 2);
         assert.equal(stats.topCommands[0]?.failures, 1);
+        assert.equal(stats.last?.name, "second");
+        assert.equal(stats.last?.ended, true);
         assert.ok(stats.durationMs >= 0);
         assert.ok(stats.averageDurationMs >= 0);
     }

@@ -125,6 +125,7 @@ export interface FlightStats {
   failedCommands: number;
   durationMs: number;
   averageDurationMs: number;
+  last?: { id: string; name: string; startedAt: string; ended: boolean };
   topCommands: FlightCommandStat[];
 }
 
@@ -592,6 +593,14 @@ export function flightStats(cwd: string): FlightStats {
     failedCommands,
     durationMs,
     averageDurationMs: flights.length === 0 ? 0 : Math.round(durationMs / flights.length),
+    last: flights[0]
+      ? {
+          id: flights[0].id,
+          name: flights[0].name,
+          startedAt: flights[0].startedAt,
+          ended: flights[0].ended,
+        }
+      : undefined,
     topCommands,
   };
 }
@@ -841,6 +850,11 @@ export function renderFlightStats(stats: FlightStats): string {
     `События: ${stats.events}, команды: ${stats.commands}, заметки: ${stats.notes}, чекпоинты: ${stats.checkpoints}, ошибки команд: ${stats.failedCommands}.`,
     `Длительность: ${stats.durationMs} мс, средняя: ${stats.averageDurationMs} мс.`,
   ];
+  if (stats.last) {
+    lines.push(
+      `Последний: ${stats.last.id} (${stats.last.name})${stats.last.ended ? "" : ", активен"}.`,
+    );
+  }
   if (stats.topCommands.length > 0) {
     lines.push("Частые команды:");
     for (const command of stats.topCommands) {
