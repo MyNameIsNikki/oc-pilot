@@ -7,6 +7,7 @@ import {
   compareFlightShows,
   createCheckpoint,
   diffFlight,
+  diffFlightBundle,
   deleteFlight,
   endFlight,
   execInFlight,
@@ -28,6 +29,7 @@ import {
   renderFlightCompare,
   renderFlightCompareHtml,
   renderFlightDelete,
+  renderFlightBundleDiff,
   renderFlightDiff,
   renderFlightEnd,
   renderFlightExec,
@@ -103,7 +105,7 @@ const HELP = `Использование:
   oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
-  oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>]
+  oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>] [--bundle <файл>]
   oc-pilot flight compare <id-a> <id-b> [--bundles] [--html]
   oc-pilot flight summary [--id <id>] [--bundle <файл>] [--output <файл>]
   oc-pilot flight html [--id <id>] [--bundle <файл>] [--output <файл>]
@@ -127,7 +129,7 @@ const HELP = `Использование:
       --last <n>            показать только последние n событий в show
       --older-than <дней>   удалять только полёты старше указанного возраста
       --dry-run             показать план без изменений (prune/restore/delete)
-      --bundle <файл>       читать из экспортированного bundle (show/html/summary/grep) или переподписать его
+      --bundle <файл>       читать из экспортированного bundle (show/html/summary/grep/diff) или переподписать его
       --key <файл>          HMAC-ключ для подписи export и проверки verify-bundle
       --html                HTML-отчёт для compare
       --bundles             сравнивать два экспортированных bundle вместо сессий
@@ -157,6 +159,7 @@ ${COMMON_HELP}
   oc-pilot flight replay --to "tests green"
   oc-pilot flight bisect -- node --test
   oc-pilot flight diff --from base --to "tests green"
+  oc-pilot flight diff --bundle flight.json --to after-fix
   oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef
   oc-pilot flight compare 20261114T120000-ab12cd 20261114T130000-cd34ef --html --output compare.html
   oc-pilot flight compare --bundles a.json b.json
@@ -414,6 +417,16 @@ export function runFlight(argv: string[]): number {
   }
 
   if (action === "diff") {
+    const bundlePath = asString(values, "bundle");
+    if (bundlePath) {
+      const bundleDiff = diffFlightBundle(bundlePath, asString(values, "to"));
+      flightOutput(
+        json
+          ? JSON.stringify(bundleDiff, null, 2)
+          : renderFlightBundleDiff(bundleDiff),
+      );
+      return 0;
+    }
     const result = diffFlight(
       ctx.cwd,
       asString(values, "id"),

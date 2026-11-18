@@ -15,6 +15,7 @@ import {
   compareFlightShows,
   createCheckpoint,
   diffFlight,
+  diffFlightBundle,
   endFlight,
   execInFlight,
   exportFlight,
@@ -333,6 +334,26 @@ test("diffFlight compares the base commit with a checkpoint", () => {
     assert.equal(result.to.label, "after-b");
     assert.match(result.stat, /b\.txt/);
     assert.match(result.patch, /\+two/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("diffFlightBundle reads a checkpoint patch from an exported bundle", () => {
+  const dir = makeRepo();
+  try {
+    startFlight(dir, "bundle-diff");
+    writeFileSync(join(dir, "b.txt"), "two\n", "utf8");
+    createCheckpoint(dir, "after-b");
+    endFlight(dir);
+    const bundlePath = join(dir, "bundle.json");
+    writeFileSync(bundlePath, JSON.stringify(exportFlight(dir)), "utf8");
+
+    const result = diffFlightBundle(bundlePath, "after-b");
+    assert.equal(result.label, "after-b");
+    assert.ok(result.base.length > 0);
+    assert.match(result.patch, /b\.txt/);
+    assert.throws(() => diffFlightBundle(bundlePath, "missing"), /Чекпоинт не найден/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

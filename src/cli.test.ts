@@ -1869,6 +1869,15 @@ test("flight records checkpoints, status, verify and end", () => {
     const grepFromBundle = JSON.parse(grepBundle.stdout) as { total: number };
     assert.ok(grepFromBundle.total >= 1);
 
+    const bundleDiff = runCli(
+      ["flight", "diff", "--bundle", "bundle.json", "--to", "after-b", "--json"],
+      dir,
+    );
+    assert.equal(bundleDiff.status, 0, bundleDiff.stderr);
+    const bundlePatch = JSON.parse(bundleDiff.stdout) as { label: string; patch: string };
+    assert.equal(bundlePatch.label, "after-b");
+    assert.match(bundlePatch.patch, /b\.txt/);
+
     const bundleText = readFileSync(join(dir, "bundle.json"), "utf8");
     writeFileSync(
       join(dir, "bundle-bad.json"),

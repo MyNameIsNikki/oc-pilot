@@ -1351,6 +1351,38 @@ export function renderFlightBisect(result) {
     }
     return lines.join("\n");
 }
+export function diffFlightBundle(file, ref) {
+    const bundle = loadFlightBundle(file);
+    if (bundle.checkpoints.length === 0) {
+        throw new PilotError("В bundle нет чекпоинтов.", {
+            hint: "Сделайте чекпоинт в полёте и экспортируйте его заново.",
+            exitCode: 2,
+        });
+    }
+    const wanted = ref?.trim();
+    const checkpoint = wanted
+        ? bundle.checkpoints.find((item) => item.label === wanted || item.commit.startsWith(wanted))
+        : bundle.checkpoints.at(-1);
+    if (!checkpoint) {
+        const labels = bundle.checkpoints.map((item) => item.label ?? item.commit.slice(0, 12));
+        throw new PilotError(`Чекпоинт не найден: ${wanted}.`, {
+            hint: `Доступно: ${labels.join(", ")}.`,
+            exitCode: 2,
+        });
+    }
+    return {
+        id: bundle.meta.id,
+        base: bundle.meta.baseCommit ?? "HEAD",
+        label: checkpoint.label ?? checkpoint.commit.slice(0, 12),
+        commit: checkpoint.commit,
+        patch: checkpoint.patch,
+    };
+}
+export function renderFlightBundleDiff(result) {
+    return [`[FLIGHT BUNDLE DIFF] ${result.base}..${result.label}`, result.patch]
+        .filter((line) => line.length > 0)
+        .join("\n");
+}
 export function renderFlightDiff(result) {
     return [`[FLIGHT DIFF] ${result.from.label}..${result.to.label}`, result.stat, result.patch]
         .filter((part) => part.length > 0)

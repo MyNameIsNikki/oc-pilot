@@ -1658,6 +1658,10 @@ const TOOLS = [
                 id: { type: "string", description: "Flight session id; defaults to the active flight" },
                 from: { type: "string", description: "Checkpoint label or commit; defaults to the base commit" },
                 to: { type: "string", description: "Checkpoint label or commit; defaults to the latest checkpoint" },
+                bundle: {
+                    type: "string",
+                    description: "Read a checkpoint patch from an exported bundle instead of the journal",
+                },
                 ...RESULT_PROPERTIES,
             },
         },
@@ -4630,6 +4634,9 @@ async function callFlightDiff(input, cwd) {
     const to = stringArg(input, "to");
     if (to)
         args.push("--to", to);
+    const bundle = stringArg(input, "bundle");
+    if (bundle)
+        args.push("--bundle", bundle);
     return toToolResult(await runCli(args, cwd));
 }
 async function callFlightCompare(input, cwd) {
