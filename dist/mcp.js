@@ -1648,6 +1648,23 @@ const TOOLS = [
         },
     },
     {
+        name: "flight_prove",
+        description: "Prove a claim by running a check at the flight base commit, every checkpoint and the current tree. Needs --allow-write.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["claim", "command"],
+            properties: {
+                claim: { type: "string", description: "What must be true, e.g. expired token returns 401" },
+                id: { type: "string", description: "Flight session id; defaults to the latest flight" },
+                command: { type: "array", description: "Command argv, e.g. [\"npm\",\"test\"]", items: { type: "string" } },
+                timeout: { type: "integer", minimum: 100, maximum: 600000 },
+                ...RESULT_PROPERTIES,
+            },
+        },
+    },
+    {
         name: "flight_diff",
         description: "Compare the flight base commit or two checkpoints and return git diff stat and patch.",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -4623,6 +4640,19 @@ async function callFlightBisect(input, cwd) {
     args.push("--", ...command);
     return toToolResult(await runCli(args, cwd));
 }
+async function callFlightProve(input, cwd) {
+    const claim = stringArg(input, "claim", true);
+    const command = stringArrayArg(input, "command", true);
+    const args = ["flight", "prove", "--claim", claim, "--json"];
+    const id = stringArg(input, "id");
+    if (id)
+        args.push("--id", id);
+    const timeout = integerArg(input, "timeout");
+    if (timeout !== undefined)
+        args.push("--timeout", String(timeout));
+    args.push("--", ...command);
+    return toToolResult(await runCli(args, cwd));
+}
 async function callFlightDiff(input, cwd) {
     const args = ["flight", "diff", "--json"];
     const id = stringArg(input, "id");
@@ -5117,7 +5147,7 @@ async function dispatchTool(name, input, cwd, readOnly) {
             throw new ToolInputError("scan_injection fix writes files and is disabled in read-only mode; start the MCP server with --allow-write");
         }
         if (name.startsWith("flight_") &&
-            ["flight_start", "flight_exec", "flight_note", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_delete", "flight_prune", "flight_restore", "flight_export"].includes(name)) {
+            ["flight_start", "flight_exec", "flight_note", "flight_checkpoint", "flight_end", "flight_replay", "flight_bisect", "flight_prove", "flight_delete", "flight_prune", "flight_restore", "flight_export"].includes(name)) {
             throw new ToolInputError("flight write actions are disabled in read-only mode; start the MCP server with --allow-write");
         }
     }
@@ -5272,6 +5302,8 @@ async function dispatchTool(name, input, cwd, readOnly) {
             return callFlightReplay(input, cwd);
         case "flight_bisect":
             return callFlightBisect(input, cwd);
+        case "flight_prove":
+            return callFlightProve(input, cwd);
         case "flight_diff":
             return callFlightDiff(input, cwd);
         case "flight_compare":
@@ -5424,6 +5456,11 @@ function summarizeResult(value) {
     }
     if (typeof value.id === "string" && typeof value.label === "string" && typeof value.commit === "string" && typeof value.path === "string") {
         return `oc-pilot: flight replay ${value.id} ${value.label}`;
+    }
+    if (typeof value.claim === "string" &&
+        typeof value.verdict === "string" &&
+        Array.isArray(value.steps)) {
+        return `oc-pilot: flight prove ${value.verdict}`;
     }
     if (typeof value.id === "string" && Array.isArray(value.command) && Array.isArray(value.steps)) {
         const first = value.firstBad && typeof value.firstBad === "object"

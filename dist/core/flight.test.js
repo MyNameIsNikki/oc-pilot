@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { deleteFlight, activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, diffFlightBundle, endFlight, execInFlight, exportFlight, filterFlightEvents, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlightBundle, grepFlights, listFlights, pruneFlights, renderFlightDelete, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
+import { deleteFlight, activeFlight, appendFlightEvent, addFlightNote, auditFlights, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, diffFlightBundle, endFlight, execInFlight, exportFlight, filterFlightEvents, flightStats, flightStatus, loadFlightBundle, flightShowFromBundle, generateFlightKey, grepFlightBundle, grepFlights, listFlights, proveClaim, pruneFlights, renderFlightProof, renderFlightDelete, readFlightEvents, renderFlightCompareHtml, renderFlightHtml, renderFlightAudit, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "./flight.js";
 function git(args, cwd) {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -166,6 +166,35 @@ test("readFlightEvents rejects malformed JSONL", () => {
         const session = startFlight(dir, "broken");
         writeFileSync(join(session.dir, "events.jsonl"), "{not json}\n", "utf8");
         assert.throws(() => readFlightEvents(session.dir), /Повреждён журнал/);
+    }
+    finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+test("proveClaim finds the fail-to-pass transition", () => {
+    const dir = makeRepo();
+    try {
+        const command = [
+            process.execPath,
+            "-e",
+            "process.exit(require('fs').readFileSync('proof.txt','utf8').includes('ok')?0:1)",
+        ];
+        startFlight(dir, "prove");
+        writeFileSync(join(dir, "proof.txt"), "ok\n", "utf8");
+        createCheckpoint(dir, "proof-ok");
+        endFlight(dir);
+        const proven = proveClaim(dir, "proof.txt is ok", command);
+        assert.equal(proven.verdict, "proven");
+        assert.equal(proven.steps[0]?.ok, false);
+        assert.equal(proven.steps.at(-1)?.ok, true);
+        assert.ok(proven.transition);
+        assert.match(renderFlightProof(proven), /FLIGHT PROVE/);
+        const rejected = proveClaim(dir, "always true", [
+            process.execPath,
+            "-e",
+            "process.exit(0)",
+        ]);
+        assert.equal(rejected.verdict, "rejected");
     }
     finally {
         rmSync(dir, { recursive: true, force: true });

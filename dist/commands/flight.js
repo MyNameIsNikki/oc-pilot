@@ -1,5 +1,5 @@
 import { PilotError } from "../core/errors.js";
-import { auditFlights, addFlightNote, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, diffFlightBundle, deleteFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, filterFlightEvents, generateFlightKey, grepFlightBundle, grepFlights, listFlights, loadFlightBundle, pruneFlights, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDelete, renderFlightBundleDiff, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightGrep, renderFlightList, renderFlightPrune, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "../core/flight.js";
+import { auditFlights, addFlightNote, bisectFlight, compareFlights, compareFlightShows, createCheckpoint, diffFlight, diffFlightBundle, deleteFlight, endFlight, execInFlight, exportFlight, flightShowFromBundle, flightStats, flightStatus, filterFlightEvents, generateFlightKey, grepFlightBundle, grepFlights, listFlights, loadFlightBundle, pruneFlights, proveClaim, renderFlightAudit, renderFlightBisect, renderFlightBundleVerify, renderFlightCheckpoint, renderFlightCompare, renderFlightCompareHtml, renderFlightDelete, renderFlightBundleDiff, renderFlightDiff, renderFlightEnd, renderFlightExec, renderFlightExport, renderFlightHtml, renderFlightGrep, renderFlightList, renderFlightPrune, renderFlightProof, renderFlightReplay, renderFlightRestore, renderFlightShow, renderFlightStart, renderFlightStats, renderFlightStatsHtml, renderFlightSummary, renderFlightStatus, renderFlightVerify, replayFlight, restoreFlight, showFlight, signFlightBundle, startFlight, verifyFlightBundle, verifyFlightEvents, } from "../core/flight.js";
 import { writeOutput, writeSecretOutput } from "../core/io.js";
 import { log } from "../core/log.js";
 import { COMMON_HELP, parseCommandArgs, resolveContext, withCommon, } from "../core/options.js";
@@ -18,6 +18,7 @@ const OPTIONS = withCommon({
     "dry-run": { type: "boolean" },
     force: { type: "boolean" },
     all: { type: "boolean" },
+    claim: { type: "string" },
     key: { type: "string" },
     bundle: { type: "string" },
     bundles: { type: "boolean" },
@@ -42,6 +43,7 @@ const HELP = `Использование:
   oc-pilot flight restore <метка|commit> [--id <id>] [--force] [--dry-run]
   oc-pilot flight replay [--to <метка|commit>] [--id <id>] [--path <путь>]
   oc-pilot flight bisect [--id <id>] [--timeout <мс>] -- <команда...>
+  oc-pilot flight prove --claim <текст> [--id <id>] [--timeout <мс>] -- <команда...>
   oc-pilot flight diff [--from <метка|commit>] [--to <метка|commit>] [--id <id>] [--bundle <файл>]
   oc-pilot flight compare <id-a> <id-b> [--bundles] [--html]
   oc-pilot flight summary [--id <id>] [--bundle <файл>] [--output <файл>]
@@ -57,7 +59,8 @@ const HELP = `Использование:
 Опции:
       --name <имя>          имя полёта для start
       --label <метка>       метка чекпоинта (уникальная в полёте)
-      --timeout <мс>        таймаут команды для exec/bisect (по умолчанию 600000)
+      --claim <текст>       утверждение для prove: что именно должно быть верно
+      --timeout <мс>        таймаут команды для exec/bisect/prove (по умолчанию 600000)
       --id <id>             идентификатор полёта
       --with <id>           второй полёт для compare
       --keep <n>            сколько последних полётов оставить при prune (по умолчанию 20)
@@ -94,6 +97,7 @@ ${COMMON_HELP}
   oc-pilot flight checkpoint --label "tests green"
   oc-pilot flight restore "tests green"
   oc-pilot flight replay --to "tests green"
+  oc-pilot flight prove --claim "протухший токен даёт 401" -- npm test -- auth
   oc-pilot flight bisect -- node --test
   oc-pilot flight diff --from base --to "tests green"
   oc-pilot flight diff --bundle flight.json --to after-fix
@@ -283,6 +287,17 @@ export function runFlight(argv) {
         flightOutput(json ? JSON.stringify(result, null, 2) : renderFlightReplay(result));
         log.success(`Replay: ${result.path}`);
         return 0;
+    }
+    if (action === "prove") {
+        const command = explicitCommand ?? positionals.slice(1);
+        if (command.length === 0) {
+            throw new PilotError("Не указана проверка для prove.", {
+                hint: 'Используйте: oc-pilot flight prove --claim "что верно" -- <команда...>.',
+            });
+        }
+        const result = proveClaim(ctx.cwd, asString(values, "claim") ?? "", command, asString(values, "id"), timeoutOf(values));
+        flightOutput(json ? JSON.stringify(result, null, 2) : renderFlightProof(result));
+        return result.verdict === "proven" ? 0 : 2;
     }
     if (action === "bisect") {
         const command = explicitCommand ?? positionals.slice(1);

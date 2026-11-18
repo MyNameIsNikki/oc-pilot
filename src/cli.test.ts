@@ -1883,6 +1883,27 @@ test("flight records checkpoints, status, verify and end", () => {
     assert.equal(bundlePatch.label, "after-b");
     assert.match(bundlePatch.patch, /b\.txt/);
 
+    const prove = runCli(
+      [
+        "flight",
+        "prove",
+        "--claim",
+        "b.txt is two",
+        "--id",
+        started.session.meta.id,
+        "--json",
+        "--",
+        process.execPath,
+        "-e",
+        "process.exit(require('fs').readFileSync('b.txt','utf8').includes('two')?0:1)",
+      ],
+      dir,
+    );
+    assert.equal(prove.status, 0, prove.stderr);
+    const proof = JSON.parse(prove.stdout) as { verdict: string; steps: unknown[] };
+    assert.equal(proof.verdict, "proven");
+    assert.ok(proof.steps.length >= 2);
+
     const bundleText = readFileSync(join(dir, "bundle.json"), "utf8");
     writeFileSync(
       join(dir, "bundle-bad.json"),

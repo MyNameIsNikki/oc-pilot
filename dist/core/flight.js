@@ -1019,6 +1019,95 @@ export function restoreFlight(cwd, ref, id, force = false, dryRun = false) {
         files,
     };
 }
+function runProofCommand(dir, command, timeoutMs) {
+    const result = spawnSync(command[0], command.slice(1), {
+        cwd: dir,
+        encoding: "utf8",
+        timeout: timeoutMs,
+        maxBuffer: 32 * 1024 * 1024,
+        windowsHide: true,
+    });
+    const timedOut = result.signal === "SIGTERM" ||
+        result.error?.code === "ETIMEDOUT";
+    return { ok: !timedOut && result.status === 0, exitCode: result.status, timedOut };
+}
+function withProofWorktree(cwd, commit, run) {
+    const target = join(tmpdir(), `oc-pilot-proof-${randomBytes(4).toString("hex")}`);
+    const added = runGit(["worktree", "add", "--detach", target, commit], cwd);
+    if (added.status !== 0) {
+        throw new PilotError(`Не удалось подготовить worktree для ${commit.slice(0, 12)}: ${added.stderr.trim() || "git worktree add failed"}.`, { exitCode: 2 });
+    }
+    try {
+        return run(target);
+    }
+    finally {
+        runGit(["worktree", "remove", "--force", target], cwd);
+        rmSync(target, { recursive: true, force: true });
+    }
+}
+export function proveClaim(cwd, claim, command, id, timeoutMs = 600_000) {
+    const text = claim.trim();
+    if (text.length === 0) {
+        throw new PilotError("Пустое утверждение для prove.", {
+            hint: "Передайте --claim \"что должно быть верно\".",
+            exitCode: 2,
+        });
+    }
+    if (command.length === 0) {
+        throw new PilotError("Не указана проверка для prove.", {
+            hint: "Передайте команду после --: oc-pilot prove --claim \"...\" -- npm test.",
+            exitCode: 2,
+        });
+    }
+    const show = showFlight(cwd, resolveFlightId(cwd, id));
+    const base = show.meta.baseCommit ?? "HEAD";
+    const steps = [];
+    const errors = [];
+    const baseRun = withProofWorktree(cwd, base, (dir) => runProofCommand(dir, command, timeoutMs));
+    steps.push({ ref: "base", commit: base, ...baseRun });
+    for (const checkpoint of flightCheckpoints(show)) {
+        const label = checkpoint.label ?? checkpoint.commit.slice(0, 12);
+        const run = withProofWorktree(cwd, checkpoint.commit, (dir) => runProofCommand(dir, command, timeoutMs));
+        steps.push({ ref: label, commit: checkpoint.commit, ...run });
+    }
+    const headRun = runProofCommand(cwd, command, timeoutMs);
+    steps.push({ ref: "head", commit: "HEAD", ...headRun });
+    const firstOk = steps.findIndex((step) => step.ok);
+    const transition = firstOk > 0 ? { from: steps[firstOk - 1]?.ref ?? "base", to: steps[firstOk]?.ref ?? "head" } : undefined;
+    let verdict;
+    if (steps[0]?.ok) {
+        verdict = "rejected";
+        errors.push("Проверка проходит уже на базовом коммите: она не воспроизводит проблему.");
+    }
+    else if (!steps.at(-1)?.ok) {
+        const wasGreen = steps.some((step) => step.ok);
+        verdict = wasGreen ? "regressed" : "unproven";
+        errors.push(wasGreen
+            ? "Проверка была зелёной, но на итоговом дереве снова красная."
+            : "Проверка ни разу не стала зелёной.");
+    }
+    else {
+        verdict = "proven";
+    }
+    return { id: show.meta.id, claim: text, command, verdict, steps, transition, errors };
+}
+export function renderFlightProof(result) {
+    const lines = [
+        `[FLIGHT PROVE] ${result.verdict.toUpperCase()}: ${result.claim}`,
+        `Проверка: ${result.command.join(" ")}`,
+    ];
+    if (result.transition) {
+        lines.push(`Переход: ${result.transition.from} → ${result.transition.to}`);
+    }
+    lines.push("Шаги:");
+    for (const step of result.steps) {
+        lines.push(`  ${step.ok ? "ok" : "fail"} ${step.ref} (${step.commit.slice(0, 12)}) код ${step.exitCode ?? "?"}`);
+    }
+    if (result.errors.length > 0) {
+        lines.push("", ...result.errors.map((error) => `! ${error}`));
+    }
+    return lines.join("\n");
+}
 export function bisectFlight(cwd, id, command, timeoutMs = 600_000) {
     if (command.length === 0) {
         throw new PilotError("Не указана команда для bisect.", {
