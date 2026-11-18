@@ -2054,6 +2054,19 @@ test("flight output resolves relative to --cwd", () => {
   }
 });
 
+test("demo proves the claim end to end", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-demo-"));
+  try {
+    const result = runCli(["demo", "--json"], dir);
+    assert.equal(result.status, 0, result.stderr);
+    const proof = JSON.parse(result.stdout) as { verdict: string; steps: unknown[] };
+    assert.equal(proof.verdict, "proven");
+    assert.ok(proof.steps.length >= 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("flight keygen writes a 64-hex key", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-pilot-cli-keygen-"));
   try {

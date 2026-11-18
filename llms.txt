@@ -65,3 +65,4 @@ oc-pilot setup --all
 - npm: https://www.npmjs.com/package/oc-pilot
 - Changelog: https://github.com/MyNameIsNikki/oc-pilot/blob/main/CHANGELOG.md
 - Integrations: https://github.com/MyNameIsNikki/oc-pilot/blob/main/docs/integrations.md
+npx oc-pilot demo - 20-second proof in a throwaway repo: flight, checkpoint, and a proven fail-to-pass claim.

@@ -72,6 +72,7 @@ import { runClairvoyant } from "./commands/clairvoyant.js";
 import { runHemorrhageCommand } from "./commands/hemorrhage.js";
 import { runCuckooCommand } from "./commands/cuckoo.js";
 import { runChronos } from "./commands/chronos.js";
+import { runDemo } from "./commands/demo.js";
 import { runFlight } from "./commands/flight.js";
 import { runBeacon } from "./commands/beacon.js";
 import { runQuarantine } from "./commands/quarantine.js";
@@ -174,6 +175,7 @@ const HANDLERS: Record<string, Handler> = {
   setup: runSetup,
   doctor: runDoctor,
   mcp: runMcp,
+  demo: runDemo,
   init: runInit,
 };
 
@@ -184,6 +186,7 @@ const HELP = `oc-pilot ${VERSION} — AI-ревью, разбор тестов �
 
 Команды:
   review      Ревью git-diff: баги, уязвимости, идиомы языка
+  demo        Демо за 20 секунд: полёт, чекпоинт и доказательство claim
   test-fix    Разбор падения тестов и минимальный фикс
   test-gen    Сгенерировать тесты на изменённый код и оставить только зелёные
   test-guard  Найти ослабление тестов: skip, удалённые проверки, матчеры

@@ -51,11 +51,14 @@ oc-pilot battle "fix the retry logic" --apply --shadow --rounds 3
 ## Быстрый старт
 
 ```bash
+npx oc-pilot demo
 npm install -g oc-pilot
 oc-pilot setup --all
 oc-pilot doctor
 oc-pilot scan
 ```
+
+`demo` прогоняет доказательство за 20 секунд во временном репозитории: запускает полёт, записывает чекпоинт, который чинит проверку, и доказывает claim по переходу fail-to-pass. Ни настройки, ни модель не нужны.
 
 `setup --all` пишет нативные MCP-конфиги для всех поддерживаемых клиентов и сохраняет существующие настройки. `doctor` проверяет установку, credentials движка, обнаружение тестов и MCP-подключение. `scan` читает текущий diff; на чистом дереве используйте `oc-pilot scan --staged` или `oc-pilot scan --base origin/main`.
 
@@ -988,7 +991,7 @@ ZCode импортирует серверы из Claude Code, Codex, OpenCode и
 ```bash
 oc-pilot-mcp --cwd "C:\path\to\project"
 # версия зафиксирована для воспроизводимости:
-npx -y oc-pilot@0.158.0 mcp --cwd "C:\path\to\project"
+npx -y oc-pilot@0.159.0 mcp --cwd "C:\path\to\project"
 ```
 
 Пример для Claude Code (`.mcp.json`):
@@ -1060,7 +1063,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: MyNameIsNikki/oc-pilot@v0.158.0
+      - uses: MyNameIsNikki/oc-pilot@v0.159.0
         with:
           command: scan
           args: --base origin/${{ github.base_ref }} --fail-on-secrets
