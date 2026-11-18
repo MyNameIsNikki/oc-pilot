@@ -76,6 +76,10 @@ export function runDemo(argv) {
             process.stdout.write(proof.verdict === "proven"
                 ? "\nPROVEN: the claim is backed by a fail-to-pass transition.\n"
                 : "\nThe demo did not prove the claim, which means something is wrong in oc-pilot.\n");
+            process.stdout.write("\nNext:\n" +
+                "  oc-pilot prove --claim \"...\" -- <command>   prove a claim in your own repo\n" +
+                "  oc-pilot flight start --name \"fix auth\"     record a flight you can replay\n" +
+                "  oc-pilot setup --all                        wire MCP for your agents\n");
         }
         return proof.verdict === "proven" ? 0 : 2;
     }
