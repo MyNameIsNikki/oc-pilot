@@ -1105,6 +1105,7 @@ function compareSide(show) {
         endedAt,
         durationMs,
         events: events.length,
+        notes: events.filter((event) => event.kind === "note").length,
         commands: events.filter((event) => event.kind === "command.start").length,
         checkpoints: checkpoints.length,
         failedCommands,
@@ -1346,6 +1347,7 @@ export function renderFlightCompareHtml(result) {
 <span class="badge ${value.valid ? "ok" : "bad"}">${value.valid ? "chain valid" : "chain tampered"}</span>
 <dl>
 <div><dt>Events</dt><dd>${value.events}</dd></div>
+<div><dt>Notes</dt><dd>${value.notes}</dd></div>
 <div><dt>Commands</dt><dd>${value.commands}</dd></div>
 <div><dt>Checkpoints</dt><dd>${value.checkpoints}</dd></div>
 <div><dt>Failed commands</dt><dd>${value.failedCommands}</dd></div>
@@ -1581,7 +1583,7 @@ ${errors}
 </html>`;
 }
 export function renderFlightCompare(result) {
-    const side = (label, value) => `${label}: ${value.name} (${value.id}) — событий ${value.events}, команд ${value.commands}, ` +
+    const side = (label, value) => `${label}: ${value.name} (${value.id}) - событий ${value.events}, заметок ${value.notes}, команд ${value.commands}, ` +
         `чекпоинтов ${value.checkpoints}, ошибок ${value.failedCommands}, ${value.durationMs} мс, ` +
         `цепочка ${value.valid ? "валидна" : "повреждена"}`;
     const lines = [

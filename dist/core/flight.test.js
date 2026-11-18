@@ -391,6 +391,7 @@ test("renderFlightCompareHtml escapes names and shows differences", () => {
         endedAt: "2026-01-01T00:00:01.000Z",
         durationMs: 1000,
         events: 2,
+        notes: 1,
         commands: 1,
         checkpoints: 1,
         failedCommands: 0,
@@ -410,6 +411,7 @@ test("renderFlightCompareHtml escapes names and shows differences", () => {
     assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
     assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
     assert.match(html, /Exit code differences/);
+    assert.match(html, /Notes/);
     assert.match(html, /different tree/);
 });
 test("compareFlights reports command differences and final tree equality", () => {
@@ -422,6 +424,7 @@ test("compareFlights reports command differences and final tree equality", () =>
         ];
         const first = startFlight(dir, "first");
         execInFlight(dir, command, { quiet: true });
+        addFlightNote(dir, "first note");
         createCheckpoint(dir, "first-green");
         endFlight(dir);
         writeFileSync(join(dir, "a.txt"), "bad\n", "utf8");
@@ -432,6 +435,8 @@ test("compareFlights reports command differences and final tree equality", () =>
         const result = compareFlights(dir, first.meta.id, second.meta.id);
         assert.equal(result.a.commands, 1);
         assert.equal(result.b.commands, 1);
+        assert.equal(result.a.notes, 1);
+        assert.equal(result.b.notes, 0);
         assert.equal(result.a.checkpoints, 1);
         assert.equal(result.b.checkpoints, 1);
         assert.equal(result.a.failedCommands, 0);
